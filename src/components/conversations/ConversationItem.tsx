@@ -63,7 +63,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
         relative p-3 rounded-xl cursor-pointer transition-all duration-300
         mx-2
         ${isSelected 
-          ? 'bg-[#AE7F53]/10 shadow-md border border-[#AE7F53]/20' 
+          ? 'bg-[#AE7F53]/10 shadow-md ' 
           : 'hover:bg-gray-50 hover:shadow-sm'
         }
         ${isHovered ? 'shadow-lg' : ''}

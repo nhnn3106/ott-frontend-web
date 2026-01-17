@@ -75,6 +75,7 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
             key={item.id}
             onClick={() => onItemClick?.(item.id)}
             className={`
+                cursor-pointer 
               relative p-3 rounded-xl transition-all duration-200 group
               ${item.isActive 
                 ? 'bg-[#AE7F53] text-white shadow-md' 
@@ -85,10 +86,7 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
           >
             {item.icon}
             
-            {/* Active indicator */}
-            {item.isActive && (
-              <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 w-1 h-6 bg-[#AE7F53] rounded-l-full" />
-            )}
+           
           </button>
         ))}
       </div>
