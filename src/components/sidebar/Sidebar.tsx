@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, MoreVertical } from 'lucide-react';
+import { Plus, MoreVertical } from 'lucide-react';
+import SearchBar from '../common/SearchBar';
 import ConversationList from '../conversations/ConversationList';
 import LoadingSkeleton from '../common/LoadingSkeleton';
 import ErrorState from '../common/ErrorState';
-import CreateGroupModal from '../modals/CreateGroupModal';
-import { ChatService } from '../../services/chatService';
+import CreateGroupModal from '../modals/group/CreateGroupModal';
+import { UserService } from '../../services/user.service';
+import { ConversationService } from '../../services/conversation.service';
 import type { Conversation, User } from '../../types';
 import type { SidebarProps } from '../../interfaces';
 
@@ -26,21 +28,23 @@ const Sidebar: React.FC<SidebarProps> = ({
       setLoading(true);
       setError(null);
       
-      // Load all users and conversations from database via API
-      const users = await ChatService.getAllUsers();
+      // Load all users from database
+      const users = await UserService.getAllUsers();
       
-      // Set first user from database as current user (creator)
+      // Set first user from database as current user
       if (users.length > 0) {
         const firstUser = users[0];
         setCurrentUserId(firstUser._id);
         
+        // Filter out current user from available users list
+        const otherUsers = users.filter(user => user._id !== firstUser._id);
+        setAvailableUsers(otherUsers);
+        
         // Load conversations for first user
-        const conversations = await ChatService.getUserConversations(firstUser._id);
+        const conversations = await ConversationService.getUserConversations(firstUser._id);
         setConversations(conversations);
         setFilteredConversations(conversations);
       }
-      
-      setAvailableUsers(users);
     } catch (error) {
       console.error('Failed to load data from database:', error);
       setError('Không thể tải dữ liệu từ server');
@@ -61,7 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     const filtered = conversations.filter(conversation => {
       const name = getConversationName(conversation);
-      const latestMessage = conversation.latestMessage?.content || '';
+      const latestMessage = conversation.last_message?.content || '';
       
       return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
              latestMessage.toLowerCase().includes(searchTerm.toLowerCase());
@@ -73,30 +77,31 @@ const Sidebar: React.FC<SidebarProps> = ({
   const getConversationName = (conversation: Conversation): string => {
     if (conversation.name) return conversation.name;
     
-    if (conversation.type === 'private' && conversation.participants.length > 0) {
+    if (conversation.type === 'private' && conversation.participants?.length > 0) {
       return conversation.participants[0].display_name;
     }
     
     return 'Conversation';
   };
 
-  const handleCreateGroup = async (groupName: string, selectedUsers: User[]) => {
+  const handleCreateGroup = async (groupName: string, selectedUsers: User[], avatar?: string) => {
     try {
       // Extract user IDs from selected users
       const memberIds = selectedUsers.map(user => user._id);
       
-      // Call API to create group in database
-      const newGroup = await ChatService.createGroup(
+      // Call API to create group in database with full data
+      const newGroup = await ConversationService.createGroup(
         currentUserId,
         groupName,
-        memberIds
+        memberIds,
+        avatar
       );
 
       // Reload conversations from database to get updated list
       await loadConversations();
 
       // Select the new conversation
-      onConversationSelect(newGroup._id);
+      onConversationSelect?.(newGroup);
       
       console.log('Group created successfully in database:', newGroup);
     } catch (error) {
@@ -142,32 +147,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors duration-200 group"
                 title="Tạo nhóm mới"
               >
-                <Plus className="w-5 h-5 text-gray-600 group-hover:text-[#AE7F53] group-hover:scale-110 transition-all" />
+                <Plus className="w-5 h-5 text-gray-600 group-hover:text-primary-500 group-hover:scale-110 transition-all" />
               </button>
               <button
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors duration-200 group"
                 title="Tùy chọn"
               >
-                <MoreVertical className="w-5 h-5 text-gray-600 group-hover:text-[#AE7F53] group-hover:scale-110 transition-all" />
+                <MoreVertical className="w-5 h-5 text-gray-600 group-hover:text-primary-500 group-hover:scale-110 transition-all" />
               </button>
             </div>
           </div>
 
           {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Tìm kiếm cuộc hội thoại..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg
-                       placeholder-gray-500 text-gray-900 text-sm
-                       focus:outline-none focus:ring-2 focus:ring-[#AE7F53]/20 focus:border-[#AE7F53] focus:bg-white
-                       transition-all duration-200"
-              disabled={loading}
-            />
-          </div>
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Tìm kiếm cuộc hội thoại..."
+          />
         </div>
 
         {/* Conversations List */}
