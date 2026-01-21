@@ -15,10 +15,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   };
 
   const getConversationAvatar = (): string | undefined => {
-    if (conversation.avatar_url) return conversation.avatar_url;
+    if (conversation.avatar) return conversation.avatar;
     
     if (conversation.type === 'private' && conversation.participants?.length > 0) {
-      return conversation.participants[0].avatar_url;
+      return conversation.participants[0].avatar;
     }
     
     return undefined;

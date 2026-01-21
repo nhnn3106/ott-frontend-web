@@ -1,22 +1,16 @@
-import type { Participant } from './participant.type';
+import type { ConversationParticipant } from './participant.type';
 
 /**
- * Conversation entity type
- * Represents a chat conversation (private or group)
+ * Conversation entity type from backend
+ * Matches MongoDB Conversation schema exactly
  */
 export interface Conversation {
   _id: string;
-  name?: string;
   type: 'private' | 'group';
-  avatar_url?: string;
-  created_at: string;
-  updated_at: string;
-  participants: Participant[];
-  unread_count?: number;
-  is_pinned?: boolean;
-  is_muted?: boolean;
-  category_id?: string;
-  // Backend field: last_message từ MongoDB
+  name: string;
+  avatar: string;
+  created_by: string;
+  member_count: number;
   last_message?: {
     msg_id: string;
     sender_id: string;
@@ -24,4 +18,20 @@ export interface Conversation {
     type: 'text' | 'image' | 'video' | 'file';
     createdAt: string;
   };
+  is_deleted: boolean;
+  background: string;
+  createdAt: string;
+  updatedAt: string;
+  __v?: number;
+  // Virtual field populated from backend
+  participants?: ConversationParticipant[];
+}
+
+/**
+ * Conversation with participant settings
+ * Combined data from API response
+ */
+export interface ConversationWithParticipant {
+  conversation: Conversation;
+  participant: import('./participant.type').Participant;
 }

@@ -27,7 +27,7 @@ export interface ConversationContextMenuProps {
   position: { x: number; y: number };
   onClose: () => void;
   onPin: () => void;
-  onSelectCategory: (categoryId: string) => void;
+  onSelectCategory: (categoryId: string | null) => void;
   onManageCategories: () => void;
   onMute: (duration: string) => void;
   onDelete: () => void;
@@ -116,7 +116,7 @@ export interface CategorySubmenuProps {
   position: { x: number; y: number };
   categories: Category[];
   currentCategoryId?: string;
-  onSelectCategory: (categoryId: string) => void;
+  onSelectCategory: (categoryId: string | null) => void;
   onManageCategories: () => void;
   onClose: () => void;
   onMouseEnter: () => void;
