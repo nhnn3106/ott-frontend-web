@@ -13,12 +13,13 @@ const ChatPage: React.FC = () => {
 
   return (
     <div className="flex h-full w-full">
+
       {/* Chat Sidebar */}
-      <Sidebar 
+      <Sidebar
         onConversationSelect={handleConversationSelect}
         selectedConversationId={selectedConversation?._id}
+        
       />
-
       {/* Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {selectedConversation ? (
