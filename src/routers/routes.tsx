@@ -7,12 +7,17 @@ import VideoPage from "../pages/VideoPage";
 import NotificationsPage from "../pages/NotificationsPage";
 import SettingsPage from "../pages/SettingsPage";
 import SocialPage from "../pages/SocialPage";
+import UserSelectionPage from "../pages/UserSelectionPage";
 
 /**
  * Application route configuration
  * Centralized route definitions for better maintainability
  */
 export const routes: RouteObject[] = [
+  {
+    path: "/select-user",
+    element: <UserSelectionPage />,
+  },
   {
     path: "/chat",
     element: <ChatPage />,
@@ -51,6 +56,7 @@ export const routes: RouteObject[] = [
  * Route paths constants for type-safe navigation
  */
 export const ROUTE_PATHS = {
+  SELECT_USER: "/select-user",
   CHAT: "/chat",
   CONTACTS: "/contacts",
   SEARCH: "/search",

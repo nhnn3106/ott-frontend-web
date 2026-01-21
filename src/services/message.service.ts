@@ -1,4 +1,5 @@
-const API_BASE_URL = "http://localhost:5000/api";
+// const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "https://abactinal-billy-sportily.ngrok-free.dev/api";
 
 export class MessageService {
   // Send message to database
@@ -13,6 +14,7 @@ export class MessageService {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           conversationId,
@@ -38,6 +40,13 @@ export class MessageService {
     try {
       const response = await fetch(
         `${API_BASE_URL}/messages/${conversationId}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true", // <--- Thêm dòng này
+          },
+        },
       );
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
