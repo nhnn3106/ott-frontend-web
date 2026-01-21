@@ -1,87 +1,242 @@
-import React from 'react';
-import { MessageCircle, Send, Phone, Video, MoreVertical } from 'lucide-react';
-import Avatar from '../common/Avatar';
-import type { ChatAreaProps } from '../../interfaces';
+import React, { useEffect, useState, useRef } from "react";
+import {
+  MessageCircle,
+  Phone,
+  Video,
+  MoreVertical,
+  Image as ImageIcon,
+  Smile,
+  SendHorizonal,
+} from "lucide-react";
+import Avatar from "../common/Avatar";
+import type { ChatAreaProps, Message } from "../../interfaces";
+import { UserService, MessageService } from "../../services";
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
+  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [messageText, setMessageText] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Ref để auto scroll xuống cuối
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  /* ================= LOAD CURRENT USER ================= */
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      try {
+        const users = await UserService.getAllUsers();
+        // Giả lập lấy user đầu tiên là mình (cần logic thực tế từ auth)
+        if (users && users.length > 0) {
+          setCurrentUserId(users[0]._id);
+        }
+      } catch (error) {
+        console.error("Load user failed", error);
+      }
+    };
+    loadCurrentUser();
+  }, []);
+
+  /* ================= LOAD MESSAGES ================= */
+  useEffect(() => {
+    if (!conversation?._id) return;
+
+    const loadMessages = async () => {
+      setLoading(true);
+      try {
+        // Reset message cũ để tránh hiện tin nhắn của hội thoại trước
+        setMessages([]);
+        const data = await MessageService.getMessages(conversation._id);
+        if (Array.isArray(data)) {
+          setMessages(data);
+        }
+      } catch (error) {
+        console.error("Load messages failed", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadMessages();
+  }, [conversation._id]);
+
+  // Scroll xuống dưới cùng khi có tin nhắn mới
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  /* ================= SEND MESSAGE ================= */
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !currentUserId) return;
+
+    try {
+      const newMessage = await MessageService.sendMessage(
+        conversation._id,
+        currentUserId,
+        messageText,
+      );
+
+      setMessages((prev) => [...prev, newMessage]);
+      setMessageText("");
+    } catch (error) {
+      console.error("Send message failed", error);
+    }
+  };
+
+  /* ================= HELPERS ================= */
   const getConversationName = (): string => {
     if (conversation.name) return conversation.name;
-    
-    if (conversation.type === 'private' && conversation.participants?.length > 0) {
+    if (conversation.type === "private" && conversation.participants?.length) {
       return conversation.participants[0].display_name;
     }
-    
-    return 'Conversation';
+    return "Conversation";
   };
 
   const getConversationAvatar = (): string | undefined => {
-    if (conversation.avatar) return conversation.avatar;
-    
-    if (conversation.type === 'private' && conversation.participants?.length > 0) {
-      return conversation.participants[0].avatar;
+    if (conversation.avatar_url) return conversation.avatar_url;
+    if (conversation.type === "private" && conversation.participants?.length) {
+      return conversation.participants[0].avatar_url;
     }
-    
     return undefined;
   };
 
+  /* ================= RENDER ================= */
   return (
-    <div className="flex-1 flex flex-col bg-white">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200 bg-white">
+    // Thay đổi 1: Nền tổng thể màu xám nhạt (#F2F4F7) thay vì trắng
+    <div className="flex-1 flex flex-col bg-[#F2F4F7] h-full">
+      {/* Header: Giữ màu trắng để tách biệt, thêm shadow nhẹ */}
+      <div className="px-6 py-3 bg-white border-b border-gray-100 shadow-sm flex-none z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Avatar 
+          <div className="flex items-center gap-4">
+            <Avatar
               src={getConversationAvatar()}
               name={getConversationName()}
               size={48}
-              className="ring-2 ring-gray-100"
+              className="ring-2 ring-white shadow-sm"
             />
             <div>
-              <h2 className="font-semibold text-gray-900">{getConversationName()}</h2>
-              <p className="text-sm text-gray-500">
-                {conversation.type === 'group' 
-                  ? `${(conversation.participants?.length || 0) + 1} thành viên`
-                  : 'Đang hoạt động'
-                }
-              </p>
+              <h2 className="font-bold text-gray-800 text-lg">
+                {getConversationName()}
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <p className="text-xs text-green-600 font-medium">
+                  Đang hoạt động
+                </p>
+              </div>
             </div>
           </div>
-          
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Phone className="w-5 h-5 text-gray-600" />
+
+          <div className="flex gap-1 text-primary-500">
+            <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+              <Phone size={20} className="text-gray-600" />
             </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Video className="w-5 h-5 text-gray-600" />
+            <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+              <Video size={20} className="text-gray-600" />
             </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <MoreVertical className="w-5 h-5 text-gray-600" />
+            <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+              <MoreVertical size={20} className="text-gray-600" />
             </button>
           </div>
         </div>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 p-4 bg-white overflow-y-auto">
-        <div className="text-center text-gray-500 py-8">
-          <MessageCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-          <p className="text-gray-900">Bắt đầu cuộc trò chuyện với {getConversationName()}</p>
-        </div>
+      <div className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 opacity-60">
+            <MessageCircle size={48} className="mb-2" />
+            <p>Bắt đầu cuộc trò chuyện ngay</p>
+          </div>
+        ) : (
+          messages.map((msg, index) => {
+            // Logic check người gửi
+            const isMe = msg.sender_id === currentUserId;
+
+            return (
+              <div
+                key={msg._id || index}
+                className={`flex w-full ${isMe ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`
+                    px-5 py-3 max-w-[70%] text-[15px] leading-relaxed shadow-sm break-words
+                    ${
+                      isMe
+                        ? /* Thay đổi 2: Style cho tin nhắn của mình (Màu Beige giống ảnh mẫu) */
+                          "bg-[#EFDCCB] text-gray-900 rounded-2xl rounded-tr-sm"
+                        : /* Thay đổi 3: Style cho tin nhắn đối phương (Màu Trắng) */
+                          "bg-white text-gray-900 rounded-2xl rounded-tl-sm border border-gray-100"
+                    }
+                  `}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Message Input */}
-      <div className="p-4 border-t border-gray-200 bg-white">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Nhập tin nhắn..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-          <button className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center gap-2">
-            <Send className="w-4 h-4" />
-            <span>Gửi</span>
+      {/* Input Area */}
+      <div className="p-4 bg-white border-t border-gray-100 flex-none z-20">
+        <div
+          className="
+            flex items-center gap-2 
+            bg-gray-50 
+            px-2 py-1.5 
+            rounded-full 
+            border border-gray-200 
+       
+        "
+        >
+          {/* Icon Ảnh */}
+          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-full transition-colors">
+            <ImageIcon size={20} />
           </button>
+
+          {/* Input chính - Quan trọng: border-none, focus:ring-0 */}
+          <input
+            value={messageText}
+            onChange={(e) => setMessageText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+            placeholder="Nhập tin nhắn..."
+            className="
+                    flex-1 
+                    bg-transparent 
+                    border-none 
+                    focus:ring-0 
+                    outline-none 
+                    text-gray-800 
+                    placeholder-gray-400 
+                    text-sm
+                    h-full
+                "
+          />
+
+          {/* Icon Smile */}
+          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-full transition-colors">
+            <Smile size={20} />
+          </button>
+
+          {/* Nút gửi */}
+          {messageText.trim() ? (
+            <button
+              onClick={handleSendMessage}
+              disabled={!messageText.trim()}
+              className={`
+                    p-2 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#EFDCCB]
+                `}
+            >
+              <SendHorizonal size={20} />
+            </button>
+          ) : (
+            ""
+          )}
         </div>
       </div>
     </div>
