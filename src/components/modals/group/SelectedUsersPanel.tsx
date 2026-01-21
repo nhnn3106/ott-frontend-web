@@ -30,7 +30,7 @@ const SelectedUsersPanel: React.FC<SelectedUsersPanelProps> = ({
                 key={user._id}
                 className="flex items-center gap-3 p-2 bg-white rounded-lg"
               >
-                <Avatar name={user.display_name} src={user.avatar_url} size={32} />
+                <Avatar name={user.display_name || user.name} src={user.avatar} size={32} />
                 <span className="flex-1 text-sm font-medium text-gray-900 truncate">
                   {user.display_name}
                 </span>

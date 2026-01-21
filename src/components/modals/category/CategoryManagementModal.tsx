@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import CategoryItem from './CategoryItem';
 import AddCategoryForm from './AddCategoryForm';
 import { CategoryService } from '../../../services';
+import { useConversations } from '../../../contexts/ConversationsContext';
 import type { Category } from '../../../types';
 import type { CategoryManagementModalProps } from '../../../interfaces';
 
@@ -17,7 +18,7 @@ const CategoryManagementModal: React.FC<CategoryManagementModalProps> = ({
   onClose,
   userId,
 }) => {
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { categories, addCategory, updateCategory: updateCategoryContext, removeCategory } = useConversations();
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState('');
@@ -25,22 +26,6 @@ const CategoryManagementModal: React.FC<CategoryManagementModalProps> = ({
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState(defaultColors[0]);
 
-
-  useEffect(() => {
-    if (isOpen && userId) {
-      console.log('Loading categories for userId:', userId);
-      loadCategories();
-    }
-  }, [isOpen, userId]);
-
-  const loadCategories = async () => {
-    try {
-      const data = await CategoryService.getUserCategories(userId);
-      setCategories(data);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-    }
-  };
 
   const handleAdd = async () => {
     if (!newName.trim()) return;
@@ -53,7 +38,7 @@ const CategoryManagementModal: React.FC<CategoryManagementModalProps> = ({
         order: categories.length,
       });
 
-      setCategories([...categories, newCategory]);
+      addCategory(newCategory); // Update context without reload
       setNewName('');
       setNewColor(defaultColors[0]);
       setIsAdding(false);
@@ -66,12 +51,12 @@ const CategoryManagementModal: React.FC<CategoryManagementModalProps> = ({
     if (!editName.trim()) return;
 
     try {
-      const updated = await CategoryService.updateCategory(categoryId, {
+      await CategoryService.updateCategory(categoryId, {
         name: editName,
         color: editColor,
       });
 
-      setCategories(categories.map(cat => cat._id === categoryId ? updated : cat));
+      updateCategoryContext(categoryId, { name: editName, color: editColor }); // Update context
       setIsEditing(null);
     } catch (error) {
       console.error('Error updating category:', error);
@@ -83,7 +68,7 @@ const CategoryManagementModal: React.FC<CategoryManagementModalProps> = ({
 
     try {
       await CategoryService.deleteCategory(categoryId);
-      setCategories(categories.filter(cat => cat._id !== categoryId));
+      removeCategory(categoryId); // Update context and remove from conversations
     } catch (error) {
       console.error('Error deleting category:', error);
     }
