@@ -1,67 +1,74 @@
-import React, { useState, useEffect } from 'react';
-import { MessageCircle, Users, Clock, Tag } from 'lucide-react';
-import Avatar from '../common/Avatar';
-import { formatTimeAgo } from '../../utils/timeUtils';
-import ConversationContextMenu from '../modals/conversation/ConversationContextMenu';
-import CategoryManagementModal from '../modals/category/CategoryManagementModal';
-import type { ConversationItemProps } from '../../interfaces';
-import { CategoryService, ParticipantService } from '../../services';
-import type { Category } from '../../types';
+import React, { useState, useEffect } from "react";
+import { MessageCircle, Users, Pin } from "lucide-react";
+import Avatar from "../common/Avatar";
+import { formatTimeAgo } from "../../utils/timeUtils";
+import ConversationContextMenu from "../modals/conversation/ConversationContextMenu";
+import CategoryManagementModal from "../modals/category/CategoryManagementModal";
+import type { ConversationItemProps } from "../../interfaces";
+import { ParticipantService } from "../../services";
+import type { Category } from "../../types";
+import { useConversations } from "../../contexts/ConversationsContext";
+import { PiTagSimpleFill } from "react-icons/pi";
+import { FaBellSlash } from "react-icons/fa6";
 
 const ConversationItem: React.FC<ConversationItemProps> = ({
-  conversation,
+  item,
   isSelected = false,
   onClick,
   currentUserId,
 }) => {
+  const { conversation, participant } = item;
+  const { categories, refreshConversations } = useConversations();
   const [isHovered, setIsHovered] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null);
 
   useEffect(() => {
-    if (currentUserId) {
-      loadCategories();
+    // Find and set current category from participant settings
+    if (participant.settings.category_id && categories.length > 0) {
+      const category = categories.find(
+        (cat) => cat._id === participant.settings.category_id,
+      );
+      setCurrentCategory(category || null);
+    } else {
+      setCurrentCategory(null);
     }
-  }, [currentUserId]);
+  }, [participant.settings.category_id, categories]);
 
-  const loadCategories = async () => {
-    if (!currentUserId) return;
-    
-    try {
-      const data = await CategoryService.getUserCategories(currentUserId);
-      setCategories(data);
-      
-      // Find and set current category if exists
-      if (conversation.category_id) {
-        const category = data.find(cat => cat._id === conversation.category_id);
-        setCurrentCategory(category || null);
-      } else {
-        setCurrentCategory(null);
-      }
-    } catch (error) {
-      console.error('Error loading categories:', error);
-    }
-  };
+  // Check if conversation is muted
+  const isMuted = !!(participant.settings.notification_status === 'mute' && 
+                    participant.settings.mute_until && 
+                    new Date(participant.settings.mute_until) > new Date());
 
   const getConversationName = (): string => {
     if (conversation.name) return conversation.name;
-    
-    if (conversation.type === 'private' && conversation.participants?.length > 0) {
+
+    if (
+      conversation.type === "private" &&
+      conversation.participants &&
+      conversation.participants.length > 0
+    ) {
       return conversation.participants[0].display_name;
     }
-    
-    return 'Conversation';
+
+    return "Conversation";
   };
 
   const getConversationAvatar = (): string | undefined => {
     // Ưu tiên avatar của conversation (dùng cho group)
-    if (conversation.avatar_url) return conversation.avatar_url;
+    if (conversation.avatar) return conversation.avatar;
     
     // Với private chat, lấy avatar của người kia
-    if (conversation.type === 'private' && conversation.participants?.length > 0) {
-      return conversation.participants[0].avatar_url;
+    if (
+      conversation.type === "private" &&
+      conversation.participants &&
+      conversation.participants.length > 0
+    ) {
+      return conversation.participants[0].avatar;
     }
     
     return undefined;
@@ -72,14 +79,14 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
     if (conversation.last_message?.content) {
       return conversation.last_message.content;
     }
-    
-    return 'Chưa có tin nhắn';
+
+    return "Chưa có tin nhắn";
   };
 
   const getTimeDisplay = (): string => {
     // Ưu tiên thời gian từ last_message
-    const time = conversation.last_message?.createdAt || 
-                 conversation.created_at;
+    const time =
+      conversation.last_message?.createdAt || conversation.createdAt;
     return formatTimeAgo(time);
   };
 
@@ -92,56 +99,61 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
 
   const handlePin = async () => {
     if (!currentUserId) return;
-    
+
     try {
       await ParticipantService.updatePinStatus(
         conversation._id,
         currentUserId,
-        !conversation.is_pinned
+        !participant.settings.is_pinned,
       );
-      console.log('Pin status updated');
-      // TODO: Refresh conversation list
+
+      // Refresh from API to get updated data from database
+      await refreshConversations(currentUserId);
     } catch (error) {
-      console.error('Error updating pin status:', error);
+      console.error("Error updating pin status:", error);
     }
   };
 
   const handleSelectCategory = async (categoryId: string | null) => {
     if (!currentUserId) return;
-    
+
     try {
       await ParticipantService.updateConversationCategory(
         conversation._id,
         currentUserId,
-        categoryId
+        categoryId,
       );
-      console.log('Category updated');
-      // TODO: Refresh conversation list
+
+      // Refresh from API to get updated data from database
+      await refreshConversations(currentUserId);
     } catch (error) {
-      console.error('Error updating category:', error);
+      console.error("Error updating category:", error);
     }
   };
 
   const handleManageCategories = () => {
     setIsCategoryModalOpen(true);
-    
   };
 
   const handleMute = async (duration: string) => {
     if (!currentUserId) return;
-    
-    let muteUntil: Date | null = null;
-    const status = 'mute';
 
-    if (duration === '1h') {
+    let muteUntil: Date | null = null;
+    let status: 'on' | 'mute' = 'mute';
+
+    // Handle unmute
+    if (duration === 'unmute') {
+      status = 'on';
+      muteUntil = null;
+    } else if (duration === '1h') {
       muteUntil = new Date(Date.now() + 60 * 60 * 1000);
     } else if (duration === '4h') {
       muteUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
-    } else if (duration === '8am') {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(8, 0, 0, 0);
-      muteUntil = tomorrow;
+    } else if (duration === '8h') {
+      muteUntil = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    } else if (duration === 'forever') {
+      // Set a far future date for "forever"
+      muteUntil = new Date('2099-12-31');
     }
 
     try {
@@ -149,18 +161,19 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
         conversation._id,
         currentUserId,
         status,
-        muteUntil
+        muteUntil,
       );
-      console.log('Notification status updated');
-      // TODO: Refresh conversation list
+      
+      // Refresh from API to get updated data from database
+      await refreshConversations(currentUserId);
     } catch (error) {
-      console.error('Error updating notification:', error);
+      console.error("Error updating notification:", error);
     }
   };
 
   const handleDelete = () => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa cuộc hội thoại này?')) {
-      console.log('Delete conversation:', conversation._id);
+    if (window.confirm("Bạn có chắc chắn muốn xóa cuộc hội thoại này?")) {
+      console.log("Delete conversation:", conversation._id);
       // TODO: Implement delete logic
     }
   };
@@ -170,12 +183,13 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       <div
         className={`
           relative p-3 rounded-xl cursor-pointer transition-all duration-300
-          mx-2
-          ${isSelected 
-            ? 'bg-primary-500/10 shadow-md ' 
-            : 'hover:bg-gray-50 hover:shadow-sm'
+          mx-2 
+          ${
+            isSelected
+              ? "bg-primary-500/10 shadow-md "
+              : "hover:bg-gray-50 hover:shadow-sm"
           }
-          ${isHovered ? 'shadow-lg' : ''}
+          ${isHovered ? "shadow-lg" : ""}
         `}
         onClick={onClick}
         onContextMenu={handleContextMenu}
@@ -188,113 +202,112 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
         )}
 
         <div className="flex items-center space-x-3">
-        {/* Avatar */}
-        <div className="relative">
-          <Avatar 
-            src={getConversationAvatar()}
-            name={getConversationName()}
-            size={48}
-            className="ring-1 ring-gray-200"
-          />
-          
-          {/* Conversation type indicator */}
-          <div className={`
+          {/* Avatar */}
+          <div className="relative">
+            <Avatar
+              src={getConversationAvatar()}
+              name={getConversationName()}
+              size={48}
+              className="ring-1 ring-gray-200"
+            />
+
+            {/* Conversation type indicator */}
+            <div
+              className={`
             absolute -bottom-1 -right-1 w-5 h-5 rounded-full 
             flex items-center justify-center bg-white
             ring-2 ring-gray-100 shadow-sm
-          `}>
-            {conversation.type === 'group' ? (
-              <Users className="w-3 h-3 text-primary-500" />
-            ) : (
-              <MessageCircle className="w-3 h-3 text-primary-500" />
-            )}
-          </div>
-
-          {/* Online status indicator for private chats */}
-          {conversation.type === 'private' && conversation.participants[0]?.status === 'online' && (
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full ring-2 ring-white shadow-sm" />
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className={`
-              font-semibold truncate transition-colors duration-200
-              ${isSelected ? 'text-primary-500' : 'text-gray-900'}
-              ${isHovered ? 'text-primary-500' : ''}
-            `}>
-              {getConversationName()}
-            </h3>
-            
-            <div className="flex items-center space-x-1 ml-2">
-              <Clock className="w-3 h-3 text-gray-400" />
-              <span className="text-xs text-gray-400 whitespace-nowrap">
-                {getTimeDisplay()}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <p className={`
-                text-sm truncate transition-colors duration-200
-                ${isSelected ? 'text-gray-700' : 'text-gray-600'}
-                ${isHovered ? 'text-gray-700' : ''}
-              `}>
-                {getLatestMessagePreview()}
-              </p>
-              
-              {/* Category badge */}
-              {currentCategory && (
-                <div 
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium shrink-0"
-                  style={{ 
-                    backgroundColor: `${currentCategory.color}20`,
-                    color: currentCategory.color 
-                  }}
-                >
-                  <Tag className="w-3 h-3" />
-                  <span className="max-w-[60px] truncate">{currentCategory.name}</span>
-                </div>
+          `}
+            >
+              {conversation.type === "group" ? (
+                <Users className="w-3 h-3 text-primary-500" />
+              ) : (
+                <MessageCircle className="w-3 h-3 text-primary-500" />
               )}
             </div>
 
-            {/* Unread badge */}
-            {hasUnreadMessage && (
-              <div className="ml-2 w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
-            )}
+            {/* Online status indicator for private chats */}
+            {conversation.type === "private" &&
+              conversation.participants?.[0]?.status === "online" && (
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full ring-2 ring-white shadow-sm" />
+              )}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <h3
+                  className={`
+                font-semibold truncate transition-colors duration-200 select-none
+                ${isSelected ? "text-primary-500" : "text-gray-900"}
+                ${isHovered ? "text-primary-500" : ""}
+              `}
+                >
+                  {getConversationName()}
+                </h3>
+                {participant.settings.is_pinned && (
+                  <Pin className="w-3 h-3 text-gray-400 shrink-0" />
+                )}
+              </div>
+
+              <div className="flex items-center space-x-1 ml-2">
+                {isMuted && (
+                  <FaBellSlash  className="w-4 h-4 text-gray-400" />
+                )}
+                <span className="text-xs text-gray-400 whitespace-nowrap select-none">
+                  {getTimeDisplay()}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* Category tag - before message */}
+              {currentCategory && (
+                <PiTagSimpleFill
+                  className="shrink-0"
+                  color={currentCategory.color}
+                />
+              )}
+
+              <p className="text-sm text-gray-600 truncate flex-1 select-none">
+                {getLatestMessagePreview()}
+              </p>
+
+              {/* Unread badge */}
+              {hasUnreadMessage && (
+                <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse shrink-0" />
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    {/* Context Menu */}
-    <ConversationContextMenu
-      isOpen={contextMenu !== null}
-      position={contextMenu || { x: 0, y: 0 }}
-      onClose={() => setContextMenu(null)}
-      onPin={handlePin}
-      onSelectCategory={handleSelectCategory}
-      onManageCategories={handleManageCategories}
-      onMute={handleMute}
-      onDelete={handleDelete}
-      isPinned={conversation.is_pinned}
-      isMuted={conversation.is_muted}
-      categories={categories}
-      currentCategoryId={conversation.category_id}
-    />
+      {/* Context Menu */}
+      <ConversationContextMenu
+        isOpen={contextMenu !== null}
+        position={contextMenu || { x: 0, y: 0 }}
+        onClose={() => setContextMenu(null)}
+        onPin={handlePin}
+        onSelectCategory={handleSelectCategory}
+        onManageCategories={handleManageCategories}
+        onMute={handleMute}
+        onDelete={handleDelete}
+        isPinned={participant.settings.is_pinned}
+        isMuted={isMuted}
+        categories={categories}
+        currentCategoryId={participant.settings.category_id || undefined}
+      />
 
-   
-    <CategoryManagementModal
-      isOpen={isCategoryModalOpen}
-      onClose={() => {
-        setIsCategoryModalOpen(false);
-      }}
-      userId={currentUserId || ''}
-    />
-  </>
-);
+      <CategoryManagementModal
+        isOpen={isCategoryModalOpen}
+        onClose={() => {
+          setIsCategoryModalOpen(false);
+        }}
+        userId={currentUserId || ""}
+      />
+    </>
+  );
 };
 
 export default ConversationItem;

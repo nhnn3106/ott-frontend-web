@@ -1,6 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import type { CategorySubmenuProps } from "../../../interfaces";
+import { PiTagSimpleFill } from "react-icons/pi";
 
 const CategorySubmenu: React.FC<CategorySubmenuProps> = ({
   isVisible,
@@ -31,10 +32,7 @@ const CategorySubmenu: React.FC<CategorySubmenuProps> = ({
     >
       {categories.length === 0 ? (
         <button
-          onMouseDown={(e) => {
-            // Dùng onMouseDown sẽ chạy ngay khi vừa nhấn chuột
-            e.stopPropagation();
-            console.log("Mouse Down activated!");
+          onMouseDown={() => {
             onManageCategories();
             onClose();
           }}
@@ -44,6 +42,21 @@ const CategorySubmenu: React.FC<CategorySubmenuProps> = ({
         </button>
       ) : (
         <>
+          {/* Bỏ phân loại option - only show when category is selected */}
+          {currentCategoryId && (
+            <>
+              <button
+                onMouseDown={() => {
+                  onSelectCategory(null);
+                  onClose();
+                }}
+                className="w-full px-4 py-2 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+              >
+                <span className="text-sm text-gray-700">Bỏ phân loại</span>
+              </button>
+              <div className="border-t border-gray-200 my-1" />
+            </>
+          )}
           {categories.map((category) => (
             <button
               key={category._id}
@@ -53,10 +66,7 @@ const CategorySubmenu: React.FC<CategorySubmenuProps> = ({
               }}
               className="w-full px-4 py-2 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
             >
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: category.color }}
-              />
+              <PiTagSimpleFill color={category.color} />
               <span className="text-sm text-gray-700">{category.name}</span>
               {currentCategoryId === category._id && (
                 <svg

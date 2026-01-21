@@ -20,12 +20,12 @@ const ConversationList: React.FC<ConversationListProps> = ({
   return (
     <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
       <div className="p-2 space-y-1">
-        {conversations.map((conversation) => (
+        {conversations.map((item) => (
           <ConversationItem
-            key={conversation._id}
-            conversation={conversation}
-            isSelected={selectedConversationId === conversation._id}
-            onClick={() => onConversationSelect?.(conversation)}
+            key={item.conversation._id}
+            item={item}
+            isSelected={selectedConversationId === item.conversation._id}
+            onClick={() => onConversationSelect?.(item)}
             currentUserId={currentUserId}
           />
         ))}

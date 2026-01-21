@@ -1,8 +1,8 @@
-import type { Conversation } from '../types';
+import type { ConversationWithParticipant } from '../types';
 
 export interface ConversationListProps {
-  conversations: Conversation[];
-  onConversationSelect?: (conversation: Conversation) => void;
+  conversations: ConversationWithParticipant[];
+  onConversationSelect?: (item: ConversationWithParticipant) => void;
   selectedConversationId?: string;
   loading?: boolean;
   error?: string;
@@ -10,7 +10,7 @@ export interface ConversationListProps {
 }
 
 export interface ConversationItemProps {
-  conversation: Conversation;
+  item: ConversationWithParticipant;
   isSelected?: boolean;
   onClick?: () => void;
   showUnread?: boolean;

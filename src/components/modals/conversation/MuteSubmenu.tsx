@@ -18,7 +18,36 @@ const MuteSubmenu: React.FC<MuteSubmenuProps> = ({
   onMouseEnter,
   onMouseLeave,
 }) => {
-  if (!isVisible || isMuted) return null;
+  if (!isVisible) return null;
+
+  // If already muted, show unmute option
+  if (isMuted) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -10 }}
+        transition={{ duration: 0.15 }}
+        className="fixed flex flex-col bg-white rounded-lg shadow-lg border border-gray-200 py-2 min-w-45 z-60"
+        style={{
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+        }}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
+        <button
+          onMouseDown={() => {
+            onMute('unmute');
+            onClose();
+          }}
+          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          Bật thông báo
+        </button>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -37,7 +66,7 @@ const MuteSubmenu: React.FC<MuteSubmenuProps> = ({
       {muteOptions.map((option) => (
         <button
           key={option.id}
-          onClick={() => {
+          onMouseDown={() => {
             onMute(option.id);
             onClose();
           }}

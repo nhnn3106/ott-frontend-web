@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pin, Tag, BellOff, Trash2 } from 'lucide-react';
+import { Pin, Tag, Bell, BellOff, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MenuItem from './MenuItem';
 import CategorySubmenu from './CategorySubmenu';
@@ -88,11 +88,16 @@ const ConversationContextMenu: React.FC<ConversationContextMenuProps> = ({
     },
     {
       id: 'mute',
-      icon: BellOff,
+      icon: isMuted ? Bell : BellOff,
       label: isMuted ? 'Bật thông báo' : 'Tắt thông báo',
-      onClick: () => {},
+      onClick: () => {
+        if (isMuted) {
+          // Direct unmute when already muted
+          onMute('unmute');
+        }
+      },
       color: 'text-orange-600',
-      hasSubmenu: true,
+      hasSubmenu: !isMuted, // Only show submenu when not muted
     },
     {
       id: 'delete',

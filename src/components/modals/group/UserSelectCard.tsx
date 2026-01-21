@@ -31,7 +31,7 @@ const UserSelectCard: React.FC<UserSelectCardProps> = ({ user, isSelected, onTog
           </svg>
         )}
       </div>
-      <Avatar name={user.display_name} src={user.avatar_url} size={40} />
+      <Avatar name={user.display_name || user.name} src={user.avatar} size={40} />
       <div className="flex-1 min-w-0">
         <p className="font-medium text-gray-900 truncate">{user.display_name}</p>
       </div>

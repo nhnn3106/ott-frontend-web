@@ -63,7 +63,7 @@ export class ParticipantService {
   static async updateNotificationSettings(
     conversationId: string,
     userId: string,
-    status: 'mute' | 'unmute',
+    status: 'on' | 'mute' | 'off',
     muteUntil?: Date | null
   ): Promise<void> {
     try {

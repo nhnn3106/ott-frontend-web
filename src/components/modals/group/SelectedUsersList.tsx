@@ -17,7 +17,7 @@ const SelectedUsersList: React.FC<SelectedUsersListProps> = ({ selectedUsers, on
             key={user._id}
             className="flex items-center gap-2 bg-primary-500/10 rounded-full px-3 py-1.5 group"
           >
-            <Avatar name={user.display_name} src={user.avatar_url} size={24} />
+            <Avatar name={user.display_name || user.name} src={user.avatar} size={24} />
             <span className="text-sm font-medium text-gray-900">{user.display_name}</span>
             <button
               onClick={() => onRemoveUser(user._id)}
