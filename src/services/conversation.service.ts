@@ -1,12 +1,19 @@
 import type { Conversation, ConversationWithParticipant } from '../types';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = 'https://abactinal-billy-sportily.ngrok-free.dev/api';
 
 export class ConversationService {
   // Get user conversations from database - returns conversation with participant settings
   static async getUserConversations(userId: string): Promise<ConversationWithParticipant[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/participants/${userId}`);
+      const response = await fetch(`${API_BASE_URL}/participants/${userId}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true", // <--- Thêm dòng này
+        },
+      });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -27,16 +34,17 @@ export class ConversationService {
   ): Promise<Conversation> {
     try {
       const response = await fetch(`${API_BASE_URL}/conversations`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           creatorId,
-          type: 'group',
+          type: "group",
           name,
           memberIds,
-          avatar: avatar || '',
+          avatar: avatar || "",
         }),
       });
       
@@ -55,9 +63,10 @@ export class ConversationService {
   static async createConversation(creatorId: string, type: 'private' | 'group') {
     try {
       const response = await fetch(`${API_BASE_URL}/conversations`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ creatorId, type }),
       });

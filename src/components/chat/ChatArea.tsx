@@ -10,10 +10,11 @@ import {
 } from "lucide-react";
 import Avatar from "../common/Avatar";
 import type { ChatAreaProps, Message } from "../../interfaces";
-import { UserService, MessageService } from "../../services";
+import { MessageService, socketService } from "../../services";
+import { useUser } from "../../contexts/UserContext";
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
-  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const { currentUser } = useUser();
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,20 +22,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   // Ref để auto scroll xuống cuối
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  /* ================= LOAD CURRENT USER ================= */
+  /* ================= SOCKET CONNECTION ================= */
   useEffect(() => {
-    const loadCurrentUser = async () => {
-      try {
-        const users = await UserService.getAllUsers();
-        // Giả lập lấy user đầu tiên là mình (cần logic thực tế từ auth)
-        if (users && users.length > 0 && users[0]._id) {
-          setCurrentUserId(users[0]._id);
-        }
-      } catch (error) {
-        console.error("Load user failed", error);
-      }
+    // Kết nối socket khi component mount
+    socketService.connect();
+
+    return () => {
+      // Cleanup socket listeners khi unmount
+      socketService.offNewMessage();
     };
-    loadCurrentUser();
   }, []);
 
   /* ================= LOAD MESSAGES ================= */
@@ -57,7 +53,44 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
       }
     };
     loadMessages();
+
+    // Join conversation room để nhận tin nhắn realtime
+    socketService.joinConversation(conversation._id);
   }, [conversation._id]);
+
+  /* ================= LISTEN TO NEW MESSAGES ================= */
+  useEffect(() => {
+    // Lắng nghe tin nhắn mới từ socket (chỉ setup 1 lần)
+    const handleNewMessage = (newMessage: any) => {
+      console.log("📨 [ChatArea] Received new message:", newMessage);
+      console.log("📍 Current conversation ID:", conversation?._id);
+      console.log("📍 Message conversation ID:", newMessage.conversation_id || newMessage.conversationId);
+
+      // Chỉ thêm tin nhắn nếu thuộc conversation hiện tại
+      const msgConvId = newMessage.conversation_id || newMessage.conversationId;
+      if (msgConvId === conversation?._id) {
+        console.log("✅ Adding message to current conversation");
+        setMessages((prev) => {
+          // Tránh duplicate: kiểm tra xem tin nhắn đã tồn tại chưa
+          const exists = prev.some((msg) => msg._id === newMessage._id);
+          if (exists) {
+            console.log("⚠️ Message already exists, skipping");
+            return prev;
+          }
+          return [...prev, newMessage];
+        });
+      } else {
+        console.log("⏭️ Message for different conversation, ignoring");
+      }
+    };
+
+    socketService.onNewMessage(handleNewMessage);
+
+    // Cleanup listener khi component unmount
+    return () => {
+      socketService.offNewMessage(handleNewMessage);
+    };
+  }, [conversation?._id]);
 
   // Scroll xuống dưới cùng khi có tin nhắn mới
   useEffect(() => {
@@ -66,16 +99,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
 
   /* ================= SEND MESSAGE ================= */
   const handleSendMessage = async () => {
-    if (!messageText.trim() || !currentUserId) return;
+    if (!messageText.trim() || !currentUser?._id) return;
 
     try {
-      const newMessage = await MessageService.sendMessage(
+      // Gửi tin nhắn qua API, backend sẽ emit socket event
+      await MessageService.sendMessage(
         conversation._id,
-        currentUserId,
+        currentUser._id,
         messageText,
       );
 
-      setMessages((prev) => [...prev, newMessage]);
+      // Không cần setMessages ở đây vì socket sẽ nhận và update
       setMessageText("");
     } catch (error) {
       console.error("Send message failed", error);
@@ -154,7 +188,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
         ) : (
           messages.map((msg, index) => {
             // Logic check người gửi
-            const isMe = msg.sender_id === currentUserId;
+            const isMe = msg.sender_id === currentUser?._id;
 
             return (
               <div

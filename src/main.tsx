@@ -3,11 +3,14 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 import { ConversationsProvider } from "./contexts/ConversationsContext.tsx";
+import { UserProvider } from "./contexts/UserContext.tsx";
 
 createRoot(document.getElementById("root")!).render(
-  <ConversationsProvider>
-    <StrictMode>
-      <App />
-    </StrictMode>
-  </ConversationsProvider>,
+  <StrictMode>
+    <UserProvider>
+      <ConversationsProvider>
+        <App />
+      </ConversationsProvider>
+    </UserProvider>
+  </StrictMode>,
 );

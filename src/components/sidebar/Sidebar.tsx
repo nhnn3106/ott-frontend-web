@@ -1,23 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import SearchBar from '../common/SearchBar';
-import ConversationList from '../conversations/ConversationList';
-import CategoryFilter from '../conversations/CategoryFilter';
-import CategoryManagementModal from '../modals/category/CategoryManagementModal';
-import LoadingSkeleton from '../common/LoadingSkeleton';
-import ErrorState from '../common/ErrorState';
-import CreateGroupModal from '../modals/group/CreateGroupModal';
-import { UserService } from '../../services/user.service';
-import { ConversationService } from '../../services/conversation.service';
-import { CategoryService } from '../../services';
-import { useConversations } from '../../contexts/ConversationsContext';
-import type { Conversation, ConversationWithParticipant, User } from '../../types';
-import type { SidebarProps } from '../../interfaces';
-import { MdOutlineGroupAdd, MdPersonAddAlt } from 'react-icons/md';
+import React, { useState, useEffect } from "react";
+import SearchBar from "../common/SearchBar";
+import ConversationList from "../conversations/ConversationList";
+import CategoryFilter from "../conversations/CategoryFilter";
+import CategoryManagementModal from "../modals/category/CategoryManagementModal";
+import LoadingSkeleton from "../common/LoadingSkeleton";
+import ErrorState from "../common/ErrorState";
+import CreateGroupModal from "../modals/group/CreateGroupModal";
+import { UserService } from "../../services/user.service";
+import { ConversationService } from "../../services/conversation.service";
+import { CategoryService } from "../../services";
+import { useConversations } from "../../contexts/ConversationsContext";
+import { useUser } from "../../contexts/UserContext";
+import type {
+  Conversation,
+  ConversationWithParticipant,
+  User,
+} from "../../types";
+import type { SidebarProps } from "../../interfaces";
+import { MdOutlineGroupAdd, MdPersonAddAlt } from "react-icons/md";
 
-const Sidebar: React.FC<SidebarProps> = ({ 
-  onConversationSelect, 
-  selectedConversationId 
+const Sidebar: React.FC<SidebarProps> = ({
+  onConversationSelect,
+  selectedConversationId,
 }) => {
+  const { currentUser } = useUser();
   const {
     conversations,
     categories,
@@ -30,44 +36,45 @@ const Sidebar: React.FC<SidebarProps> = ({
     addConversation,
     refreshConversations,
   } = useConversations();
-  
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filteredConversations, setFilteredConversations] = useState<ConversationWithParticipant[]>([]);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filteredConversations, setFilteredConversations] = useState<
+    ConversationWithParticipant[]
+  >([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
 
   const loadConversations = async () => {
+    if (!currentUser?._id) return;
+
     try {
       setLoading(true);
       setError(null);
-      
+
       // Load all users from database
       const users = await UserService.getAllUsers();
-      
-      // Set first user from database as current user
-      if (users.length > 0) {
-        const firstUser = users[0];
-        const userId = firstUser._id || firstUser.user_id;
-        setCurrentUserId(userId);
-        
-        // Filter out current user from available users list
-        const otherUsers = users.filter(user => (user._id || user.user_id) !== userId);
-        setAvailableUsers(otherUsers);
-        
-        // Load conversations for first user
-        const loadedConversations = await ConversationService.getUserConversations(userId);
-        setConversations(loadedConversations);
-        
-        // Load categories for first user
-        const loadedCategories = await CategoryService.getUserCategories(userId);
-        setCategories(loadedCategories);
-      }
+
+      // Filter out current user from available users list
+      const otherUsers = users.filter(
+        (user) => (user._id || user.user_id) !== currentUser._id,
+      );
+      setAvailableUsers(otherUsers);
+
+      // Load conversations for current user
+      const loadedConversations =
+        await ConversationService.getUserConversations(currentUser._id);
+      setConversations(loadedConversations);
+
+      // Load categories for current user
+      const loadedCategories = await CategoryService.getUserCategories(
+        currentUser._id,
+      );
+      setCategories(loadedCategories);
     } catch (error) {
-      console.error('Failed to load data from database:', error);
-      setError('Không thể tải dữ liệu từ server');
+      console.error("Failed to load data from database:", error);
+      setError("Không thể tải dữ liệu từ server");
     } finally {
       setLoading(false);
     }
@@ -75,27 +82,30 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   useEffect(() => {
     loadConversations();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     let filtered = conversations;
 
     // Filter by categories (multiple selection)
     if (selectedCategoryIds.length > 0) {
-      filtered = filtered.filter(item => 
-        item.participant.settings.category_id && 
-        selectedCategoryIds.includes(item.participant.settings.category_id)
+      filtered = filtered.filter(
+        (item) =>
+          item.participant.settings.category_id &&
+          selectedCategoryIds.includes(item.participant.settings.category_id),
       );
     }
 
     // Filter by search term
     if (searchTerm.trim()) {
-      filtered = filtered.filter(item => {
+      filtered = filtered.filter((item) => {
         const name = getConversationName(item.conversation);
-        const latestMessage = item.conversation.last_message?.content || '';
-        
-        return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               latestMessage.toLowerCase().includes(searchTerm.toLowerCase());
+        const latestMessage = item.conversation.last_message?.content || "";
+
+        return (
+          name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          latestMessage.toLowerCase().includes(searchTerm.toLowerCase())
+        );
       });
     }
 
@@ -103,12 +113,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     filtered.sort((a, b) => {
       const isPinnedA = a.participant.settings.is_pinned;
       const isPinnedB = b.participant.settings.is_pinned;
-      
+
       // If both pinned or both not pinned
       if (isPinnedA === isPinnedB) {
         // Sort by updatedAt (most recent first)
-        const timeA = new Date(a.conversation.updatedAt || a.conversation.createdAt).getTime();
-        const timeB = new Date(b.conversation.updatedAt || b.conversation.createdAt).getTime();
+        const timeA = new Date(
+          a.conversation.updatedAt || a.conversation.createdAt,
+        ).getTime();
+        const timeB = new Date(
+          b.conversation.updatedAt || b.conversation.createdAt,
+        ).getTime();
         return timeB - timeA;
       }
       // Pinned conversations come first
@@ -120,37 +134,55 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const getConversationName = (conversation: Conversation): string => {
     if (conversation.name) return conversation.name;
-    
-    if (conversation.type === 'private' && conversation.participants && conversation.participants.length > 0) {
+
+    if (
+      conversation.type === "private" &&
+      conversation.participants &&
+      conversation.participants.length > 0
+    ) {
       return conversation.participants[0].display_name;
     }
-    
-    return 'Conversation';
+
+    return "Conversation";
   };
 
-  const handleCreateGroup = async (groupName: string, selectedUsers: User[], avatar?: string) => {
+  const handleCreateGroup = async (
+    groupName: string,
+    selectedUsers: User[],
+    avatar?: string,
+  ) => {
+    if (!currentUser?._id) {
+      console.error("Current user not found");
+      alert("Vui lòng đăng nhập lại!");
+      return;
+    }
+
     try {
       // Extract user IDs from selected users
-      const memberIds = selectedUsers.map(user => user._id || user.user_id).filter((id): id is string => !!id);
-      
+      const memberIds = selectedUsers
+        .map((user) => user._id || user.user_id)
+        .filter((id): id is string => !!id);
+
       // Call API to create group in database with full data
       const newGroup = await ConversationService.createGroup(
-        currentUserId,
+        currentUser._id,
         groupName,
         memberIds,
-        avatar
+        avatar,
       );
 
       // Add to conversations state without reloading
       addConversation(newGroup);
 
       // Refresh to get full participant data
-      await refreshConversations(currentUserId);
-      
-      console.log('Group created successfully in database:', newGroup);
+      if (currentUser._id) {
+        await refreshConversations(currentUser._id);
+      }
+
+      console.log("Group created successfully in database:", newGroup);
     } catch (error) {
-      console.error('Failed to create group in database:', error);
-      alert('Không thể tạo nhóm. Vui lòng kiểm tra kết nối server!');
+      console.error("Failed to create group in database:", error);
+      alert("Không thể tạo nhóm. Vui lòng kiểm tra kết nối server!");
     }
   };
 
@@ -160,12 +192,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (error) {
-      return (
-        <ErrorState 
-          message={error}
-          onRetry={loadConversations}
-        />
-      );
+      return <ErrorState message={error} onRetry={loadConversations} />;
     }
 
     return (
@@ -173,7 +200,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         conversations={filteredConversations}
         onConversationSelect={onConversationSelect}
         selectedConversationId={selectedConversationId}
-        currentUserId={currentUserId}
+        currentUserId={currentUser?._id || ""}
       />
     );
   };
@@ -183,7 +210,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
         {/* Header */}
         <div className="p-4 border-b border-gray-100 pb-1">
-          
           {/* Search Bar + Icons */}
           <div className="flex items-center gap-2 mb-2">
             <div className="flex-1">
@@ -204,7 +230,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               title="Tạo nhóm mới"
             >
-              <MdOutlineGroupAdd  className="w-5 h-5 text-gray-600" />
+              <MdOutlineGroupAdd className="w-5 h-5 text-gray-600" />
             </button>
           </div>
 
@@ -220,15 +246,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onSelectCategories={setSelectedCategoryIds}
                 onManageCategories={() => setIsCategoryModalOpen(true)}
               />
-              
             </div>
           )}
         </div>
 
         {/* Conversations List */}
-        <div className="flex-1 overflow-hidden">
-          {renderContent()}
-        </div>
+        <div className="flex-1 overflow-hidden">{renderContent()}</div>
       </div>
 
       {/* Create Group Modal */}
@@ -243,7 +266,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <CategoryManagementModal
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
-        userId={currentUserId}
+        userId={currentUser?._id || ""}
       />
     </>
   );
