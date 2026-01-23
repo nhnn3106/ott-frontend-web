@@ -27,9 +27,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
         {messages.length === 0 ? (
           <ChatEmpty />
         ) : (
-          messages.map((msg) => {
+          messages.map((msg, index) => {
             const isSystemMsg = msg.type?.startsWith("system_");
             const isMe = msg.sender_id === currentUser?._id;
+
+            const prevMsg = messages[index - 1];
+            const nextMsg = messages[index + 1];
+
+            const isFirstInSequence =
+              !prevMsg ||
+              prevMsg.sender_id !== msg.sender_id ||
+              prevMsg.type?.startsWith("system_");
+
+            const isLastInSequence =
+              !nextMsg ||
+              nextMsg.sender_id !== msg.sender_id ||
+              nextMsg.type?.startsWith("system_");
 
             if (isSystemMsg) {
               return (
@@ -41,7 +54,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
               );
             }
 
-            return <ChatMessage key={msg._id} msg={msg} isMe={isMe} />;
+            return (
+              <ChatMessage
+                key={msg._id}
+                msg={msg}
+                isMe={isMe}
+                isFirstInSequence={isFirstInSequence}
+                isLastInSequence={isLastInSequence}
+              />
+            );
           })
         )}
 
