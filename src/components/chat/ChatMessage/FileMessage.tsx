@@ -1,14 +1,9 @@
+import type { FileMessageProps } from "../../../types/message.type";
 import {
   formatFileSize,
   getFileExtension,
   getFileNameFromUrl,
 } from "../../../utils";
-
-interface FileMessageProps {
-  url: string;
-  fileName?: string;
-  size?: number;
-}
 
 export const FileMessage = ({ url, fileName, size }: FileMessageProps) => {
   const finalFileName = fileName || getFileNameFromUrl(url, "file");

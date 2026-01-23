@@ -36,7 +36,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
                 <ChatNotification
                   key={msg._id}
                   type={msg.type}
-                  content={msg.content}
+                  content={msg.content[0]}
                 />
               );
             }

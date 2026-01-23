@@ -1,5 +1,4 @@
-// src/utils/fileUtils.ts
-import { URL_S3 } from "../config/api.config"; // Kiểm tra lại đường dẫn import dựa trên cấu trúc folder của bạn
+import { URL_S3 } from "../config/api.config";
 
 // 1. Hàm format file size
 export const formatFileSize = (bytes: number): string => {
@@ -27,19 +26,15 @@ export const getFileNameFromUrl = (
   }
 };
 
-// 3. Hàm lấy extension từ filename
 export const getFileExtension = (fileName: string): string => {
   const parts = fileName.split(".");
   return parts.length > 1 ? parts.pop()?.toUpperCase() || "FILE" : "FILE";
 };
 
-// 4. Hàm lấy full URL
 export const getFullUrl = (content: any): string => {
   const path = Array.isArray(content) ? content[0] : content;
 
   if (!path) return "";
-  if (path.startsWith("http")) return path;
 
-  const cleanPath = path.startsWith("/") ? path.substring(1) : path;
-  return `${URL_S3}${cleanPath}`;
+  return `${URL_S3}${path}`;
 };
