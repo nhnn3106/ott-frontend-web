@@ -1,7 +1,3 @@
-/**
- * Message entity type
- * Represents a single message in a conversation
- */
 export interface Message {
   _id: string;
   content: string;
@@ -9,13 +5,9 @@ export interface Message {
   created_at: string;
   sender_id: String;
   size?: number;
-  fileName?: string;
   attachments?: MessageAttachment[];
 }
 
-/**
- * Message attachment type
- */
 export interface MessageAttachment {
   id: string;
   type: "image" | "file" | "video" | "audio";

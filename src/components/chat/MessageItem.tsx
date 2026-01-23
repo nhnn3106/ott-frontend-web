@@ -1,3 +1,4 @@
+import { URL_S3 } from "../../config/api.config";
 import { convertShortcodeToEmoji } from "../../utils/emojiUtils";
 
 // Hàm format file size
@@ -29,14 +30,31 @@ const getFileExtension = (fileName: string): string => {
   return parts.length > 1 ? parts.pop()?.toUpperCase() || "FILE" : "FILE";
 };
 
+const getFullUrl = (content: any): string => {
+  // 1. Xử lý nếu content là mảng (theo model của bạn là [content])
+  const path = Array.isArray(content) ? content[0] : content;
+
+  if (!path) return "";
+
+  // 2. Nếu path đã bắt đầu bằng http hoặc https thì không nối nữa
+  if (path.startsWith("http")) return path;
+
+  // 3. Nếu path bắt đầu bằng dấu /, loại bỏ nó để tránh lỗi dư dấu / khi nối
+  const cleanPath = path.startsWith("/") ? path.substring(1) : path;
+
+  return `${URL_S3}${cleanPath}`;
+};
+
 export const MessageItem = ({ msg, isMe }: { msg: any; isMe: boolean }) => {
+  const fullUrl = getFullUrl(msg.content);
+
   const renderContent = () => {
     switch (msg.type) {
       case "image":
         return (
           <div className="space-y-2">
             <img
-              src={msg.content}
+              src={fullUrl}
               alt="Hình ảnh"
               className="max-w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity shadow-sm"
               style={{ maxHeight: "300px", minWidth: "200px" }}
@@ -51,7 +69,7 @@ export const MessageItem = ({ msg, isMe }: { msg: any; isMe: boolean }) => {
         return (
           <div className="space-y-2">
             <video
-              src={msg.content}
+              src={fullUrl}
               controls
               className="max-w-full rounded-lg shadow-sm"
               style={{ maxHeight: "300px", minWidth: "200px" }}

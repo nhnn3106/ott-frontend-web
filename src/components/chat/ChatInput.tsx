@@ -78,29 +78,20 @@ export const ChatInput = ({
       setUploadProgress(10);
 
       // Bước 1: Xin link từ Backend
-      const { uploadUrl, fileUrl } = await MessageService.getPresignedUrl(
-        file.name,
-        file.type,
-      );
+      const { uploadUrl, fileCategory, key } =
+        await MessageService.getPresignedUrl(file.name, file.type);
       setUploadProgress(30);
 
       // Bước 2: Upload lên S3
       await MessageService.uploadFileToS3(uploadUrl, file);
       setUploadProgress(70);
 
-      // Bước 3: Xác định loại file
-      const type = file.type.startsWith("image/")
-        ? "image"
-        : file.type.startsWith("video/")
-          ? "video"
-          : "file";
-
       // Bước 4: Lưu vào Database với fileName
       await MessageService.sendMessage(
         conversationId,
         senderId,
-        fileUrl,
-        type,
+        key,
+        fileCategory,
         file.size,
         file.name,
       );

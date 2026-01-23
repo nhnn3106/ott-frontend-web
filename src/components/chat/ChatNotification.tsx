@@ -21,7 +21,6 @@ export const ChatNotification: React.FC<ChatNotificationProps> = ({
     }
   };
 
-  // Logic phối màu nền theo từng loại thông báo
   const getBadgeStyles = () => {
     switch (type) {
       case "system_add":
