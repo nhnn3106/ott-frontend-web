@@ -1,45 +1,143 @@
-import React from "react";
-import avartar from "../../assets/avatar.png";
-import { Images, Smile } from "lucide-react";
-const SocialLayout = () => {
+import React, { useState, useEffect } from "react";
+import type { Post, PostUser, StoryItem } from "../social/types";
+import type { UploadedMedia } from "../social/CreatePostModal";
+import { fetchPosts, createPost } from "../../services/post.service";
+import { fetchUsers } from "../../services/social.service";
+import SocialLeftSidebar from "../social/SocialLeftSidebar";
+import PostFeed from "../social/PostFeed";
+import SocialRightSidebar from "../social/SocialRightSidebar";
+import CreatePostModal from "../social/CreatePostModal";
+
+/* ─── Avatar colour palette (fallback cho avatar DB users) ──── */
+const AVATAR_COLORS = [
+  "bg-primary-500",
+  "bg-emerald-500",
+  "bg-rose-500",
+  "bg-amber-500",
+  "bg-violet-500",
+  "bg-sky-500",
+];
+
+/* ─── Placeholder khi chưa fetch được user từ backend ─── */
+const DEFAULT_USER: PostUser = {
+  id: "",
+  name: "Người dùng",
+  color: "bg-primary-500",
+};
+
+const SocialLayout: React.FC = () => {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [currentUser, setCurrentUser] = useState<PostUser>(DEFAULT_USER);
+  const [stories, setStories] = useState<StoryItem[]>([]);
+  const [likedPosts, setLikedPosts] = useState<string[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loadingDB, setLoadingDB] = useState(true);
+
+  /* ── Load data từ backend khi mount ──────────────────── */
+  useEffect(() => {
+    (async () => {
+      try {
+        // 1. Lấy danh sách users → user[0] là "mình" (current session)
+        const users = await fetchUsers();
+        const me = users[0];
+        const dbCurrentUser: PostUser | undefined =
+          me ?
+            {
+              id: me.id,
+              name: me.displayName ?? me.username,
+              avatar: me.avatarUrl ?? undefined,
+              color: AVATAR_COLORS[0],
+            }
+          : undefined;
+
+        if (dbCurrentUser) setCurrentUser(dbCurrentUser);
+
+        // 2. Các user còn lại → Stories (tối đa 5 người)
+        const dbStories: StoryItem[] = users.slice(1, 6).map((u) => ({
+          id: u.id,
+          name: u.displayName ?? u.username,
+          isBirthday: false,
+        }));
+        setStories(dbStories);
+
+        // 3. Lấy posts từ DB
+        const dbPosts = await fetchPosts(dbCurrentUser?.id ?? "");
+        if (dbPosts && dbPosts.length > 0) {
+          setPosts(dbPosts);
+        }
+        // DB trống hoặc backend không chạy → giữ state rỗng (không dùng mock)
+      } catch {
+        // backend không khả dụng → feed trống
+      } finally {
+        setLoadingDB(false);
+      }
+    })();
+  }, []);
+
+  const toggleLike = (id: string) =>
+    setLikedPosts((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+
+  const handleNewPost = async (
+    content: string,
+    media: UploadedMedia[],
+    visibility: string,
+  ) => {
+    // Optimistic update: hiển thị ngay lập tức
+    const tempId = `temp-${Date.now()}`;
+    const optimisticPost: Post = {
+      id: tempId,
+      author: currentUser,
+      time: "Vừa xong",
+      content,
+      media: media.map((m) => ({ type: m.type, url: m.url })),
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      visibility,
+      relationship: "self",
+    };
+    setPosts((prev) => [optimisticPost, ...prev]);
+
+    // Gọi API lưu vào DB + S3
+    const files = media.map((m) => m.file);
+    const saved = await createPost(currentUser.id, content, visibility, files);
+
+    if (saved) {
+      // Thay thế bài post tạm bằng bài post từ DB (có ID thực)
+      setPosts((prev) => prev.map((p) => (p.id === tempId ? saved : p)));
+    }
+    // Nếu lỗi → giữ nguyên optimistic post (không rollback để UX mượt)
+  };
+
   return (
-    <div className="bg-[#AE7F53] w-full min-h-screen">
-      <div className="m-5 grid grid-cols-3 h-full">
-        <div className="h-full col-span-3 md:col-span-2">
-          {/* Thanh đăng post */}
-          <div className="m-2 p-2 rounded-2xl bg-white flex items-center gap-2">
-            {/* âvartar */}
-            <div className="size-10 shrink-0 rounded-full overflow-hidden cursor-pointer hover:opacity-80">
-              <img
-                className="size-full object-cover"
-                src={avartar}
-                alt="avartar"
-              />
-            </div>
-
-            <div className="bg-gray-200 w-full px-3 py-2 rounded-full text-nowrap text-ellipsis hover:opacity-80 cursor-pointer">
-              What's on your mind, user?
-            </div>
-            <div className="p-2 cursor-pointer rounded-xl hover:bg-gray-200">
-              <Images className="size-6 text-green-400  " />
-            </div>
-
-            <div className="p-2 cursor-pointer rounded-xl hover:bg-gray-200">
-              <Smile className="size-6 text-yellow-400" />
-            </div>
+    <>
+      <div className="bg-primary-50 w-full min-h-screen overflow-y-auto">
+        <div className="max-w-350 mx-auto px-4 py-4">
+          <div className="flex gap-4">
+            <SocialLeftSidebar currentUser={currentUser} />
+            <PostFeed
+              posts={posts}
+              likedPosts={likedPosts}
+              onToggleLike={toggleLike}
+              onOpenModal={() => setIsModalOpen(true)}
+              currentUser={currentUser}
+              stories={stories}
+              loading={loadingDB}
+            />
+            <SocialRightSidebar />
           </div>
-
-          {/* Thanh story */}
-          <div className="m-2 p-2 bg-pink-400">thanh story</div>
-          <div className="m-2 p-2 bg-blue-500 h-full">
-            phần hiện thị bài post
-          </div>
-        </div>
-        <div className="m-2 p-2 bg-amber-400 hidden md:flex h-full">
-          phần bạn bè
         </div>
       </div>
-    </div>
+
+      <CreatePostModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onPost={handleNewPost}
+        currentUser={currentUser}
+      />
+    </>
   );
 };
 
