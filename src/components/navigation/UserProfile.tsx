@@ -29,11 +29,20 @@ const UserProfile: React.FC = () => {
     }
   };
 
+  const handleAvatarClick = () => {
+    if (currentUser?.user_id) {
+      navigate(`/social/profile/${currentUser.user_id}`);
+    }
+  };
+
   if (!currentUser) return null;
 
   return (
     <div className="mb-8 relative group">
-      <div className="relative">
+      <div
+        className="relative cursor-pointer"
+        onClick={handleAvatarClick}
+        title="Xem trang cá nhân">
         <Avatar
           src={currentUser.avatar}
           name={currentUser.display_name || currentUser.name || "User"}
@@ -61,9 +70,9 @@ const UserProfile: React.FC = () => {
             {currentUser.display_name || currentUser.name}
           </p>
           <p className="text-xs text-gray-500">
-            {currentUser.status === "online"
-              ? "🟢 Trực tuyến"
-              : "⚫ Ngoại tuyến"}
+            {currentUser.status === "online" ?
+              "🟢 Trực tuyến"
+            : "⚫ Ngoại tuyến"}
           </p>
         </div>
 
@@ -72,8 +81,7 @@ const UserProfile: React.FC = () => {
           <>
             <button
               onClick={handleSwitchUser}
-              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-primary-50 transition-colors text-sm border-b border-gray-200"
-            >
+              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-primary-50 transition-colors text-sm border-b border-gray-200">
               <RefreshCw className="w-4 h-4 text-primary-500" />
               <div className="flex-1 text-left">
                 <p className="font-medium">Chuyển sang</p>
@@ -88,8 +96,7 @@ const UserProfile: React.FC = () => {
         {/* Logout current */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 text-orange-600 hover:bg-orange-50 transition-colors text-sm"
-        >
+          className="w-full flex items-center gap-2 px-3 py-2 text-orange-600 hover:bg-orange-50 transition-colors text-sm">
           <LogOut className="w-4 h-4" />
           Đăng xuất {secondUser ? "user này" : ""}
         </button>
@@ -98,8 +105,7 @@ const UserProfile: React.FC = () => {
         {secondUser && (
           <button
             onClick={handleLogoutAll}
-            className="w-full flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50  transition-colors text-sm border-t border-gray-200"
-          >
+            className="w-full flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50  transition-colors text-sm border-t border-gray-200">
             <LogOut className="w-4 h-4" />
             Đăng xuất cả 2
           </button>

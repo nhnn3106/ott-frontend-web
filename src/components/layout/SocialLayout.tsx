@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from "react";
 import type { Post, PostUser, StoryItem } from "../social/types";
 import type { UploadedMedia } from "../social/CreatePostModal";
-import { fetchPosts, createPost } from "../../services/post.service";
+import {
+  fetchPosts,
+  createPost,
+  toggleLike,
+  deletePost,
+  fetchUserReactions,
+  fetchPostReactions,
+} from "../../services/post.service";
 import { fetchUsers } from "../../services/social.service";
 import SocialLeftSidebar from "../social/SocialLeftSidebar";
 import PostFeed from "../social/PostFeed";
@@ -29,8 +36,21 @@ const SocialLayout: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [currentUser, setCurrentUser] = useState<PostUser>(DEFAULT_USER);
   const [stories, setStories] = useState<StoryItem[]>([]);
-  const [likedPosts, setLikedPosts] = useState<string[]>([]);
+  /** postId → reactionKey ("like" | "love" | ...) của user hiện tại */
+  const [userReactionMap, setUserReactionMap] = useState<
+    Record<string, string>
+  >({});
+  /** postId → { like: N, love: N, ... } - breakdown thực tế từ server */
+  const [postReactionCountsMap, setPostReactionCountsMap] = useState<
+    Record<string, Record<string, number>>
+  >({});
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [openWithFeeling, setOpenWithFeeling] = useState(false);
+
+  const openModal = (withFeeling = false) => {
+    setOpenWithFeeling(withFeeling);
+    setIsModalOpen(true);
+  };
   const [loadingDB, setLoadingDB] = useState(true);
 
   /* ── Load data từ backend khi mount ──────────────────── */
@@ -64,8 +84,30 @@ const SocialLayout: React.FC = () => {
         const dbPosts = await fetchPosts(dbCurrentUser?.id ?? "");
         if (dbPosts && dbPosts.length > 0) {
           setPosts(dbPosts);
+
+          // 4a. Fetch reaction breakdown của từng post song song
+          const reactionResults = await Promise.all(
+            dbPosts.map((p) => fetchPostReactions(p.id)),
+          );
+          const countsMap: Record<string, Record<string, number>> = {};
+          dbPosts.forEach((p, i) => {
+            countsMap[p.id] = reactionResults[i];
+          });
+          setPostReactionCountsMap(countsMap);
         }
-        // DB trống hoặc backend không chạy → giữ state rỗng (không dùng mock)
+
+        // 4. Khôi phục reactions của user hiện tại
+        if (dbCurrentUser?.id) {
+          const reactions = await fetchUserReactions(dbCurrentUser.id);
+          const map: Record<string, string> = {};
+          for (const r of reactions) {
+            // targetType === "POST" và chỉ lấy 1 reaction mới nhất mỗi post
+            if (r.targetType === "POST") {
+              map[r.targetId] = r.reactionType.toLowerCase();
+            }
+          }
+          setUserReactionMap(map);
+        }
       } catch {
         // backend không khả dụng → feed trống
       } finally {
@@ -74,16 +116,60 @@ const SocialLayout: React.FC = () => {
     })();
   }, []);
 
-  const toggleLike = (id: string) =>
-    setLikedPosts((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+  const toggleLikePost = async (id: string, reactionKey: string | null) => {
+    if (!currentUser.id) return;
+    // Optimistic update
+    setUserReactionMap((prev) => {
+      const next = { ...prev };
+      if (reactionKey) next[id] = reactionKey;
+      else delete next[id];
+      return next;
+    });
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === id ?
+          { ...p, likes: reactionKey ? p.likes + 1 : Math.max(0, p.likes - 1) }
+        : p,
+      ),
     );
+
+    // Call API với đúng loại reaction
+    const result = await toggleLike(
+      id,
+      currentUser.id,
+      (reactionKey ?? "LIKE").toUpperCase(),
+    );
+    if (result !== null) {
+      // Sync với server
+      setUserReactionMap((prev) => {
+        const next = { ...prev };
+        if (result.liked && result.reactionType) {
+          next[id] = result.reactionType.toLowerCase();
+        } else {
+          delete next[id];
+        }
+        return next;
+      });
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, likes: result.totalReactions } : p,
+        ),
+      );
+    }
+  };
+
+  const handleDeletePost = async (id: string) => {
+    // Optimistic update
+    setPosts((prev) => prev.filter((p) => p.id !== id));
+    await deletePost(id);
+  };
 
   const handleNewPost = async (
     content: string,
     media: UploadedMedia[],
     visibility: string,
   ) => {
+    if (!currentUser.id) return; // guard: user not loaded yet
     // Optimistic update: hiển thị ngay lập tức
     const tempId = `temp-${Date.now()}`;
     const optimisticPost: Post = {
@@ -102,7 +188,14 @@ const SocialLayout: React.FC = () => {
 
     // Gọi API lưu vào DB + S3
     const files = media.map((m) => m.file);
-    const saved = await createPost(currentUser.id, content, visibility, files);
+    const captions = media.map((m) => m.caption ?? "");
+    const saved = await createPost(
+      currentUser.id,
+      content,
+      visibility,
+      files,
+      captions,
+    );
 
     if (saved) {
       // Thay thế bài post tạm bằng bài post từ DB (có ID thực)
@@ -119,9 +212,12 @@ const SocialLayout: React.FC = () => {
             <SocialLeftSidebar currentUser={currentUser} />
             <PostFeed
               posts={posts}
-              likedPosts={likedPosts}
-              onToggleLike={toggleLike}
-              onOpenModal={() => setIsModalOpen(true)}
+              userReactionMap={userReactionMap}
+              postReactionCountsMap={postReactionCountsMap}
+              onToggleLike={toggleLikePost}
+              onDelete={handleDeletePost}
+              onOpenModal={() => openModal(false)}
+              onOpenWithFeeling={() => openModal(true)}
               currentUser={currentUser}
               stories={stories}
               loading={loadingDB}
@@ -133,9 +229,13 @@ const SocialLayout: React.FC = () => {
 
       <CreatePostModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setOpenWithFeeling(false);
+        }}
         onPost={handleNewPost}
         currentUser={currentUser}
+        openWithFeeling={openWithFeeling}
       />
     </>
   );
