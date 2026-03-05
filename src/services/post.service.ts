@@ -54,8 +54,11 @@ const AVATAR_COLORS = [
 const colorFor = (idx: number) => AVATAR_COLORS[idx % AVATAR_COLORS.length];
 
 /** Chuyển ISO timestamp sang chuỗi tiếng Việt tương đối */
-export function relativeTime(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
+export function relativeTime(iso: string | null | undefined): string {
+    if (!iso) return "Vừa xong";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Vừa xong";
+    const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60_000);
     if (mins < 1) return "Vừa xong";
     if (mins < 60) return `${mins} phút trước`;
@@ -64,7 +67,7 @@ export function relativeTime(iso: string): string {
     const days = Math.floor(hrs / 24);
     if (days === 1) return "Hôm qua";
     if (days < 7) return `${days} ngày trước`;
-    return new Date(iso).toLocaleDateString("vi-VN");
+    return d.toLocaleDateString("vi-VN");
 }
 
 /** ApiMedia[] → PostMediaItem[] */
@@ -374,7 +377,7 @@ function mapComment(c: ApiComment): Comment {
         parentId: c.parentCommentId ?? undefined,
         depth: c.depth,
         isEdited: c.edited,
-        time: relativeTime(c.createdAt),
+        time: relativeTime(c.createdAt ?? new Date().toISOString()),
         totalReplies: c.totalReplies,
     };
 }

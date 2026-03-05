@@ -13,6 +13,8 @@ import UserAvatar from "./UserAvatar";
 import PostMediaGrid from "./PostMediaGrid";
 import RelationshipBadge from "./RelationshipBadge";
 import CommentSection from "./CommentSection";
+import { useNavigate } from "react-router-dom";
+import type { UserProfile } from "../../services/social.service";
 
 const fmtCount = (n: number) =>
   n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
@@ -146,6 +148,12 @@ const PostCard: React.FC<Props> = ({
     setShowPicker(false);
   };
 
+  const navigate = useNavigate();
+
+  const goToProfile = (acccountId: string) => {
+    navigate(`/social/profile/${acccountId}`);
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
       {/* Relationship badge */}
@@ -157,10 +165,12 @@ const PostCard: React.FC<Props> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <div className="flex items-center gap-3">
-          <div className="rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-primary-400 transition shrink-0">
+          <div
+            onClick={() => goToProfile(post.author.id)}
+            className="rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-primary-400 transition shrink-0">
             <UserAvatar user={post.author} size="size-10" />
           </div>
-          <div>
+          <div onClick={() => goToProfile(post.author.id)}>
             <p className="font-semibold text-gray-800 hover:underline cursor-pointer leading-tight">
               {post.author.name}
             </p>

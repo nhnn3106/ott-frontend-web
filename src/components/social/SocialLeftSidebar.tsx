@@ -5,7 +5,6 @@ import {
   Bookmark,
   ChevronDown,
   Clapperboard,
-  Store,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { PostUser } from "./types";
@@ -21,7 +20,7 @@ const GRADIENTS = [
 ];
 
 const NAV_ITEMS = [
-  { icon: <Users className="size-6 text-primary-500" />, label: "Bạn bè" },
+  // { icon: <Users className="size-6 text-primary-500" />, label: "Bạn bè" },
   { icon: <Clock className="size-6 text-primary-400" />, label: "Kỷ niệm" },
   { icon: <Bookmark className="size-6 text-primary-600" />, label: "Đã lưu" },
   { icon: <Users className="size-6 text-primary-700" />, label: "Nhóm" },
@@ -29,7 +28,7 @@ const NAV_ITEMS = [
     icon: <Clapperboard className="size-6 text-primary-500" />,
     label: "Reels",
   },
-  { icon: <Store className="size-6 text-primary-400" />, label: "Marketplace" },
+  // { icon: <Store className="size-6 text-primary-400" />, label: "Marketplace" },
 ];
 
 const SHORTCUTS = ["TỰ HỌC IELTS MỖI NGÀY", "8 Ball Pool", "Farm Heroes Saga"];
