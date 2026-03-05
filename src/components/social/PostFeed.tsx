@@ -1,15 +1,20 @@
 import React from "react";
 import type { Post, PostUser, StoryItem } from "./types";
+import type { ReactionKey } from "./PostCard";
 import CreatePostCard from "./CreatePostCard";
 import StoryReel from "./StoryReel";
 import PostCard from "./PostCard";
 
 interface Props {
   posts: Post[];
-  likedPosts: string[];
-  onToggleLike: (id: string) => void;
+  /** postId → reactionKey hiện tại của user (được lấy từ server khi mount) */
+  userReactionMap: Record<string, string>;
+  /** postId → { like: N, love: N, ... } - số lượng từng loại reaction (không phụ thuộc user) */
+  postReactionCountsMap: Record<string, Record<string, number>>;
+  onToggleLike: (id: string, key: ReactionKey | null) => void;
   onDelete: (id: string) => void;
   onOpenModal: () => void;
+  onOpenWithFeeling?: () => void;
   currentUser: PostUser;
   stories: StoryItem[];
   loading?: boolean;
@@ -33,16 +38,22 @@ const PostSkeleton: React.FC = () => (
 
 const PostFeed: React.FC<Props> = ({
   posts,
-  likedPosts,
+  userReactionMap,
+  postReactionCountsMap,
   onToggleLike,
   onDelete,
   onOpenModal,
+  onOpenWithFeeling,
   currentUser,
   stories,
   loading = false,
 }) => (
   <main className="flex-1 min-w-0 max-w-150 mx-auto space-y-4">
-    <CreatePostCard currentUser={currentUser} onOpenModal={onOpenModal} />
+    <CreatePostCard
+      currentUser={currentUser}
+      onOpenModal={onOpenModal}
+      onOpenWithFeeling={onOpenWithFeeling}
+    />
 
     <StoryReel stories={stories} currentUserAvatar={currentUser.avatar ?? ""} />
 
@@ -56,8 +67,13 @@ const PostFeed: React.FC<Props> = ({
         <PostCard
           key={post.id}
           post={post}
-          isLiked={likedPosts.includes(post.id)}
-          onToggleLike={() => onToggleLike(post.id)}
+          initialReaction={userReactionMap[post.id] as ReactionKey | undefined}
+          initialReactionCounts={
+            postReactionCountsMap[post.id] as
+              | Partial<Record<ReactionKey, number>>
+              | undefined
+          }
+          onToggleLike={(key) => onToggleLike(post.id, key)}
           onDelete={onDelete}
           currentUser={currentUser}
         />

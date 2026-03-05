@@ -187,6 +187,7 @@ export async function createPost(
     caption: string,
     visibility: string,
     files: File[],
+    captions?: string[],
 ): Promise<Post | null> {
     try {
         const form = new FormData();
@@ -194,17 +195,32 @@ export async function createPost(
         form.append("caption", caption);
         form.append("visibility", visibility.toUpperCase());
         files.forEach((f) => form.append("files", f));
+        // Per-file captions – gửi theo đúng thứ tự file
+        if (captions && captions.length > 0) {
+            captions.forEach((c) => form.append("captions", c));
+        }
 
         const res = await fetch(`${API_MEDIA_SERVER_URL}/posts`, {
             method: "POST",
             body: form,
             signal: AbortSignal.timeout(30_000), // S3 upload có thể chậm
         });
-        if (!res.ok) return null;
+
+        if (!res.ok) {
+            // Log lỗi chi tiết từ backend để debug S3 issues
+            try {
+                const errBody = await res.text();
+                console.error(`[createPost] Backend error ${res.status}:`, errBody);
+            } catch {
+                console.error(`[createPost] Backend error ${res.status}: (no body)`);
+            }
+            return null;
+        }
 
         const p: ApiPost = await res.json();
         return mapPost(p, 0, accountId); // author = chính mình
-    } catch {
+    } catch (err) {
+        console.error("[createPost] Network/timeout error:", err);
         return null;
     }
 }
@@ -232,20 +248,23 @@ export async function deletePost(postId: string): Promise<boolean> {
 export interface ToggleLikeResult {
     liked: boolean;
     totalReactions: number;
+    /** Loại reaction được backend xác nhận, e.g. "LIKE" | "LOVE" | ... */
+    reactionType?: string;
 }
 
 /**
- * Toggle like một bài post.
- * Trả về trạng thái liked + tổng số lượt thích sau toggle.
+ * Toggle like/react một bài post.
+ * @param reactionType Loại reaction (mặc định "LIKE"). Ví dụ: "LOVE", "HAHA", …
  */
 export async function toggleLike(
     postId: string,
     accountId: string,
+    reactionType: string = "LIKE",
 ): Promise<ToggleLikeResult | null> {
     try {
         const url = new URL(`${API_MEDIA_SERVER_URL}/posts/${postId}/like`);
         url.searchParams.set("accountId", accountId);
-        url.searchParams.set("reactionType", "LIKE");
+        url.searchParams.set("reactionType", reactionType.toUpperCase());
         const res = await fetch(url.toString(), {
             method: "POST",
             signal: AbortSignal.timeout(5_000),
@@ -255,9 +274,59 @@ export async function toggleLike(
         return {
             liked: data.liked as boolean,
             totalReactions: data.totalReactions as number,
+            reactionType: (data.reaction as { reactionType?: string } | undefined)?.reactionType,
         };
     } catch {
         return null;
+    }
+}
+
+/* ─── Reaction shape từ API ─── */
+export interface ApiReaction {
+    id: string;
+    accountId: string;
+    targetId: string;   // postId
+    targetType: string;
+    reactionType: string; // "LIKE" | "LOVE" | "HAHA" | "WOW" | "SAD" | "ANGRY"
+}
+
+/**
+ * Lấy toàn bộ reactions mà một user đã thực hiện.
+ * Dùng để khôi phục trạng thái emoji sau khi reload trang.
+ */
+export async function fetchUserReactions(accountId: string): Promise<ApiReaction[]> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/posts/reactions/by-account?accountId=${encodeURIComponent(accountId)}`,
+            { signal: AbortSignal.timeout(5_000) },
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Lấy số lượng từng loại reaction của một bài post.
+ * TRẢ VỀ: { like: 3, love: 1, haha: 0, ... } (không phụ thuộc user)
+ */
+export async function fetchPostReactions(postId: string): Promise<Record<string, number>> {
+    try {
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/reactions`, {
+            signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) return {};
+        const data: ApiReaction[] = await res.json();
+        const counts: Record<string, number> = {};
+        for (const r of data) {
+            const key = r.reactionType.toLowerCase();
+            counts[key] = (counts[key] ?? 0) + 1;
+        }
+        return counts;
+    } catch {
+        return {};
     }
 }
 
@@ -273,8 +342,8 @@ export interface ApiComment {
     accountDisplayName: string | null;
     accountAvatarUrl: string | null;
     parentCommentId: string | null;
-    isEdited: boolean;
-    isDeleted: boolean;
+    edited: boolean;
+    deleted: boolean;
     depth: number;
     totalReplies: number;
     totalReactions: number;
@@ -304,14 +373,143 @@ function mapComment(c: ApiComment): Comment {
         text: c.text,
         parentId: c.parentCommentId ?? undefined,
         depth: c.depth,
-        isEdited: c.isEdited,
+        isEdited: c.edited,
         time: relativeTime(c.createdAt),
         totalReplies: c.totalReplies,
     };
 }
 
+/** Kết quả phân trang comment */
+export interface CommentPage {
+    comments: Comment[];
+    totalElements: number;
+    totalPages: number;
+    page: number;
+    hasMore: boolean;
+}
+
+interface SpringPage<T> {
+    content: T[];
+    totalElements: number;
+    totalPages: number;
+    number: number;
+    last: boolean;
+}
+
 /**
- * Lấy danh sách comments của bài post.
+ * Lấy root comments (depth=0) của bài post theo trang.
+ * Mặc định: page=0, size=20.
+ * Nếu endpoint phân trang chưa có trên backend, tự fallback về endpoint legacy.
+ */
+export async function fetchRootComments(
+    postId: string,
+    page = 0,
+    size = 20,
+): Promise<CommentPage> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/posts/${postId}/comments/root?page=${page}&size=${size}`,
+            { signal: AbortSignal.timeout(8_000) },
+        );
+
+        // Fallback to legacy endpoint on any failure
+        if (!res.ok) {
+            console.warn(`[fetchRootComments] /comments/root returned ${res.status}, falling back to legacy endpoint`);
+            return fetchRootCommentsFallback(postId, page, size);
+        }
+
+        const data: SpringPage<ApiComment> = await res.json();
+        const content: ApiComment[] = Array.isArray(data.content) ? data.content : [];
+        console.debug(`[fetchRootComments] Got ${content.length} root comments from paginated endpoint`);
+        return {
+            comments: content.filter((c) => !c.deleted).map(mapComment),
+            totalElements: data.totalElements ?? 0,
+            totalPages: data.totalPages ?? 1,
+            page: data.number ?? page,
+            hasMore: data.last === false,
+        };
+    } catch (err) {
+        console.error(`[fetchRootComments] Error fetching paginated comments, falling back:`, err);
+        return fetchRootCommentsFallback(postId, page, size);
+    }
+}
+
+/** Fallback: dùng legacy list endpoint, phân trang client-side. */
+async function fetchRootCommentsFallback(
+    postId: string,
+    page: number,
+    size: number,
+): Promise<CommentPage> {
+    try {
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`, {
+            signal: AbortSignal.timeout(8_000),
+        });
+        if (!res.ok) {
+            console.error(`[fetchRootCommentsFallback] Legacy endpoint also failed: ${res.status}`);
+            return { comments: [], totalElements: 0, totalPages: 0, page, hasMore: false };
+        }
+        const raw = await res.json();
+        // Legacy endpoint returns either a plain array or a Spring Page (if someone changed it)
+        let allComments: ApiComment[];
+        if (Array.isArray(raw)) {
+            allComments = raw;
+        } else if (raw.content && Array.isArray(raw.content)) {
+            allComments = raw.content;
+        } else if (raw.value && Array.isArray(raw.value)) {
+            allComments = raw.value;
+        } else {
+            allComments = [];
+        }
+        console.debug(`[fetchRootCommentsFallback] Got ${allComments.length} total comments from legacy endpoint`);
+        const roots = allComments
+            .filter((c) => !c.deleted && (c.parentCommentId === null || c.parentCommentId === undefined))
+            .map(mapComment);
+        const start = page * size;
+        const slice = roots.slice(start, start + size);
+        return {
+            comments: slice,
+            totalElements: roots.length,
+            totalPages: Math.ceil(roots.length / size) || 1,
+            page,
+            hasMore: start + size < roots.length,
+        };
+    } catch (err) {
+        console.error(`[fetchRootCommentsFallback] Exception:`, err);
+        return { comments: [], totalElements: 0, totalPages: 0, page, hasMore: false };
+    }
+}
+
+/**
+ * Lấy replies của một comment cha theo trang.
+ * Mặc định: page=0, size=10.
+ */
+export async function fetchReplies(
+    commentId: string,
+    page = 0,
+    size = 10,
+): Promise<CommentPage> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/posts/comments/${commentId}/replies?page=${page}&size=${size}&sort=createdAt,asc`,
+            { signal: AbortSignal.timeout(8_000) },
+        );
+        if (!res.ok) return { comments: [], totalElements: 0, totalPages: 0, page, hasMore: false };
+        const data: SpringPage<ApiComment> = await res.json();
+        const content: ApiComment[] = Array.isArray(data.content) ? data.content : [];
+        return {
+            comments: content.filter((c) => !c.deleted).map(mapComment),
+            totalElements: data.totalElements ?? 0,
+            totalPages: data.totalPages ?? 1,
+            page: data.number ?? page,
+            hasMore: data.last === false,
+        };
+    } catch {
+        return { comments: [], totalElements: 0, totalPages: 0, page, hasMore: false };
+    }
+}
+
+/**
+ * Lấy danh sách comments của bài post (legacy – dùng cho tương thích ngược).
  */
 export async function fetchComments(postId: string): Promise<Comment[]> {
     try {
@@ -321,7 +519,7 @@ export async function fetchComments(postId: string): Promise<Comment[]> {
         if (!res.ok) return [];
         const raw = await res.json();
         const list: ApiComment[] = Array.isArray(raw) ? raw : (raw.value ?? []);
-        return list.filter((c) => !c.isDeleted).map(mapComment);
+        return list.filter((c) => !c.deleted).map(mapComment);
     } catch {
         return [];
     }

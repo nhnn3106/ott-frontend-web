@@ -8,6 +8,7 @@ import NotificationsPage from "../pages/NotificationsPage";
 import SettingsPage from "../pages/SettingsPage";
 import SocialPage from "../pages/SocialPage";
 import UserSelectionPage from "../pages/UserSelectionPage";
+import { SocialProfile } from "../pages/social";
 
 /**
  * Application route configuration
@@ -53,6 +54,10 @@ export const routes: RouteObject[] = [
   {
     path: "/social/*",
     element: <SocialPage />,
+  },
+  {
+    path: "/social/profile/:userId",
+    element: <SocialProfile />,
   },
 ];
 

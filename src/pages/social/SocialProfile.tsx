@@ -1,22 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import {
-  Camera,
-  MapPin,
-  Briefcase,
-  Heart,
-  Users,
-  Image,
-  Loader2,
-} from "lucide-react";
+import { Camera, MapPin, Briefcase, Heart, Users, Loader2 } from "lucide-react";
 import avatar from "../../assets/avatar.png";
 import {
   fetchPostsByUser,
   toggleLike,
   deletePost,
+  fetchUserReactions,
+  fetchPostReactions,
 } from "../../services/post.service";
 import type { Post, PostUser } from "../../components/social/types";
 import PostCard from "../../components/social/PostCard";
+import type { ReactionKey } from "../../components/social/PostCard";
 import { fetchUsers } from "../../services/social.service";
 
 const AVATAR_COLORS = [
@@ -42,7 +37,13 @@ const SocialProfile: React.FC = () => {
     color: "bg-primary-500",
   });
   const [posts, setPosts] = useState<Post[]>([]);
-  const [likedPosts, setLikedPosts] = useState<string[]>([]);
+  const [userReactionMap, setUserReactionMap] = useState<
+    Record<string, string>
+  >({});
+  /** postId → { like: N, love: N, ... } - breakdown thực tế từ server */
+  const [postReactionCountsMap, setPostReactionCountsMap] = useState<
+    Record<string, Record<string, number>>
+  >({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
     "posts" | "about" | "friends" | "photos"
@@ -74,30 +75,67 @@ const SocialProfile: React.FC = () => {
       // Load posts of this user
       const userPosts = await fetchPostsByUser(userId, me?.id);
       setPosts(userPosts);
+
+      // Fetch reaction breakdown của từng post song song
+      if (userPosts.length > 0) {
+        const reactionResults = await Promise.all(
+          userPosts.map((p) => fetchPostReactions(p.id)),
+        );
+        const countsMap: Record<string, Record<string, number>> = {};
+        userPosts.forEach((p, i) => {
+          countsMap[p.id] = reactionResults[i];
+        });
+        setPostReactionCountsMap(countsMap);
+      }
+
+      // Khôi phục reactions của user hiện tại
+      if (me?.id) {
+        const reactions = await fetchUserReactions(me.id);
+        const map: Record<string, string> = {};
+        for (const r of reactions) {
+          if (r.targetType === "POST") {
+            map[r.targetId] = r.reactionType.toLowerCase();
+          }
+        }
+        setUserReactionMap(map);
+      }
+
       setLoading(false);
     })();
   }, [userId]);
 
-  const handleToggleLike = async (id: string) => {
+  const handleToggleLike = async (
+    id: string,
+    reactionKey: ReactionKey | null,
+  ) => {
     if (!currentUser.id) return;
-    const wasLiked = likedPosts.includes(id);
-    setLikedPosts((prev) =>
-      wasLiked ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    // Optimistic update
+    setUserReactionMap((prev) => {
+      const next = { ...prev };
+      if (reactionKey) next[id] = reactionKey;
+      else delete next[id];
+      return next;
+    });
     setPosts((prev) =>
       prev.map((p) =>
         p.id === id ?
-          { ...p, likes: wasLiked ? Math.max(0, p.likes - 1) : p.likes + 1 }
+          { ...p, likes: reactionKey ? p.likes + 1 : Math.max(0, p.likes - 1) }
         : p,
       ),
     );
-    const result = await toggleLike(id, currentUser.id);
+    const result = await toggleLike(
+      id,
+      currentUser.id,
+      (reactionKey ?? "LIKE").toUpperCase(),
+    );
     if (result !== null) {
-      setLikedPosts((prev) =>
-        result.liked ?
-          [...prev.filter((x) => x !== id), id]
-        : prev.filter((x) => x !== id),
-      );
+      setUserReactionMap((prev) => {
+        const next = { ...prev };
+        if (result.liked && result.reactionType)
+          next[id] = result.reactionType.toLowerCase();
+        else delete next[id];
+        return next;
+      });
       setPosts((prev) =>
         prev.map((p) =>
           p.id === id ? { ...p, likes: result.totalReactions } : p,
@@ -122,17 +160,17 @@ const SocialProfile: React.FC = () => {
     profileUser?.displayName ?? profileUser?.username ?? `User ${userId ?? ""}`;
 
   return (
-    <div className="bg-primary-500 w-full min-h-screen">
-      <div className="max-w-6xl mx-auto">
+    <div className="bg-primary-50 w-full h-full overflow-y-auto">
+      <div className="max-w-3xl mx-auto pb-10">
         {/* Cover Photo */}
-        <div className="relative bg-linear-to-r from-purple-400 via-pink-500 to-red-500 h-64 md:h-80 rounded-b-2xl">
+        <div className="relative bg-linear-to-r from-purple-400 via-pink-500 to-red-500 h-56 md:h-72 rounded-b-2xl">
           <button className="absolute bottom-4 right-4 bg-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-100 transition">
             <Camera className="size-5" />
             <span className="hidden md:inline">Chỉnh sửa ảnh bìa</span>
           </button>
         </div>
 
-        {/* Profile Info */}
+        {/* Profile Info Card */}
         <div className="bg-white rounded-2xl mx-4 -mt-16 relative shadow-lg">
           <div className="p-6">
             {/* Avatar and Name */}
@@ -228,116 +266,35 @@ const SocialProfile: React.FC = () => {
           </div>
         </div>
 
-        {/* Content Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 mt-4">
-          {/* Left Column - Intro */}
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl p-6 shadow">
-              <h2 className="text-xl font-bold mb-4">Giới thiệu</h2>
-              <div className="space-y-3">
-                <p className="text-center text-gray-600 italic">
-                  Thêm tiểu sử để mọi người biết về bạn
-                </p>
-                <button className="w-full bg-gray-200 text-gray-800 py-2 rounded-lg hover:bg-gray-300 transition font-medium">
-                  Chỉnh sửa chi tiết
-                </button>
-              </div>
+        {/* Posts */}
+        <div className="px-4 mt-4 space-y-4">
+          {loading ?
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="size-8 animate-spin text-primary-400" />
             </div>
-
-            {/* Photos */}
-            <div className="bg-white rounded-2xl p-6 shadow">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Ảnh</h2>
-                <button className="text-blue-500 hover:underline">
-                  Xem tất cả
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {posts
-                  .flatMap((p) =>
-                    p.media.filter((m) => m.type === "image").slice(0, 1),
-                  )
-                  .slice(0, 9)
-                  .map((m, i) => (
-                    <div
-                      key={i}
-                      className="aspect-square rounded-lg overflow-hidden hover:opacity-80 cursor-pointer bg-gray-100">
-                      <img
-                        src={m.url}
-                        alt=""
-                        className="size-full object-cover"
-                      />
-                    </div>
-                  ))}
-                {Array.from({
-                  length: Math.max(
-                    0,
-                    9 -
-                      posts
-                        .flatMap((p) =>
-                          p.media.filter((m) => m.type === "image").slice(0, 1),
-                        )
-                        .slice(0, 9).length,
-                  ),
-                }).map((_, i) => (
-                  <div
-                    key={`placeholder-${i}`}
-                    className="aspect-square bg-gray-200 rounded-lg flex items-center justify-center">
-                    <Image className="size-8 text-gray-400" />
-                  </div>
-                ))}
-              </div>
+          : posts.length === 0 ?
+            <div className="bg-white rounded-2xl p-6 shadow text-center py-12 text-gray-500">
+              <p>Chưa có bài viết nào</p>
+              <p className="text-sm mt-2">Hãy chia sẻ khoảnh khắc của bạn!</p>
             </div>
-
-            {/* Friends */}
-            <div className="bg-white rounded-2xl p-6 shadow">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Bạn bè</h2>
-                <button className="text-blue-500 hover:underline">
-                  Xem tất cả
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="text-center">
-                    <div className="aspect-square bg-gray-200 rounded-lg overflow-hidden mb-2">
-                      <img
-                        src={avatar}
-                        alt={`Friend ${i}`}
-                        className="size-full object-cover"
-                      />
-                    </div>
-                    <p className="text-sm font-medium truncate">Bạn bè {i}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column - Posts */}
-          <div className="md:col-span-2 space-y-4">
-            {/* Posts List */}
-            {loading ?
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="size-8 animate-spin text-primary-400" />
-              </div>
-            : posts.length === 0 ?
-              <div className="bg-white rounded-2xl p-6 shadow text-center py-12 text-gray-500">
-                <p>Chưa có bài viết nào</p>
-                <p className="text-sm mt-2">Hãy chia sẻ khoảnh khắc của bạn!</p>
-              </div>
-            : posts.map((post) => (
-                <PostCard
-                  key={post.id}
-                  post={post}
-                  isLiked={likedPosts.includes(post.id)}
-                  onToggleLike={() => handleToggleLike(post.id)}
-                  onDelete={handleDeletePost}
-                  currentUser={currentUser}
-                />
-              ))
-            }
-          </div>
+          : posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                initialReaction={
+                  userReactionMap[post.id] as ReactionKey | undefined
+                }
+                initialReactionCounts={
+                  postReactionCountsMap[post.id] as
+                    | Partial<Record<ReactionKey, number>>
+                    | undefined
+                }
+                onToggleLike={(key) => handleToggleLike(post.id, key)}
+                onDelete={handleDeletePost}
+                currentUser={currentUser}
+              />
+            ))
+          }
         </div>
       </div>
     </div>

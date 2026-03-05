@@ -19,6 +19,7 @@ export interface UploadedMedia {
   file: File;
   url: string;
   type: "image" | "video";
+  caption?: string;
 }
 
 interface CreatePostModalProps {
@@ -26,7 +27,32 @@ interface CreatePostModalProps {
   onClose: () => void;
   onPost: (content: string, media: UploadedMedia[], visibility: string) => void;
   currentUser: { name: string; color: string; avatar?: string };
+  openWithFeeling?: boolean;
 }
+
+/* ─── Feelings ──────────────────────────────────────── */
+const FEELINGS = [
+  { emoji: "😊", label: "vui vẻ" },
+  { emoji: "😍", label: "yêu đời" },
+  { emoji: "🥰", label: "hạnh phúc" },
+  { emoji: "😎", label: "tự tin" },
+  { emoji: "🤩", label: "phấn khích" },
+  { emoji: "😌", label: "bình yên" },
+  { emoji: "🥳", label: "vui mừng" },
+  { emoji: "😴", label: "buồn ngủ" },
+  { emoji: "😢", label: "buồn" },
+  { emoji: "😤", label: "tức giận" },
+  { emoji: "😰", label: "lo lắng" },
+  { emoji: "🤒", label: "không khỏe" },
+  { emoji: "😇", label: "biết ơn" },
+  { emoji: "💪", label: "đầy năng lượng" },
+  { emoji: "🤔", label: "suy nghĩ" },
+  { emoji: "😋", label: "đói bụng" },
+  { emoji: "🥺", label: "xúc động" },
+  { emoji: "😜", label: "tinh nghịch" },
+  { emoji: "🤗", label: "ấm áp" },
+  { emoji: "😑", label: "chán nản" },
+];
 
 /* ─── Visibility options ─────────────────────────────── */
 const VISIBILITY_OPTIONS = [
@@ -41,6 +67,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
   onClose,
   onPost,
   currentUser,
+  openWithFeeling = false,
 }) => {
   const [content, setContent] = useState("");
   const [mediaFiles, setMediaFiles] = useState<UploadedMedia[]>([]);
@@ -48,6 +75,20 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [showVisibility, setShowVisibility] = useState(false);
   const [showDropZone, setShowDropZone] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [feeling, setFeeling] = useState<{
+    emoji: string;
+    label: string;
+  } | null>(null);
+  const [showFeelingPicker, setShowFeelingPicker] = useState(false);
+  const [feelingSearch, setFeelingSearch] = useState("");
+  // Reset showFeelingPicker mỗi lần modal mở ra (setState-during-render)
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
+    if (isOpen) {
+      setShowFeelingPicker(openWithFeeling);
+    }
+  }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -65,12 +106,19 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
           file,
           url: URL.createObjectURL(file),
           type: isImage ? "image" : "video",
+          caption: "",
         });
       }
     });
     setMediaFiles((prev) => [...prev, ...newItems]);
     setShowDropZone(true);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const updateCaption = (id: string, caption: string) => {
+    setMediaFiles((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, caption } : m)),
+    );
   };
 
   const removeMedia = (id: string) => {
@@ -90,15 +138,28 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
   };
 
   const handleSubmit = () => {
-    if (!content.trim() && mediaFiles.length === 0) return;
-    onPost(content, mediaFiles, visibility);
+    if (!content.trim() && mediaFiles.length === 0 && !feeling) return;
+    const feelingText =
+      feeling ? ` — đang cảm thấy ${feeling.emoji} ${feeling.label}` : "";
+    onPost(content + feelingText, mediaFiles, visibility);
     setContent("");
     setMediaFiles([]);
     setShowDropZone(false);
+    setFeeling(null);
+    setFeelingSearch("");
+    setShowFeelingPicker(false);
     onClose();
   };
 
-  const canPost = content.trim().length > 0 || mediaFiles.length > 0;
+  const canPost =
+    content.trim().length > 0 || mediaFiles.length > 0 || feeling !== null;
+
+  const filteredFeelings =
+    feelingSearch.trim() ?
+      FEELINGS.filter((f) =>
+        f.label.toLowerCase().includes(feelingSearch.toLowerCase()),
+      )
+    : FEELINGS;
   const currentOpt = VISIBILITY_OPTIONS.find((v) => v.value === visibility)!;
   const VisIcon = currentOpt.Icon;
 
@@ -110,19 +171,33 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
     if (count === 1) {
       const m = mediaFiles[0];
       return (
-        <div className="relative rounded-xl overflow-hidden bg-gray-900">
-          {m.type === "image" ?
-            <img
-              src={m.url}
-              alt=""
-              className="w-full max-h-72 object-contain"
+        <div className="rounded-xl overflow-hidden border border-gray-200">
+          {/* Preview */}
+          <div className="relative bg-gray-900">
+            {m.type === "image" ?
+              <img
+                src={m.url}
+                alt=""
+                className="w-full max-h-72 object-contain"
+              />
+            : <video src={m.url} controls className="w-full max-h-72" />}
+            <button
+              onClick={() => removeMedia(m.id)}
+              className="absolute top-2 right-2 size-7 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white transition">
+              <X className="size-3.5" />
+            </button>
+          </div>
+          {/* Caption input */}
+          <div className="bg-white px-3 py-2">
+            <input
+              type="text"
+              value={m.caption ?? ""}
+              onChange={(e) => updateCaption(m.id, e.target.value)}
+              placeholder="Thêm caption cho ảnh/video này..."
+              maxLength={200}
+              className="w-full text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
             />
-          : <video src={m.url} controls className="w-full max-h-72" />}
-          <button
-            onClick={() => removeMedia(m.id)}
-            className="absolute top-2 right-2 size-7 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white transition">
-            <X className="size-3.5" />
-          </button>
+          </div>
         </div>
       );
     }
@@ -133,32 +208,77 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
       : "grid-cols-2";
 
     return (
-      <div className={`grid ${gridCols} gap-1 rounded-xl overflow-hidden`}>
-        {mediaFiles.slice(0, 4).map((m, idx) => (
-          <div
-            key={m.id}
-            className="relative aspect-square bg-gray-900 overflow-hidden">
-            {m.type === "image" ?
-              <img src={m.url} alt="" className="w-full h-full object-cover" />
-            : <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800">
-                <Film className="size-10 text-white/60" />
-                <span className="text-white/70 text-xs mt-1">Video</span>
+      <div className="space-y-2">
+        {/* Grid preview */}
+        <div className={`grid ${gridCols} gap-1 rounded-xl overflow-hidden`}>
+          {mediaFiles.slice(0, 4).map((m, idx) => (
+            <div
+              key={m.id}
+              className="relative aspect-square bg-gray-900 overflow-hidden">
+              {m.type === "image" ?
+                <img
+                  src={m.url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              : <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800">
+                  <Film className="size-10 text-white/60" />
+                  <span className="text-white/70 text-xs mt-1">Video</span>
+                </div>
+              }
+              {idx === 3 && count > 4 && (
+                <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                  <span className="text-white text-2xl font-bold">
+                    +{count - 4}
+                  </span>
+                </div>
+              )}
+              <button
+                onClick={() => removeMedia(m.id)}
+                className="absolute top-1 right-1 size-6 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white transition">
+                <X className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Per-item caption inputs */}
+        <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
+          {mediaFiles.map((m, idx) => (
+            <div
+              key={m.id}
+              className="flex items-center gap-3 px-3 py-2 bg-white hover:bg-gray-50 transition">
+              {/* Thumbnail */}
+              <div className="size-10 rounded-lg overflow-hidden bg-gray-900 shrink-0">
+                {m.type === "image" ?
+                  <img
+                    src={m.url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                : <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                    <Film className="size-4 text-white/60" />
+                  </div>
+                }
               </div>
-            }
-            {idx === 3 && count > 4 && (
-              <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-                <span className="text-white text-2xl font-bold">
-                  +{count - 4}
-                </span>
-              </div>
-            )}
-            <button
-              onClick={() => removeMedia(m.id)}
-              className="absolute top-1 right-1 size-6 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white transition">
-              <X className="size-3" />
-            </button>
-          </div>
-        ))}
+              {/* Caption input */}
+              <input
+                type="text"
+                value={m.caption ?? ""}
+                onChange={(e) => updateCaption(m.id, e.target.value)}
+                placeholder={`Caption ${m.type === "image" ? "ảnh" : "video"} ${idx + 1}...`}
+                maxLength={200}
+                className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent min-w-0"
+              />
+              {/* Remove */}
+              <button
+                onClick={() => removeMedia(m.id)}
+                className="size-6 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-500 transition shrink-0">
+                <X className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -204,9 +324,24 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
               }
             </div>
             <div>
-              <p className="font-semibold text-gray-900 text-sm">
-                {currentUser.name}
-              </p>
+              <div className="flex items-center gap-1 flex-wrap">
+                <p className="font-semibold text-gray-900 text-sm">
+                  {currentUser.name}
+                </p>
+                {feeling && (
+                  <span className=" text-center text-sm text-gray-600">
+                    đang cảm thấy {feeling.emoji}{" "}
+                    <span className="font-medium text-gray-700">
+                      {feeling.label}
+                    </span>
+                    <button
+                      onClick={() => setFeeling(null)}
+                      className="ml-1 text-gray-400 hover:text-gray-600 transition align-middle">
+                      <X className="size-3 inline" />
+                    </button>
+                  </span>
+                )}
+              </div>
               {/* Visibility selector */}
               <div className="relative">
                 <button
@@ -282,6 +417,49 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
             </div>
           )}
 
+          {/* Feeling picker panel */}
+          {showFeelingPicker && (
+            <div className="mx-4 mb-3 border border-yellow-200 rounded-xl overflow-hidden bg-white">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-yellow-100">
+                <Smile className="size-4 text-yellow-500 shrink-0" />
+                <input
+                  type="text"
+                  value={feelingSearch}
+                  onChange={(e) => setFeelingSearch(e.target.value)}
+                  placeholder="Tìm cảm xúc..."
+                  className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400"
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-4 gap-1 p-2 max-h-48 overflow-y-auto">
+                {filteredFeelings.map((f) => (
+                  <button
+                    key={f.label}
+                    onClick={() => {
+                      setFeeling(f);
+                      setShowFeelingPicker(false);
+                      setFeelingSearch("");
+                    }}
+                    className={`flex flex-col items-center gap-0.5 p-2 rounded-xl hover:bg-yellow-50 transition ${
+                      feeling?.label === f.label ?
+                        "bg-yellow-100 ring-1 ring-yellow-300"
+                      : ""
+                    }`}>
+                    <span className="text-xl">{f.emoji}</span>
+                    <span className="text-xs text-gray-600 leading-tight text-center">
+                      {f.label}
+                    </span>
+                  </button>
+                ))}
+                {filteredFeelings.length === 0 && (
+                  <p className="col-span-4 text-center text-sm text-gray-400 py-4">
+                    Không tìm thấy cảm xúc
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Add-to-post toolbar */}
           <div className="mx-4 mb-3 border border-gray-200 rounded-xl px-3 py-2 flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">
@@ -299,8 +477,13 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
               </button>
               <button
                 title="Cảm xúc / Hoạt động"
-                className="p-2 hover:bg-gray-100 rounded-full transition">
-                <Smile className="size-5 text-yellow-500" />
+                onClick={() => setShowFeelingPicker((v) => !v)}
+                className={`p-2 rounded-full transition ${
+                  showFeelingPicker || feeling ?
+                    "bg-yellow-100 text-yellow-500"
+                  : "hover:bg-gray-100 text-yellow-500"
+                }`}>
+                <Smile className="size-5" />
               </button>
               <button
                 title="Check in"
