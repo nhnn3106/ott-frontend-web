@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import type { Post, PostUser, StoryItem } from "../social/types";
 import type { UploadedMedia } from "../social/CreatePostModal";
 import {
-  fetchPosts,
+  fetchPostsWithPage,
   createPost,
   toggleLike,
   deletePost,
@@ -52,6 +52,11 @@ const SocialLayout: React.FC = () => {
     setIsModalOpen(true);
   };
   const [loadingDB, setLoadingDB] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const pageRef = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const currentUserRef = useRef<typeof currentUser>(DEFAULT_USER);
 
   /* ── Load data từ backend khi mount ──────────────────── */
   useEffect(() => {
@@ -70,7 +75,10 @@ const SocialLayout: React.FC = () => {
             }
           : undefined;
 
-        if (dbCurrentUser) setCurrentUser(dbCurrentUser);
+        if (dbCurrentUser) {
+          setCurrentUser(dbCurrentUser);
+          currentUserRef.current = dbCurrentUser;
+        }
 
         // 2. Các user còn lại → Stories (tối đa 5 người)
         const dbStories: StoryItem[] = users.slice(1, 6).map((u) => ({
@@ -80,20 +88,24 @@ const SocialLayout: React.FC = () => {
         }));
         setStories(dbStories);
 
-        // 3. Lấy posts từ DB
-        const dbPosts = await fetchPosts(dbCurrentUser?.id ?? "");
-        if (dbPosts && dbPosts.length > 0) {
-          setPosts(dbPosts);
+        // 3. Lấy trang 0 posts từ DB
+        const result = await fetchPostsWithPage(0, 5, dbCurrentUser?.id ?? "");
+        if (result && result.posts.length > 0) {
+          setPosts(result.posts);
+          pageRef.current = 0;
+          setHasMore(result.hasMore);
 
           // 4a. Fetch reaction breakdown của từng post song song
           const reactionResults = await Promise.all(
-            dbPosts.map((p) => fetchPostReactions(p.id)),
+            result.posts.map((p) => fetchPostReactions(p.id)),
           );
           const countsMap: Record<string, Record<string, number>> = {};
-          dbPosts.forEach((p, i) => {
+          result.posts.forEach((p, i) => {
             countsMap[p.id] = reactionResults[i];
           });
           setPostReactionCountsMap(countsMap);
+        } else {
+          setHasMore(false);
         }
 
         // 4. Khôi phục reactions của user hiện tại
@@ -115,6 +127,58 @@ const SocialLayout: React.FC = () => {
       }
     })();
   }, []);
+
+  /* ── Infinite scroll: load trang tiếp khi cuộn gần đáy ────── */
+  const loadNextPage = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const result = await fetchPostsWithPage(
+        nextPage,
+        10,
+        currentUserRef.current.id || undefined,
+      );
+      if (result && result.posts.length > 0) {
+        setPosts((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newPosts = result.posts.filter((p) => !existingIds.has(p.id));
+          return [...prev, ...newPosts];
+        });
+        pageRef.current = nextPage;
+        setHasMore(result.hasMore);
+
+        // Fetch reaction breakdown cho các post mới
+        const reactionResults = await Promise.all(
+          result.posts.map((p) => fetchPostReactions(p.id)),
+        );
+        setPostReactionCountsMap((prev) => {
+          const updated = { ...prev };
+          result.posts.forEach((p, i) => {
+            updated[p.id] = reactionResults[i];
+          });
+          return updated;
+        });
+      } else {
+        setHasMore(false);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < 400) {
+        loadNextPage();
+      }
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [loadNextPage]);
 
   const toggleLikePost = async (id: string, reactionKey: string | null) => {
     if (!currentUser.id) return;
@@ -206,7 +270,9 @@ const SocialLayout: React.FC = () => {
 
   return (
     <>
-      <div className="bg-primary-50 w-full min-h-screen overflow-y-auto">
+      <div
+        ref={containerRef}
+        className="bg-primary-50 w-full min-h-screen overflow-y-auto">
         <div className="max-w-350 mx-auto px-4 py-4">
           <div className="flex gap-4">
             <SocialLeftSidebar currentUser={currentUser} />
@@ -224,6 +290,17 @@ const SocialLayout: React.FC = () => {
             />
             <SocialRightSidebar />
           </div>
+          {/* Indicator cuộn vô hạn */}
+          {loadingMore && (
+            <div className="flex justify-center items-center py-6">
+              <div className="w-8 h-8 border-4 border-primary-300 border-t-primary-600 rounded-full animate-spin" />
+            </div>
+          )}
+          {!hasMore && !loadingDB && posts.length > 0 && (
+            <p className="text-center text-sm text-gray-400 py-4">
+              Bạn đã xem hết tất cả bài viết
+            </p>
+          )}
         </div>
       </div>
 

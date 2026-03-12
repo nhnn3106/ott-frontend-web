@@ -121,9 +121,11 @@ function unwrapList<T>(json: unknown): T[] {
  */
 export async function fetchPosts(currentUserId?: string): Promise<Post[] | null> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts`, {
-            signal: AbortSignal.timeout(5_000),
-        });
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts`,
+            //     {
+            //     signal: AbortSignal.timeout(5_000),
+            // }
+        );
         if (!res.ok) return null;
 
         const raw = unwrapList<ApiPost>(await res.json());
@@ -143,15 +145,61 @@ export async function fetchPosts(currentUserId?: string): Promise<Post[] | null>
     }
 }
 
+/** Kết quả phân trang posts */
+export interface PostsPage {
+    posts: Post[];
+    totalPages: number;
+    totalElements: number;
+    page: number;
+    hasMore: boolean;
+}
+
+/**
+ * Lấy posts có phân trang từ GET /posts/page.
+ * @param page    Số trang bắt đầu từ 0
+ * @param size    Số bài mỗi trang (mặc định 10)
+ */
+export async function fetchPostsWithPage(
+    page: number = 0,
+    size: number = 10,
+    currentUserId?: string,
+): Promise<PostsPage | null> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/posts/page?page=${page}&size=${size}&sort=createdAt,desc`,
+            { signal: AbortSignal.timeout(10_000) },
+        );
+        if (!res.ok) return null;
+
+        const data: SpringPage<ApiPost> = await res.json();
+        const colorMap = new Map<string, number>();
+        let colorIdx = 0;
+
+        const posts = (data.content ?? []).map((p) => {
+            if (!colorMap.has(p.accountId)) colorMap.set(p.accountId, colorIdx++);
+            return mapPost(p, colorMap.get(p.accountId)!, currentUserId);
+        });
+
+        return {
+            posts,
+            totalPages: data.totalPages,
+            totalElements: data.totalElements,
+            page: data.number,
+            hasMore: !data.last,
+        };
+    } catch {
+        return null;
+    }
+}
+
+
 /**
  * Lấy bài post của một user cụ thể.
  * Trả về mảng rỗng nếu không có hoặc backend lỗi.
  */
 export async function fetchPostsByUser(userId: string, currentUserId?: string): Promise<Post[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/user/${userId}`, {
-            signal: AbortSignal.timeout(5_000),
-        });
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/user/${userId}`);
         if (!res.ok) return [];
 
         const raw = unwrapList<ApiPost>(await res.json());
