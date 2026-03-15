@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { Play } from "lucide-react";
+import { Play, Maximize2 } from "lucide-react"; // Import thêm icon Maximize
 import type { Message } from "../../../types";
-import { MessageLayout } from "./MessageLayout"; // Import Layout chung
+import { MessageLayout } from "./MessageLayout";
 
 export const VideoMessage = ({
   msg,
@@ -9,12 +9,14 @@ export const VideoMessage = ({
   isMe,
   isFirstInSequence,
   isLastInSequence,
+  onClick, // 1. Nhận prop onClick
 }: {
   msg: Message;
   url: string;
   isMe: boolean;
   isFirstInSequence: boolean;
   isLastInSequence: boolean;
+  onClick?: () => void; // 2. Định nghĩa type
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -41,18 +43,18 @@ export const VideoMessage = ({
       isLast={isLastInSequence}
     >
       {(borderRadius) => (
-        // --- 3. Phần nội dung riêng của Video ---
         <div
           className={`relative max-w-[300px] overflow-hidden bg-black shadow-sm group cursor-pointer border border-gray-100 transition-all
           ${borderRadius} 
           `}
+          // Click vào vùng bao quanh vẫn toggle Play/Pause (trải nghiệm tự nhiên)
           onClick={handleTogglePlay}
         >
           <video
             ref={videoRef}
             src={url}
             className="w-full h-full object-cover max-h-[400px]"
-            controls={isPlaying} // Chỉ hiện controls khi đang play
+            controls={isPlaying} // Chỉ hiện controls native khi đang play
             preload="metadata"
             onPlay={onPlay}
             onPause={onPause}
@@ -68,6 +70,20 @@ export const VideoMessage = ({
                 />
               </div>
             </div>
+          )}
+
+          {/* 3. Nút mở toàn màn hình (Chỉ hiện khi có handler onClick) */}
+          {onClick && (
+            <button
+              className="absolute top-2 right-2 p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100 z-10"
+              onClick={(e) => {
+                e.stopPropagation(); // Ngăn không cho kích hoạt Play/Pause của div cha
+                onClick(); // Gọi hàm mở MediaViewer
+              }}
+              title="Xem toàn màn hình"
+            >
+              <Maximize2 size={16} />
+            </button>
           )}
         </div>
       )}

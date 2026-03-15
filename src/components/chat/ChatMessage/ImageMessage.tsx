@@ -1,5 +1,5 @@
 import type { Message } from "../../../types";
-import { MessageLayout } from "./MessageLayout"; // Import Layout chung
+import { MessageLayout } from "./MessageLayout";
 
 export const ImageMessage = ({
   msg,
@@ -7,15 +7,16 @@ export const ImageMessage = ({
   isMe,
   isFirstInSequence,
   isLastInSequence,
+  onClick, // 1. Nhận prop onClick từ ChatMessage
 }: {
   msg: Message;
   url: string;
   isMe: boolean;
   isFirstInSequence: boolean;
   isLastInSequence: boolean;
+  onClick?: () => void; // 2. Định nghĩa kiểu dữ liệu cho onClick
 }) => {
   return (
-    // 1. Dùng MessageLayout để bao bọc
     <MessageLayout
       msg={msg}
       isMe={isMe}
@@ -23,13 +24,21 @@ export const ImageMessage = ({
       isLast={isLastInSequence}
     >
       {(borderRadius) => (
-        // 2. Nội dung Ảnh
         <div
           className={`
             relative overflow-hidden group cursor-pointer border border-gray-200 shadow-sm transition-all hover:brightness-90
             ${borderRadius} 
           `}
-          onClick={() => window.open(url, "_blank")}
+          // 3. Xử lý sự kiện click
+          onClick={(e) => {
+            e.stopPropagation(); // Ngăn sự kiện lan truyền lên trên
+            if (onClick) {
+              onClick(); // Mở MediaViewer
+            } else {
+              // Fallback: Nếu không có handler thì mở tab mới như cũ
+              window.open(url, "_blank");
+            }
+          }}
         >
           <img
             src={url}
