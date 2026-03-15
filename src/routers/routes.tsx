@@ -8,6 +8,7 @@ import NotificationsPage from "../pages/NotificationsPage";
 import SettingsPage from "../pages/SettingsPage";
 import SocialPage from "../pages/SocialPage";
 import UserSelectionPage from "../pages/UserSelectionPage";
+import { SocialProfile } from "../pages/social";
 
 /**
  * Application route configuration
@@ -50,6 +51,14 @@ export const routes: RouteObject[] = [
     path: "/social",
     element: <SocialPage />,
   },
+  {
+    path: "/social/*",
+    element: <SocialPage />,
+  },
+  {
+    path: "/social/profile/:userId",
+    element: <SocialProfile />,
+  },
 ];
 
 /**
@@ -64,7 +73,10 @@ export const ROUTE_PATHS = {
   VIDEO: "/video",
   NOTIFICATIONS: "/notifications",
   SETTINGS: "/settings",
-  SOCIAL: "social",
+  SOCIAL: "/social",
+  SOCIAL_FEED: "/social",
+  SOCIAL_PROFILE: (userId?: string) =>
+    userId ? `/social/profile/${userId}` : "/social/profile",
 } as const;
 
 export type RoutePath = (typeof ROUTE_PATHS)[keyof typeof ROUTE_PATHS];
