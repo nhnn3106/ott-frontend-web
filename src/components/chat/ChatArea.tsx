@@ -1,7 +1,9 @@
 // src/components/Chat/ChatArea.tsx
-import React, { useEffect, useRef, useState } from "react"; // 1. Thêm useState
+import React, { useEffect, useRef, useState } from "react";
 import { useUser } from "../../contexts/UserContext";
+import { useConversations } from "../../contexts/ConversationsContext"; // Giữ từ bản 2
 import { useChat } from "../../hooks/useChat";
+import { ParticipantService } from "../../services"; // Giữ từ bản 2
 import type { ChatAreaProps } from "../../interfaces";
 
 // Components
@@ -18,16 +20,47 @@ import { MediaViewer } from "./ChatMessage/MediaViewer";
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   const { currentUser } = useUser();
+  const { updateParticipant } = useConversations(); // Logic "Đã xem"
   const { messages, loadMessages } = useChat(
     conversation?._id,
-    currentUser?._id,
+    currentUser?._id
   );
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastMarkedRef = useRef<string>("0"); // Logic "Đã xem"
 
+  // --- STATE QUẢN LÝ MEDIA VIEWER (Merge cả 2 bản) ---
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0); // Giữ từ bản 1
 
+  // --- LOGIC ĐÁNH DẤU ĐÃ ĐỌC (Bản 2) ---
+  useEffect(() => {
+    lastMarkedRef.current = "0";
+  }, [conversation?._id]);
+
+  useEffect(() => {
+    if (!messages.length || !currentUser?._id || !conversation?._id) return;
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg.msg_id) return;
+    if (lastMsg.msg_id === lastMarkedRef.current) return;
+
+    // Optimistic update
+    lastMarkedRef.current = lastMsg.msg_id;
+    updateParticipant(conversation._id, {
+      last_read_message_id: lastMsg.msg_id,
+    });
+
+    // Fallback localStorage
+    localStorage.setItem(`read_${conversation._id}_${currentUser._id}`, lastMsg.msg_id);
+
+    // Gọi API
+    ParticipantService.markAsRead(conversation._id, currentUser._id, lastMsg.msg_id)
+      .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  // --- HÀM MỞ VIEWER (Merge: nhận msgId và index) ---
   const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
     setSelectedMediaId(msgId);
     setSelectedImageIndex(imageIndex);
@@ -109,6 +142,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
         onSendSuccess={loadMessages}
       />
 
+      {/* Media Viewer - Giữ đầy đủ props từ cả 2 bản */}
       {viewerOpen && (
         <MediaViewer
           isOpen={viewerOpen}
