@@ -1,18 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import SearchBar from '../common/SearchBar';
-import ConversationList from '../conversations/ConversationList';
-import CategoryFilter from '../conversations/CategoryFilter';
-import CategoryManagementModal from '../modals/category/CategoryManagementModal';
-import LoadingSkeleton from '../common/LoadingSkeleton';
-import ErrorState from '../common/ErrorState';
-import CreateGroupModal from '../modals/group/CreateGroupModal';
-import { UserService } from '../../services/user.service';
-import { ConversationService } from '../../services/conversation.service';
-import { CategoryService } from '../../services';
-import { useConversations } from '../../contexts/ConversationsContext';
-import type { Conversation, ConversationWithParticipant, User } from '../../types';
-import type { SidebarProps } from '../../interfaces';
-import { MdOutlineGroupAdd, MdPersonAddAlt } from 'react-icons/md';
+import React, { useState, useEffect } from "react";
+import SearchBar from "../common/SearchBar";
+import ConversationList from "../conversations/ConversationList";
+import CategoryFilter from "../conversations/CategoryFilter";
+import CategoryManagementModal from "../modal/category/CategoryManagementModal";
+import LoadingSkeleton from "../common/LoadingSkeleton";
+import ErrorState from "../common/ErrorState";
+import CreateGroupModal from "../modal/group/CreateGroupModal";
+import { UserService } from "../../services/user.service";
+import { ConversationService } from "../../services/conversation.service";
+import { CategoryService } from "../../services";
+import { useConversations } from "../../contexts/ConversationsContext";
+import { useUser } from "../../contexts/UserContext";
+import type {
+  Conversation,
+  ConversationWithParticipant,
+  User,
+} from "../../types";
+import type { SidebarProps } from "../../interfaces";
+import { MdOutlineGroupAdd, MdPersonAddAlt } from "react-icons/md";
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   onConversationSelect, 

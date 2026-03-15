@@ -4,25 +4,23 @@ import Avatar from '../common/Avatar';
 import type { ChatAreaProps } from '../../interfaces';
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
-  const getConversationName = (): string => {
-    if (conversation.name) return conversation.name;
-    
-    if (conversation.type === 'private' && conversation.participants?.length > 0) {
-      return conversation.participants[0].display_name;
-    }
-    
-    return 'Conversation';
+  const { currentUser } = useUser();
+  const { messages, loadMessages } = useChat(conversation?._id, currentUser?._id);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // --- 🔥 3. THÊM STATE QUẢN LÝ MEDIA VIEWER ---
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+
+  // --- 🔥 4. THÊM HÀM MỞ VIEWER ---
+  const handleOpenMedia = (msgId: string) => {
+    setSelectedMediaId(msgId);
+    setViewerOpen(true);
   };
 
-  const getConversationAvatar = (): string | undefined => {
-    if (conversation.avatar) return conversation.avatar;
-    
-    if (conversation.type === 'private' && conversation.participants?.length > 0) {
-      return conversation.participants[0].avatar;
-    }
-    
-    return undefined;
-  };
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messages]);
 
   return (
     <div className="flex-1 flex flex-col bg-white">
