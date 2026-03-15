@@ -1,4 +1,4 @@
-import type { PostUser } from "../components/social/types";
+import type { User } from "../components/social/types";
 import type { UserProfile } from "../services/social.service";
 
 export const AVATAR_COLORS = [
@@ -10,7 +10,7 @@ export const AVATAR_COLORS = [
     "bg-sky-500",
 ] as const;
 
-export const DEFAULT_POST_USER: PostUser = {
+export const DEFAULT_USER: User = {
     id: "",
     name: "Người dùng",
     color: "bg-primary-500",
