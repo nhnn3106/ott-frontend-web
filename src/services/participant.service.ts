@@ -108,7 +108,7 @@ export class ParticipantService {
     userId: string,
   ): Promise<void> {
     const response = await fetch(
-      `${API_BASE_URL}/participants/delete-conversation`,
+      `${API_CHAT_SERVER_URL}/participants/delete-conversation`,
       {
         method: "PUT",
         headers: {

@@ -27,9 +27,7 @@ export class UserService {
         is_online: user.is_online || false,
         last_active_at: user.last_active_at || '',
         status: user.is_online ? "online" : "offline",
-        display_name: user.name,
         avatar_url: user.avatar || undefined,
-        status: user.is_online ? "online" : "offline",
       }));
     } catch (error) {
       console.error("Error fetching users:", error);
