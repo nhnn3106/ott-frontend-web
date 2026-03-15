@@ -1,7 +1,20 @@
-import React from 'react';
-import { MessageCircle, Send, Phone, Video, MoreVertical } from 'lucide-react';
-import Avatar from '../common/Avatar';
-import type { ChatAreaProps } from '../../interfaces';
+// src/components/Chat/ChatArea.tsx
+import React, { useEffect, useRef, useState } from "react"; // 1. Thêm useState
+import { useUser } from "../../contexts/UserContext";
+import { useChat } from "../../hooks/useChat";
+import type { ChatAreaProps } from "../../interfaces";
+
+// Components
+import { ChatHeader } from "./ChatHeader";
+import { ChatInput } from "./ChatInput";
+import { ChatEmpty } from "./ChatEmpty";
+import { ChatMessage } from "./ChatMessage";
+import { ChatNotification } from "./ChatNotification";
+import { ChatTimeSeparator } from "./ChatTimeSeparator";
+
+// Utils
+import { shouldShowTimestamp, formatChatTimestamp } from "../../utils";
+import { MediaViewer } from "./ChatMessage/MediaViewer";
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   const { currentUser } = useUser();
@@ -23,65 +36,87 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   }, [messages]);
 
   return (
-    <div className="flex-1 flex flex-col bg-white">
+    <div className="flex-1 flex flex-col bg-[#F2F4F7] h-full overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 bg-white">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Avatar 
-              src={getConversationAvatar()}
-              name={getConversationName()}
-              size={48}
-              className="ring-2 ring-gray-100"
-            />
-            <div>
-              <h2 className="font-semibold text-gray-900">{getConversationName()}</h2>
-              <p className="text-sm text-gray-500">
-                {conversation.type === 'group' 
-                  ? `${(conversation.participants?.length || 0) + 1} thành viên`
-                  : 'Đang hoạt động'
-                }
-              </p>
-            </div>
-          </div>
-          
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Phone className="w-5 h-5 text-gray-600" />
-            </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Video className="w-5 h-5 text-gray-600" />
-            </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <MoreVertical className="w-5 h-5 text-gray-600" />
-            </button>
-          </div>
-        </div>
+      <ChatHeader conversation={conversation} />
+
+      {/* Danh sách tin nhắn */}
+      <div className="flex-1 p-4 gap-2 overflow-y-auto custom-scrollbar flex flex-col">
+        <div className="flex-1 min-h-0" />
+
+        {messages.length === 0 ? (
+          <ChatEmpty />
+        ) : (
+          messages.map((msg, index) => {
+            const isSystemMsg = msg.type?.startsWith("system_");
+            const isMe = msg.sender_id === currentUser?._id;
+
+            const prevMsg = messages[index - 1];
+            const nextMsg = messages[index + 1];
+
+            const showTime = shouldShowTimestamp(
+              msg.createdAt || "",
+              prevMsg?.createdAt,
+            );
+
+            const nextShowTime = nextMsg
+              ? shouldShowTimestamp(nextMsg.createdAt || "", msg.createdAt)
+              : false;
+
+            const isFirstInSequence =
+              !prevMsg || prevMsg.sender_id !== msg.sender_id || showTime;
+            const isLastInSequence =
+              !nextMsg || nextMsg.sender_id !== msg.sender_id || nextShowTime;
+
+            return (
+              <React.Fragment key={msg._id}>
+                {/* A. Dòng thời gian */}
+                {showTime && (
+                  <ChatTimeSeparator
+                    time={formatChatTimestamp(msg.createdAt || "")}
+                  />
+                )}
+
+                {/* B. Nội dung tin nhắn */}
+                {isSystemMsg ? (
+                  <ChatNotification
+                    type={msg.type}
+                    content={msg.content[0]}
+                  />
+                ) : (
+                  <ChatMessage
+                    msg={msg}
+                    isMe={isMe}
+                    isFirstInSequence={isFirstInSequence}
+                    isLastInSequence={isLastInSequence}
+                    // 🔥 5. TRUYỀN HÀM MỞ MODAL XUỐNG DƯỚI
+                    onMediaClick={() => handleOpenMedia(msg._id)}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })
+        )}
+
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 p-4 bg-white overflow-y-auto">
-        <div className="text-center text-gray-500 py-8">
-          <MessageCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-          <p className="text-gray-900">Bắt đầu cuộc trò chuyện với {getConversationName()}</p>
-        </div>
-      </div>
+      {/* Ô nhập liệu */}
+      <ChatInput
+        conversationId={conversation._id}
+        senderId={currentUser?._id || ""}
+        onSendSuccess={loadMessages}
+      />
 
-      {/* Message Input */}
-      <div className="p-4 border-t border-gray-200 bg-white">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Nhập tin nhắn..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-          <button className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center gap-2">
-            <Send className="w-4 h-4" />
-            <span>Gửi</span>
-          </button>
-        </div>
-      </div>
+      {/* 🔥 6. RENDER MEDIA VIEWER Ở CUỐI CÙNG */}
+      {viewerOpen && (
+        <MediaViewer
+          isOpen={viewerOpen}
+          onClose={() => setViewerOpen(false)}
+          initialMessageId={selectedMediaId}
+          messages={messages}
+        />
+      )}
     </div>
   );
 };

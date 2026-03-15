@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+import { API_CHAT_SERVER_URL } from "../config/api.config";
 
 export class ParticipantService {
   /**
@@ -7,24 +7,27 @@ export class ParticipantService {
   static async updatePinStatus(
     conversationId: string,
     userId: string,
-    isPinned: boolean
+    isPinned: boolean,
   ): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/participants/pin`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(`${API_CHAT_SERVER_URL}/participants/pin`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
         body: JSON.stringify({
           conversationId,
           userId,
           isPinned,
         }),
       });
-      
+
       if (!response.ok) {
-        throw new Error('Failed to update pin status');
+        throw new Error("Failed to update pin status");
       }
     } catch (error) {
-      console.error('Error updating pin status:', error);
+      console.error("Error updating pin status:", error);
       throw error;
     }
   }
@@ -35,24 +38,27 @@ export class ParticipantService {
   static async updateConversationCategory(
     conversationId: string,
     userId: string,
-    categoryId: string | null
+    categoryId: string | null,
   ): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/participants/category`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          userId,
-          categoryId,
-        }),
-      });
-      
+      const response = await fetch(
+        `${API_CHAT_SERVER_URL}/participants/category`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId,
+            userId,
+            categoryId,
+          }),
+        },
+      );
+
       if (!response.ok) {
-        throw new Error('Failed to update category');
+        throw new Error("Failed to update category");
       }
     } catch (error) {
-      console.error('Error updating category:', error);
+      console.error("Error updating category:", error);
       throw error;
     }
   }
@@ -63,26 +69,32 @@ export class ParticipantService {
   static async updateNotificationSettings(
     conversationId: string,
     userId: string,
-    status: 'on' | 'mute' | 'off',
-    muteUntil?: Date | null
+    status: "on" | "mute" | "off",
+    muteUntil?: Date | null,
   ): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/participants/notification`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          userId,
-          status,
-          muteUntil,
-        }),
-      });
-      
+      const response = await fetch(
+        `${API_CHAT_SERVER_URL}/participants/notification`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+          },
+          body: JSON.stringify({
+            conversationId,
+            userId,
+            status,
+            muteUntil,
+          }),
+        },
+      );
+
       if (!response.ok) {
-        throw new Error('Failed to update notification settings');
+        throw new Error("Failed to update notification settings");
       }
     } catch (error) {
-      console.error('Error updating notification settings:', error);
+      console.error("Error updating notification settings:", error);
       throw error;
     }
   }
