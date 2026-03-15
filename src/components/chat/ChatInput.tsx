@@ -1,10 +1,4 @@
-import {
-  ImageIcon,
-  SendHorizonal,
-  Loader2,
-  Paperclip,
-  Smile,
-} from "lucide-react";
+import { ImageIcon, SendHorizonal, Loader2, Paperclip, Smile } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { MessageService } from "../../services";
 import type { ChatInputProps } from "../../types/message.type";
@@ -20,13 +14,11 @@ export const ChatInput = ({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  // Ref để kích hoạt input file ẩn
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Đóng emoji picker khi click bên ngoài
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -36,11 +28,9 @@ export const ChatInput = ({
         setShowEmojiPicker(false);
       }
     };
-
     if (showEmojiPicker) {
       document.addEventListener("mousedown", handleClickOutside);
     }
-
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
@@ -49,85 +39,100 @@ export const ChatInput = ({
   const handleSendText = async () => {
     if (!text.trim()) return;
     try {
-      await MessageService.sendMessage(
-        conversationId,
-        senderId,
-        text,
-        "text",
-        0,
-      );
+      await MessageService.sendMessage(conversationId, senderId, text, "text", 0);
       setText("");
       onSendSuccess();
-    } catch (error) {
+    } catch {
       alert("Gửi tin nhắn thất bại");
     }
   };
 
-  const handleFileUpload = async (file: File) => {
-    if (!file) return;
+  // Nhiều ảnh → 1 message với mảng keys
+  const uploadImages = async (files: File[]) => {
+    const MAX = 50 * 1024 * 1024;
+    const valid = files.filter((f) => {
+      if (f.size > MAX) { alert(`"${f.name}" quá lớn (giới hạn 50MB).`); return false; }
+      return true;
+    });
+    if (valid.length === 0) return;
 
-    // Kiểm tra kích thước file (giới hạn 50MB)
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-    if (file.size > MAX_FILE_SIZE) {
-      alert("File quá lớn! Vui lòng chọn file nhỏ hơn 50MB");
-      return;
-    }
-
+    setIsUploading(true);
+    setUploadProgress(10);
     try {
-      setIsUploading(true);
-      setUploadProgress(10);
-
-      // Bước 1: Xin link từ Backend
-      const { uploadUrl, fileCategory, key } =
-        await MessageService.getPresignedUrl(file.name, file.type);
-      setUploadProgress(30);
-
-      // Bước 2: Upload lên S3
-      await MessageService.uploadFileToS3(uploadUrl, file);
-      setUploadProgress(70);
-
-      // Bước 4: Lưu vào Database với fileName
-      await MessageService.sendMessage(
-        conversationId,
-        senderId,
-        key,
-        fileCategory,
-        file.size,
-        file.name,
+      const keys = await Promise.all(
+        valid.map(async (file) => {
+          const { uploadUrl, key } = await MessageService.getPresignedUrl(file.name, file.type);
+          await MessageService.uploadFileToS3(uploadUrl, file);
+          return key;
+        }),
       );
+      setUploadProgress(80);
+      await MessageService.sendMessage(conversationId, senderId, keys, "image", 0);
       setUploadProgress(100);
-
       onSendSuccess();
-    } catch (error) {
-      console.error(error);
-      alert("Lỗi khi upload file. Vui lòng thử lại!");
+    } catch (err) {
+      console.error(err);
+      alert("Lỗi khi upload ảnh. Vui lòng thử lại!");
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
     }
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      await handleFileUpload(file);
-      if (imageInputRef.current) imageInputRef.current.value = "";
+  // 1 file (video / tệp) → 1 message riêng
+  const uploadSingleFile = async (file: File) => {
+    const MAX = 50 * 1024 * 1024;
+    if (file.size > MAX) { alert(`"${file.name}" quá lớn (giới hạn 50MB).`); return; }
+
+    setIsUploading(true);
+    setUploadProgress(10);
+    try {
+      const { uploadUrl, fileCategory, key } = await MessageService.getPresignedUrl(file.name, file.type);
+      setUploadProgress(40);
+      await MessageService.uploadFileToS3(uploadUrl, file);
+      setUploadProgress(70);
+      await MessageService.sendMessage(conversationId, senderId, key, fileCategory, file.size, file.name);
+      setUploadProgress(100);
+      onSendSuccess();
+    } catch (err) {
+      console.error(err);
+      alert(`Lỗi khi upload "${file.name}".`);
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      await handleFileUpload(file);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+  // --- Handlers (luôn sync để giữ FileList còn hiệu lực) ---
+
+  // Icon ảnh: chỉ ảnh, nhiều cái → 1 message
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length > 0) uploadImages(files);
+  };
+
+  // Icon tệp: mọi loại file
+  // - ảnh → gom nhóm → 1 message
+  // - video / file khác → mỗi cái 1 message (tuần tự)
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const others = files.filter((f) => !f.type.startsWith("image/"));
+
+    const run = async () => {
+      if (images.length > 0) await uploadImages(images);
+      for (const file of others) await uploadSingleFile(file);
+    };
+    run();
   };
 
   const handleEmojiClick = (emoji: string) => {
-    // Chèn emoji vào input để user thấy
     setText((prev) => prev + emoji);
     setShowEmojiPicker(false);
-    // Focus vào input sau khi chọn emoji
     inputRef.current?.focus();
   };
 
@@ -141,9 +146,7 @@ export const ChatInput = ({
           style={{ width: "360px", maxHeight: "320px" }}
         >
           <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
-            <span className="text-sm font-medium text-gray-700">
-              Chọn emoji
-            </span>
+            <span className="text-sm font-medium text-gray-700">Chọn emoji</span>
             <button
               onClick={() => setShowEmojiPicker(false)}
               className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -183,36 +186,38 @@ export const ChatInput = ({
             <div
               className="bg-[#EFDCCB] h-1.5 rounded-full transition-all duration-300"
               style={{ width: `${uploadProgress}%` }}
-            ></div>
+            />
           </div>
         </div>
       )}
 
       <div className="flex items-center gap-2 bg-gray-50 px-2 py-1.5 rounded-full border border-gray-200">
-        {/* Input ảnh/video ẩn */}
+        {/* Input ẩn — chỉ ảnh, nhiều file */}
         <input
           type="file"
           ref={imageInputRef}
           className="hidden"
-          accept="image/*,video/*"
+          accept="image/*"
+          multiple
           onChange={handleImageChange}
         />
 
-        {/* Input file ẩn */}
+        {/* Input ẩn — mọi loại file, nhiều file */}
         <input
           type="file"
           ref={fileInputRef}
           className="hidden"
           accept="*/*"
+          multiple
           onChange={handleFileChange}
         />
 
-        {/* Nút upload ảnh/video */}
+        {/* Nút gửi ảnh */}
         <button
           onClick={() => imageInputRef.current?.click()}
           disabled={isUploading}
           className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
-          title="Tải lên ảnh hoặc video"
+          title="Gửi ảnh (nhiều ảnh = 1 tin nhắn)"
         >
           {isUploading ? (
             <Loader2 size={20} className="animate-spin" />
@@ -221,12 +226,12 @@ export const ChatInput = ({
           )}
         </button>
 
-        {/* Nút upload file */}
+        {/* Nút gửi tệp (ảnh/video/file đều được) */}
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
           className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
-          title="Tải lên file"
+          title="Gửi tệp (ảnh/video/file — có thể chọn nhiều)"
         >
           <Paperclip size={20} />
         </button>
@@ -245,12 +250,8 @@ export const ChatInput = ({
           ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) =>
-            e.key === "Enter" && !isUploading && handleSendText()
-          }
-          placeholder={
-            isUploading ? "Đang tải file lên..." : "Nhập tin nhắn..."
-          }
+          onKeyDown={(e) => e.key === "Enter" && !isUploading && handleSendText()}
+          placeholder={isUploading ? "Đang tải lên..." : "Nhập tin nhắn..."}
           disabled={isUploading}
           className="flex-1 bg-transparent border-none focus:ring-0 outline-none text-sm"
         />

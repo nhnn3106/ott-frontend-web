@@ -18,16 +18,19 @@ import { MediaViewer } from "./ChatMessage/MediaViewer";
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   const { currentUser } = useUser();
-  const { messages, loadMessages } = useChat(conversation?._id, currentUser?._id);
+  const { messages, loadMessages } = useChat(
+    conversation?._id,
+    currentUser?._id,
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // --- 🔥 3. THÊM STATE QUẢN LÝ MEDIA VIEWER ---
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
-  // --- 🔥 4. THÊM HÀM MỞ VIEWER ---
-  const handleOpenMedia = (msgId: string) => {
+  const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
     setSelectedMediaId(msgId);
+    setSelectedImageIndex(imageIndex);
     setViewerOpen(true);
   };
 
@@ -79,18 +82,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
 
                 {/* B. Nội dung tin nhắn */}
                 {isSystemMsg ? (
-                  <ChatNotification
-                    type={msg.type}
-                    content={msg.content[0]}
-                  />
+                  <ChatNotification type={msg.type} content={msg.content[0]} />
                 ) : (
                   <ChatMessage
                     msg={msg}
                     isMe={isMe}
                     isFirstInSequence={isFirstInSequence}
                     isLastInSequence={isLastInSequence}
-                    // 🔥 5. TRUYỀN HÀM MỞ MODAL XUỐNG DƯỚI
-                    onMediaClick={() => handleOpenMedia(msg._id)}
+                    onMediaClick={(imageIndex) =>
+                      handleOpenMedia(msg._id, imageIndex)
+                    }
                   />
                 )}
               </React.Fragment>
@@ -108,12 +109,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
         onSendSuccess={loadMessages}
       />
 
-      {/* 🔥 6. RENDER MEDIA VIEWER Ở CUỐI CÙNG */}
       {viewerOpen && (
         <MediaViewer
           isOpen={viewerOpen}
           onClose={() => setViewerOpen(false)}
           initialMessageId={selectedMediaId}
+          initialImageIndex={selectedImageIndex}
           messages={messages}
         />
       )}
