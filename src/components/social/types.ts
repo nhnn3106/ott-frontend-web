@@ -3,7 +3,7 @@ export interface PostMediaItem {
     url: string;
 }
 
-export interface PostUser {
+export interface User {
     id: string;
     name: string;
     avatar?: string;
@@ -12,7 +12,7 @@ export interface PostUser {
 
 export interface Post {
     id: string;
-    author: PostUser;
+    author: User;
     time: string;
     content: string;
     media: PostMediaItem[];

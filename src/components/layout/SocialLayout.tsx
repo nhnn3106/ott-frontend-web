@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import type { Post, PostUser, StoryItem } from "../social/types";
+import type { Post, User, StoryItem } from "../social/types";
 import type { UploadedMedia } from "../social/CreatePostModal";
 import {
   fetchPostsWithPage,
@@ -9,32 +9,16 @@ import {
   fetchUserReactions,
   fetchPostReactions,
 } from "../../services/post.service";
-import { fetchUsers } from "../../services/social.service";
+import { fetchUserById, fetchUsers } from "../../services/social.service";
 import SocialLeftSidebar from "../social/SocialLeftSidebar";
 import PostFeed from "../social/PostFeed";
 import SocialRightSidebar from "../social/SocialRightSidebar";
 import CreatePostModal from "../social/CreatePostModal";
-
-/* ─── Avatar colour palette (fallback cho avatar DB users) ──── */
-const AVATAR_COLORS = [
-  "bg-primary-500",
-  "bg-emerald-500",
-  "bg-rose-500",
-  "bg-amber-500",
-  "bg-violet-500",
-  "bg-sky-500",
-];
-
-/* ─── Placeholder khi chưa fetch được user từ backend ─── */
-const DEFAULT_USER: PostUser = {
-  id: "",
-  name: "Người dùng",
-  color: "bg-primary-500",
-};
+import { AVATAR_COLORS, DEFAULT_USER } from "../../constants/social.constants";
 
 const SocialLayout: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [currentUser, setCurrentUser] = useState<PostUser>(DEFAULT_USER);
+  const [currentUser, setCurrentUser] = useState<User>(DEFAULT_USER);
   const [stories, setStories] = useState<StoryItem[]>([]);
   /** postId → reactionKey ("like" | "love" | ...) của user hiện tại */
   const [userReactionMap, setUserReactionMap] = useState<
@@ -63,9 +47,9 @@ const SocialLayout: React.FC = () => {
     (async () => {
       try {
         // 1. Lấy danh sách users → user[0] là "mình" (current session)
-        const users = await fetchUsers();
-        const me = users[0];
-        const dbCurrentUser: PostUser | undefined =
+        const me = await fetchUserById("usr_002");
+
+        const dbCurrentUser: User | undefined =
           me ?
             {
               id: me.id,
@@ -79,6 +63,9 @@ const SocialLayout: React.FC = () => {
           setCurrentUser(dbCurrentUser);
           currentUserRef.current = dbCurrentUser;
         }
+
+        // phần user này giả lập cho các stories hiện thị trên feed
+        const users = await fetchUsers();
 
         // 2. Các user còn lại → Stories (tối đa 5 người)
         const dbStories: StoryItem[] = users.slice(1, 6).map((u) => ({

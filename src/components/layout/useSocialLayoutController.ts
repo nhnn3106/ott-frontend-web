@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Post, PostUser, StoryItem } from "../social/types";
+import type { Post, User, StoryItem } from "../social/types";
 import type { UploadedMedia } from "../social/CreatePostModal";
 import {
     createPost,
@@ -10,11 +10,11 @@ import {
     toggleLike,
 } from "../../services/post.service";
 import { fetchUsers } from "../../services/social.service";
-import { AVATAR_COLORS, DEFAULT_POST_USER } from "../../constants/social.constants";
+import { AVATAR_COLORS, DEFAULT_USER } from "../../constants/social.constants";
 
 export function useSocialLayoutController() {
     const [posts, setPosts] = useState<Post[]>([]);
-    const [currentUser, setCurrentUser] = useState<PostUser>(DEFAULT_POST_USER);
+    const [currentUser, setCurrentUser] = useState<User>(DEFAULT_USER);
     const [stories, setStories] = useState<StoryItem[]>([]);
     const [userReactionMap, setUserReactionMap] = useState<Record<string, string>>(
         {},
@@ -32,7 +32,7 @@ export function useSocialLayoutController() {
 
     const pageRef = useRef(0);
     const containerRef = useRef<HTMLDivElement>(null);
-    const currentUserRef = useRef<PostUser>(DEFAULT_POST_USER);
+    const currentUserRef = useRef<User>(DEFAULT_USER);
 
     const openModal = useCallback((withFeeling = false) => {
         setOpenWithFeeling(withFeeling);
@@ -50,7 +50,7 @@ export function useSocialLayoutController() {
                 const users = await fetchUsers();
                 const me = users[0];
 
-                const dbCurrentUser: PostUser | undefined =
+                const dbCurrentUser: User | undefined =
                     me
                         ? {
                             id: me.id,
