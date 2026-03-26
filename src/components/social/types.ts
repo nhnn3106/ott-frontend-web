@@ -10,6 +10,8 @@ export interface User {
     color: string;
 }
 
+export type PostUser = User;
+
 export interface Post {
     id: string;
     author: User;

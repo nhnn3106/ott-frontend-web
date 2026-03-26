@@ -22,7 +22,7 @@ import {
 } from "../../services/post.service";
 import type { Post, PostUser } from "../../components/social/types";
 import PostCard from "../../components/social/PostCard";
-import type { ReactionKey } from "../../components/social/PostCard";
+import type { ReactionKey } from "../../components/social/post/reactions";
 import {
   fetchUsers,
   fetchUserById,
