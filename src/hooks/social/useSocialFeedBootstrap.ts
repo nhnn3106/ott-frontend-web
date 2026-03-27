@@ -5,16 +5,15 @@ import {
     fetchPostReactions,
     findPostsWithAuthorized,
 } from "../../services/post.service";
-import { fetchUserById, fetchUsers } from "../../services/social.service";
+import { fetchUserById } from "../../services/social.service";
 import { AVATAR_COLORS } from "../../constants/social.constants";
-import type { Post, StoryItem, User } from "../../components/social/types";
+import type { Post, User } from "../../components/social/types";
 
 type ReactionCountsMap = Record<string, Record<string, number>>;
 
 type Params = {
     setPosts: React.Dispatch<React.SetStateAction<Post[]>>;
     setCurrentUser: React.Dispatch<React.SetStateAction<User>>;
-    setStories: React.Dispatch<React.SetStateAction<StoryItem[]>>;
     setUserReactionMap: React.Dispatch<
         React.SetStateAction<Record<string, string>>
     >;
@@ -30,7 +29,6 @@ type Params = {
 export const useSocialFeedBootstrap = ({
     setPosts,
     setCurrentUser,
-    setStories,
     setUserReactionMap,
     setPostReactionCountsMap,
     setHasMore,
@@ -56,14 +54,6 @@ export const useSocialFeedBootstrap = ({
                     setCurrentUser(dbCurrentUser);
                     currentUserRef.current = dbCurrentUser;
                 }
-
-                const users = await fetchUsers();
-                const dbStories: StoryItem[] = users.slice(1, 6).map((u) => ({
-                    id: u.id,
-                    name: u.displayName ?? u.username,
-                    isBirthday: false,
-                }));
-                setStories(dbStories);
 
                 const result = await findPostsWithAuthorized(
                     0,
@@ -111,7 +101,6 @@ export const useSocialFeedBootstrap = ({
         setLoadingDB,
         setPostReactionCountsMap,
         setPosts,
-        setStories,
         setUserReactionMap,
     ]);
 };

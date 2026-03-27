@@ -18,7 +18,6 @@ const SocialFeed: React.FC = () => {
   const {
     posts,
     currentUser,
-    stories,
     userReactionMap,
     postReactionCountsMap,
     isModalOpen,
@@ -47,10 +46,7 @@ const SocialFeed: React.FC = () => {
               onOpenModal={() => openModal(false)}
               onOpenWithFeeling={() => openModal(true)}
             />
-            <StoryFeed
-              stories={stories}
-              currentUserAvatar={currentUser.avatar ?? ""}
-            />
+            <StoryFeed currentUserAvatar={currentUser.avatar ?? ""} />
             <PostFeed
               posts={posts}
               userReactionMap={userReactionMap}

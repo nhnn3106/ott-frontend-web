@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 
 import { DEFAULT_USER } from "../constants/social.constants";
-import type { Post, StoryItem, User } from "../components/social/types";
+import type { Post, User } from "../components/social/types";
 import { useSocialFeedModal } from "./social/useSocialFeedModal";
 import { useSocialFeedBootstrap } from "./social/useSocialFeedBootstrap";
 import { useSocialFeedPagination } from "./social/useSocialFeedPagination";
@@ -10,7 +10,6 @@ import { useSocialFeedActions } from "./social/useSocialFeedActions";
 export const useSocialFeed = () => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [currentUser, setCurrentUser] = useState<User>(DEFAULT_USER);
-    const [stories, setStories] = useState<StoryItem[]>([]);
     const [userReactionMap, setUserReactionMap] = useState<
         Record<string, string>
     >({});
@@ -31,7 +30,6 @@ export const useSocialFeed = () => {
     useSocialFeedBootstrap({
         setPosts,
         setCurrentUser,
-        setStories,
         setUserReactionMap,
         setPostReactionCountsMap,
         setHasMore,
@@ -62,7 +60,6 @@ export const useSocialFeed = () => {
     return {
         posts,
         currentUser,
-        stories,
         userReactionMap,
         postReactionCountsMap,
         isModalOpen,
