@@ -8,6 +8,7 @@ import {
   deletePost,
   fetchUserReactions,
   fetchPostReactions,
+  findPostsWithAuthorized,
 } from "../../services/post.service";
 import { fetchUserById, fetchUsers } from "../../services/social.service";
 import SocialLeftSidebar from "../social/SocialLeftSidebar";
@@ -76,7 +77,11 @@ const SocialLayout: React.FC = () => {
         setStories(dbStories);
 
         // 3. Lấy trang 0 posts từ DB
-        const result = await fetchPostsWithPage(0, 5, dbCurrentUser?.id ?? "");
+        const result = await findPostsWithAuthorized(
+          0,
+          5,
+          dbCurrentUser?.id ?? "",
+        );
         if (result && result.posts.length > 0) {
           setPosts(result.posts);
           pageRef.current = 0;
