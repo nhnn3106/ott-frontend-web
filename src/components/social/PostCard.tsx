@@ -122,7 +122,7 @@ const PostCard: React.FC<Props> = ({
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-4">
       {/* Relationship badge */}
       <RelationshipBadge
         relationship={post.relationship}

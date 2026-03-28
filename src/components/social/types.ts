@@ -6,6 +6,7 @@ export interface PostMediaItem {
 export interface User {
     id: string;
     name: string;
+    displayName: string;
     avatar?: string;
     color: string;
 }
