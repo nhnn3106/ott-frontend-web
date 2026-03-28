@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { MessageCircle } from "lucide-react";
-import Sidebar from "../components/sidebar/Sidebar";
+import Sidebar from "../components/chat/ChatSidebarLeft";
 import { ConversationsProvider } from "../contexts/ConversationsContext";
 import type { Conversation, ConversationWithParticipant } from "../types";
 import { ChatArea } from "../components";

@@ -1,9 +1,18 @@
 import React from "react";
-import { Phone, Video, MoreVertical } from "lucide-react";
+import { Phone, Video, PanelRightOpen, PanelRightClose } from "lucide-react";
 import Avatar from "../common/Avatar";
 import type { ChatAreaProps } from "../../interfaces";
 
-export const ChatHeader: React.FC<ChatAreaProps> = ({ conversation }) => {
+interface ChatHeaderProps extends ChatAreaProps {
+  isSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
+}
+
+export const ChatHeader: React.FC<ChatHeaderProps> = ({ 
+  conversation,
+  isSidebarOpen = false,
+  onToggleSidebar,
+}) => {
   const getConversationName = (): string => {
     if (conversation.name) return conversation.name;
     if (conversation.type === "private" && conversation.participants?.length) {
@@ -50,8 +59,18 @@ export const ChatHeader: React.FC<ChatAreaProps> = ({ conversation }) => {
           <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
             <Video size={20} />
           </button>
-          <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
-            <MoreVertical size={20} />
+          <button 
+            onClick={onToggleSidebar}
+            className={`p-2 hover:bg-gray-50 rounded-full transition-colors ${
+              isSidebarOpen ? "bg-primary-50 text-primary-500" : ""
+            }`}
+            title={isSidebarOpen ? "Đóng thông tin" : "Mở thông tin"}
+          >
+            {isSidebarOpen ? (
+              <PanelRightClose size={20} />
+            ) : (
+              <PanelRightOpen size={20} />
+            )}
           </button>
         </div>
       </div>

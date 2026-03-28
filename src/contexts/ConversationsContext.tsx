@@ -59,7 +59,23 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({ ch
     setConversations(prev => 
       prev.map(item => 
         item.conversation._id === conversationId 
-          ? { ...item, participant: { ...item.participant, ...updates } }
+          ? (() => {
+              const mergedParticipant = { ...item.participant, ...updates };
+
+              // If caller updates last_read_message_id but doesn't send unread_count,
+              // keep unread badge consistent with read status in real-time.
+              if (updates.last_read_message_id !== undefined && updates.unread_count === undefined) {
+                const lastMsgId = item.conversation.last_message?.msg_id || "0";
+                const lastReadId = updates.last_read_message_id || "0";
+
+                mergedParticipant.unread_count =
+                  lastMsgId !== "0" && BigInt(lastMsgId) > BigInt(lastReadId)
+                    ? mergedParticipant.unread_count || 1
+                    : 0;
+              }
+
+              return { ...item, participant: mergedParticipant };
+            })()
           : item
       )
     );
@@ -82,6 +98,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({ ch
         last_read_message_id: '0',
         last_read_at: new Date().toISOString(),
         deleted_msg_id: "0",
+        unread_count: 0,
         joined_at: new Date().toISOString(),
         roles: 'user',
       },
@@ -119,6 +136,12 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({ ch
       }
 
       const existing = prev[targetIndex];
+      const isIncomingFromOther =
+        String(message.sender_id || "") !== String(existing.participant.user_id || "");
+
+      const currentUnread = Number(existing.participant.unread_count || 0);
+      const nextUnread = isIncomingFromOther ? currentUnread + 1 : currentUnread;
+
       const updated: ConversationWithParticipant = {
         ...existing,
         conversation: {
@@ -132,6 +155,10 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({ ch
             createdAt:   message.createdAt || new Date().toISOString(),
           },
           updatedAt: new Date().toISOString(),
+        },
+        participant: {
+          ...existing.participant,
+          unread_count: nextUnread,
         },
       };
 
