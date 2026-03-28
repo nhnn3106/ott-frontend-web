@@ -3,7 +3,18 @@ import { Phone, Video, MoreVertical } from "lucide-react";
 import Avatar from "../common/Avatar";
 import type { ChatAreaProps } from "../../interfaces";
 
-export const ChatHeader: React.FC<ChatAreaProps> = ({ conversation }) => {
+interface ChatHeaderProps extends ChatAreaProps {
+  onStartVoiceCall?: () => void;
+  onStartVideoCall?: () => void;
+  disableCallActions?: boolean;
+}
+
+export const ChatHeader: React.FC<ChatHeaderProps> = ({
+  conversation,
+  onStartVoiceCall,
+  onStartVideoCall,
+  disableCallActions = false,
+}) => {
   const getConversationName = (): string => {
     if (conversation.name) return conversation.name;
     if (conversation.type === "private" && conversation.participants?.length) {
@@ -44,10 +55,20 @@ export const ChatHeader: React.FC<ChatAreaProps> = ({ conversation }) => {
         </div>
 
         <div className="flex gap-1 text-gray-600">
-          <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+          <button
+            className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={onStartVoiceCall}
+            disabled={disableCallActions}
+            title="Gọi thoại"
+          >
             <Phone size={20} />
           </button>
-          <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+          <button
+            className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={onStartVideoCall}
+            disabled={disableCallActions}
+            title="Gọi video"
+          >
             <Video size={20} />
           </button>
           <button className="p-2 hover:bg-gray-50 rounded-full transition-colors">

@@ -21,11 +21,47 @@ import type { Message } from "../../types";
 
 const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   const { currentUser } = useUser();
+  const normalizedUserId = currentUser?.user_id || currentUser?._id;
   const { updateParticipant } = useConversations(); // Logic "Đã xem"
   const { messages, loadMessages } = useChat(
     conversation?._id,
-    currentUser?._id,
+    normalizedUserId,
   );
+  const [isOpeningCall, setIsOpeningCall] = useState(false);
+  const getConversationName = () => {
+    if (conversation.name) return conversation.name;
+    if (conversation.type === "private" && conversation.participants?.length) {
+      return conversation.participants[0].display_name || "Hoi thoai";
+    }
+    return "Hoi thoai";
+  };
+
+  const openCallWindow = (
+    type: "voice" | "video",
+    action: "start" | "join" = "start",
+  ) => {
+    if (!conversation?._id) return;
+
+    const params = new URLSearchParams({
+      conversationId: conversation._id,
+      type,
+      action,
+      name: getConversationName(),
+    });
+
+    setIsOpeningCall(true);
+    const callWindow = window.open(
+      `/call?${params.toString()}`,
+      "riff-call-window",
+      "width=1180,height=760,menubar=no,toolbar=no,location=no,status=no",
+    );
+
+    if (!callWindow) {
+      window.location.href = `/call?${params.toString()}`;
+    }
+
+    setTimeout(() => setIsOpeningCall(false), 500);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastMarkedRef = useRef<string>("0"); // Logic "Đã xem"
@@ -43,7 +79,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   }, [conversation?._id]);
 
   useEffect(() => {
-    if (!messages.length || !currentUser?._id || !conversation?._id) return;
+    if (!messages.length || !normalizedUserId || !conversation?._id) return;
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg.msg_id) return;
     if (lastMsg.msg_id === lastMarkedRef.current) return;
@@ -56,18 +92,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
 
     // Fallback localStorage
     localStorage.setItem(
-      `read_${conversation._id}_${currentUser._id}`,
+      `read_${conversation._id}_${normalizedUserId}`,
       lastMsg.msg_id,
     );
 
     // Gọi API
     ParticipantService.markAsRead(
       conversation._id,
-      currentUser._id,
+      normalizedUserId,
       lastMsg.msg_id,
     ).catch(console.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages]);
+  }, [messages, normalizedUserId, conversation?._id, updateParticipant]);
 
   // --- HÀM MỞ VIEWER (Merge: nhận msgId và index) ---
   const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
@@ -81,13 +117,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   };
 
   const handleReactMessage = async (msg: Message, reactionType: string) => {
-    if (!conversation?._id || !currentUser?._id || !msg.msg_id) return;
+    if (!conversation?._id || !normalizedUserId || !msg.msg_id) return;
 
     try {
       await MessageService.reactToMessage(
         conversation._id,
         msg.msg_id,
-        currentUser._id,
+        normalizedUserId,
         reactionType,
       );
     } catch (error) {
@@ -100,9 +136,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
   }, [messages]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#F2F4F7] h-full overflow-hidden">
+    <div className="relative flex-1 flex flex-col bg-[#F2F4F7] h-full overflow-hidden">
       {/* Header */}
-      <ChatHeader conversation={conversation} />
+      <ChatHeader
+        conversation={conversation}
+        onStartVoiceCall={() => openCallWindow("voice")}
+        onStartVideoCall={() => openCallWindow("video")}
+        disableCallActions={isOpeningCall}
+      />
 
       {/* Danh sách tin nhắn */}
       <div className="flex-1 p-4 gap-2 overflow-y-auto custom-scrollbar flex flex-col">
@@ -148,7 +189,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
                   <ChatMessage
                     msg={msg}
                     isMe={isMe}
-                    currentUserId={currentUser?._id}
+                    currentUserId={normalizedUserId}
                     isFirstInSequence={isFirstInSequence}
                     isLastInSequence={isLastInSequence}
                     onMediaClick={(imageIndex) =>
@@ -169,7 +210,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ conversation }) => {
       {/* Ô nhập liệu */}
       <ChatInput
         conversationId={conversation._id}
-        senderId={currentUser?._id || ""}
+        senderId={normalizedUserId || ""}
         onSendSuccess={loadMessages}
         replyToMessage={replyToMessage}
         onCancelReply={() => setReplyToMessage(null)}
