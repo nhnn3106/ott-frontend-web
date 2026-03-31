@@ -45,6 +45,10 @@ export interface ApiStoryItemResponse {
     imageItem?: {
         url?: string | null;
     } | null;
+    videoItem?: {
+        url?: string | null;
+        thumbnailUrl?: string | null;
+    } | null;
     textItem?: {
         content?: string | null;
         backgroundColor?: string | null;
@@ -62,6 +66,11 @@ export interface StoryCreateRequest {
     hashTags?: string[];
     accessControls?: unknown[];
     mentions?: unknown[];
+}
+
+export interface StoryUploadResponse {
+    storyItemId?: string | null;
+    fileKey: string;
 }
 
 function unwrapList<T>(json: unknown): T[] {
@@ -108,23 +117,31 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
         avatarUrl: group.accountAvatarUrl ?? undefined,
         stories: group.stories.map((story) => {
             const firstRenderableItem = story.storyItems?.find(
-                (item) => item?.type === "TEXT_ITEM" || item?.type === "IMAGE_ITEM",
+                (item) =>
+                    item?.type === "TEXT_ITEM" ||
+                    item?.type === "IMAGE_ITEM" ||
+                    item?.type === "VIDEO_ITEM",
             );
 
             const textContent =
                 firstRenderableItem?.type === "TEXT_ITEM" ?
                     firstRenderableItem.textItem?.content ?? undefined
-                : undefined;
+                    : undefined;
 
             const textBackgroundColor =
                 firstRenderableItem?.type === "TEXT_ITEM" ?
                     firstRenderableItem.textItem?.backgroundColor ?? undefined
-                : undefined;
+                    : undefined;
 
             const imageUrl =
                 firstRenderableItem?.type === "IMAGE_ITEM" ?
                     firstRenderableItem.imageItem?.url ?? undefined
-                : undefined;
+                    : undefined;
+
+            const videoUrl =
+                firstRenderableItem?.type === "VIDEO_ITEM" ?
+                    firstRenderableItem.videoItem?.url ?? undefined
+                    : undefined;
 
             return {
                 id: story.id,
@@ -134,11 +151,13 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
                 avatarUrl: story.accountAvatarUrl ?? group.accountAvatarUrl ?? undefined,
                 contentType:
                     firstRenderableItem?.type === "TEXT_ITEM" ? "TEXT"
-                    : firstRenderableItem?.type === "IMAGE_ITEM" ? "IMAGE"
-                    : "UNKNOWN",
+                        : firstRenderableItem?.type === "IMAGE_ITEM" ? "IMAGE"
+                            : firstRenderableItem?.type === "VIDEO_ITEM" ? "VIDEO"
+                                : "UNKNOWN",
                 textContent,
                 textBackgroundColor,
                 imageUrl,
+                videoUrl,
             };
         }),
     }));
@@ -205,6 +224,26 @@ export async function createStory(request: StoryCreateRequest): Promise<ApiStory
         });
         if (!res.ok) return null;
         return (await res.json()) as ApiStory;
+    } catch {
+        return null;
+    }
+}
+
+export async function uploadStoryMedia(file: File, storyItemId?: string): Promise<StoryUploadResponse | null> {
+    try {
+        const formData = new FormData();
+        formData.append("file", file);
+        if (storyItemId) {
+            formData.append("storyItemId", storyItemId);
+        }
+
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/stories/upload`, {
+            method: "POST",
+            body: formData,
+            signal: AbortSignal.timeout(15_000),
+        });
+        if (!res.ok) return null;
+        return (await res.json()) as StoryUploadResponse;
     } catch {
         return null;
     }

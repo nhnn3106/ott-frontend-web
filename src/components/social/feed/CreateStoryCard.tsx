@@ -1,5 +1,6 @@
 import React from "react";
 import { Plus } from "lucide-react";
+import fallbackAvatar from "../../../assets/avatar.png";
 
 interface Props {
   currentUserAvatar: string;
@@ -20,7 +21,7 @@ const CreateStoryCard: React.FC<Props> = ({ currentUserAvatar, onClick }) => (
     }}>
     <div className="w-full h-[72%] overflow-hidden">
       <img
-        src={currentUserAvatar}
+        src={currentUserAvatar || fallbackAvatar}
         alt="create"
         className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
       />
