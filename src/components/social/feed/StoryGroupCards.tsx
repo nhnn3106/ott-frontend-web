@@ -41,7 +41,7 @@ const StoryGroupCards: React.FC<Props> = ({
           }}
           className="shrink-0 w-27.5 h-48 rounded-xl overflow-hidden relative cursor-pointer group shadow">
           <div
-            className={`absolute inset-0 bg-linear-to-br ${GRADIENTS[i % GRADIENTS.length]}`}
+            className={`absolute inset-0 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}
           />
           <img
             src={storyAvatar}

@@ -33,10 +33,11 @@ export interface StoryItem {
     isBirthday: boolean;
     userId?: string;
     avatarUrl?: string;
-    contentType?: "TEXT" | "IMAGE" | "UNKNOWN";
+    contentType?: "TEXT" | "IMAGE" | "VIDEO" | "UNKNOWN";
     textContent?: string;
     textBackgroundColor?: string;
     imageUrl?: string;
+    videoUrl?: string;
 }
 
 export interface StoryUserGroup {

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { StoryItem, StorySuggestedUser, StoryUserGroup } from "./types";
 import CreateStoryCard from "./feed/CreateStoryCard";
 import StoryGroupCards from "./feed/StoryGroupCards";
@@ -21,6 +21,17 @@ const StoryReel: React.FC<Props> = ({
 }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (suggestedUsers.length === 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const shouldShow = el.scrollWidth <= el.clientWidth + 4;
+    if (shouldShow) {
+      setShowSuggestions(true);
+    }
+  }, [storyGroups.length, suggestedUsers.length]);
 
   const handleScroll = () => {
     const el = scrollRef.current;
