@@ -2,7 +2,8 @@ import { useCallback } from "react";
 
 import { createPost, deletePost, toggleLike } from "../../services/post.service";
 import type { Post, User } from "../../components/social/types";
-import type { UploadedMedia } from "../../components/social/CreatePostModal";
+import type { UploadedMedia } from "../../components/social/create-post";
+
 
 type Params = {
     currentUser: User;
