@@ -74,7 +74,12 @@ export const useSocialFeedActions = ({
     );
 
     const handleNewPost = useCallback(
-        async (content: string, media: UploadedMedia[], visibility: string) => {
+        async (
+            content: string,
+            media: UploadedMedia[],
+            visibility: string,
+            accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[],
+        ) => {
             if (!currentUser.id) return;
             const tempId = `temp-${Date.now()}`;
             const optimisticPost: Post = {
@@ -99,6 +104,7 @@ export const useSocialFeedActions = ({
                 visibility,
                 files,
                 captions,
+                accessControls,
             );
 
             if (saved) {

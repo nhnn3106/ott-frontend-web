@@ -20,6 +20,28 @@ export interface ApiUser {
     relationshipStatus: string | null;
 }
 
+export interface ApiRelationshipResponse {
+    id: string;
+    requesterId: string;
+    requesterUsername: string;
+    requesterAvatarUrl: string | null;
+    receiverId: string;
+    receiverUsername: string;
+    receiverAvatarUrl: string | null;
+}
+
+export interface FriendOption {
+    id: string;
+    name: string;
+    avatarUrl?: string;
+}
+
+export interface FriendRequestOption {
+    id: string;
+    name: string;
+    avatarUrl?: string;
+}
+
 /* ─── Public API ──────────────────────────────────────── */
 
 /**
@@ -68,6 +90,90 @@ export async function fetchUserById(id: string): Promise<ApiUser | null> {
         return (await res.json()) as ApiUser;
     } catch {
         return null;
+    }
+}
+
+export async function fetchFriends(userId: string): Promise<FriendOption[]> {
+    try {
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/relationships/friends/${userId}`, {
+            signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) return [];
+        const raw = (await res.json()) as ApiRelationshipResponse[];
+        if (!Array.isArray(raw)) return [];
+        return raw.map((rel) => {
+            const isRequester = rel.requesterId === userId;
+            return {
+                id: isRequester ? rel.receiverId : rel.requesterId,
+                name: isRequester ? rel.receiverUsername : rel.requesterUsername,
+                avatarUrl: isRequester ? rel.receiverAvatarUrl ?? undefined : rel.requesterAvatarUrl ?? undefined,
+            };
+        });
+    } catch {
+        return [];
+    }
+}
+
+export async function fetchPendingRequests(
+    userId: string,
+): Promise<FriendRequestOption[]> {
+    try {
+        const res = await fetch(`${API_MEDIA_SERVER_URL}/relationships/pending/${userId}`, {
+            signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) return [];
+        const raw = (await res.json()) as ApiRelationshipResponse[];
+        if (!Array.isArray(raw)) return [];
+        return raw.map((rel) => ({
+            id: rel.id,
+            name: rel.requesterUsername,
+            avatarUrl: rel.requesterAvatarUrl ?? undefined,
+        }));
+    } catch {
+        return [];
+    }
+}
+
+export async function acceptFriendRequest(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/accept`,
+            { method: "PATCH", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+export async function rejectFriendRequest(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/reject`,
+            { method: "DELETE", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+export async function sendFriendRequest(
+    requesterId: string,
+    receiverId: string,
+): Promise<boolean> {
+    try {
+        const res = await fetch(
+            `${API_MEDIA_SERVER_URL}/relationships/send?requesterId=${requesterId}&receiverId=${receiverId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
     }
 }
 

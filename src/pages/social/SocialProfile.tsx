@@ -142,6 +142,8 @@ const SocialProfile: React.FC = () => {
               <div className="flex-1" />
               <ProfileActions
                 isOwner={isOwner}
+                currentUserId={currentUser.id}
+                profileUserId={userId}
                 onEditProfile={() => {
                   setActiveTab("about");
                   startEditAbout();
