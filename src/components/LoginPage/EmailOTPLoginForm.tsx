@@ -1,6 +1,6 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { authApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { Loader2, Mail } from 'lucide-react';
@@ -30,11 +30,14 @@ export const EmailOTPLoginForm: React.FC<EmailOTPLoginFormProps> = ({ onSuccess 
       setSuccess(response.result?.message || 'OTP đã được gửi đến email của bạn');
       setStep('otp');
     } catch (err: any) {
-      if (err.code === 'ACCOUNT_PERMANENTLY_DELETED') {
+      if (err.code === 1005 || err.code === 1103) {
         setError('Tài khoản đã bị xóa vĩnh viễn (quá 30 ngày). Vui lòng đăng ký tài khoản mới.');
-      } else if (err.code === 'PHONE_ALREADY_EXISTS' || err.code === 'EMAIL_ALREADY_EXISTS') {
+      } else if (err.code === 3001 || err.code === 3002 || err.code === 1400 || err.code === 1401) {
         setError('Không thể khôi phục tài khoản vì email đã được sử dụng cho tài khoản khác.');
-      } else {
+      } else if (err.code === 4005 || err.code === 1505) {
+        setError('Bạn đã yêu cầu OTP quá nhiều lần. Vui lòng thử lại sau.');
+      } 
+      else {
         setError(err.message || 'Không thể gửi OTP');
       }
     } finally {
@@ -73,7 +76,7 @@ export const EmailOTPLoginForm: React.FC<EmailOTPLoginFormProps> = ({ onSuccess 
         )}
 
         <div className="text-center mb-4">
-          <Mail className="w-12 h-12 text-blue-600 mx-auto mb-2" />
+          <Mail className="w-12 h-12 text-primary-600 mx-auto mb-2" />
           <p className="text-sm text-gray-600">
             Mã OTP đã được gửi đến
           </p>
@@ -93,7 +96,7 @@ export const EmailOTPLoginForm: React.FC<EmailOTPLoginFormProps> = ({ onSuccess 
             }}
             placeholder="000000"
             maxLength={6}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-2xl font-mono tracking-widest focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-2xl font-mono tracking-widest focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
             required
           />
         </div>
@@ -101,7 +104,7 @@ export const EmailOTPLoginForm: React.FC<EmailOTPLoginFormProps> = ({ onSuccess 
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
@@ -155,7 +158,7 @@ export const EmailOTPLoginForm: React.FC<EmailOTPLoginFormProps> = ({ onSuccess 
             setError('');
           }}
           placeholder="example@email.com"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
           required
         />
       </div>
@@ -163,7 +166,7 @@ export const EmailOTPLoginForm: React.FC<EmailOTPLoginFormProps> = ({ onSuccess 
       <button
         type="submit"
         disabled={loading}
-        className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+        className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
         {loading ? (
           <>

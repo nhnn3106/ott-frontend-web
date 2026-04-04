@@ -1,7 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { authApi } from '../../services/api';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 
 
@@ -48,10 +47,14 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
     } catch (err: any) {
       console.error('Login error:', err);
       
-      if (err.code === 'INVALID_CREDENTIALS') {
+      if (err.code === 2001 || err.code === 1200) {
         setError('Số điện thoại hoặc mật khẩu không đúng');
-      } else if (err.code === 'PASSWORD_NOT_SET') {
+      } else if (err.code === 1201) {
         setError('Tài khoản chưa có mật khẩu. Vui lòng đăng nhập bằng Google hoặc đặt mật khẩu.');
+      } else if (err.code === 1005 || err.code === 1103) {
+        setError('Tài khoản đã bị xóa. Vui lòng liên hệ hỗ trợ hoặc đăng ký tài khoản mới.');
+      } else if (err.code === 1003 || err.code === 1101 || err.code === 1004 || err.code === 1102) {
+        setError('Tài khoản hiện không thể đăng nhập. Vui lòng liên hệ quản trị viên.');
       } else {
         setError(err.message || 'Đăng nhập thất bại');
       }
@@ -82,11 +85,11 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
     } catch (err: any) {
       console.error('2FA verification error:', err);
       
-      if (err.code === 'INVALID_OTP_CODE') {
+      if (err.code === 4006 || err.code === 1503) {
         setError('Mã OTP không đúng. Vui lòng kiểm tra lại.');
-      } else if (err.code === 'OTP_EXPIRED') {
+      } else if (err.code === 4003 || err.code === 1501) {
         setError('Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.');
-      } else if (err.code === 'OTP_MAX_ATTEMPTS_EXCEEDED') {
+      } else if (err.code === 4004 || err.code === 1504 || err.code === 1506) {
         setError('Bạn đã nhập sai quá nhiều lần. Vui lòng yêu cầu mã OTP mới.');
       } else {
         setError(err.message || 'Xác thực thất bại');
@@ -152,7 +155,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
                 setError('');
               }}
               placeholder="123456"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl tracking-widest font-mono"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500 text-center text-2xl tracking-widest font-mono"
               maxLength={6}
               autoFocus
               required
@@ -165,7 +168,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
           <button
             type="submit"
             disabled={otpLoading || otpCode.length !== 6}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {otpLoading ? (
               <>
@@ -190,7 +193,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
               type="button"
               onClick={handleResendOTP}
               disabled={otpLoading}
-              className="text-blue-600 hover:text-blue-700 disabled:text-gray-400 font-medium"
+              className="text-primary-700 hover:text-primary-800 disabled:text-gray-400 font-medium"
             >
               Gửi lại OTP
             </button>
@@ -222,7 +225,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
             setError('');
           }}
           placeholder="0123456789"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
           required
         />
       </div>
@@ -240,7 +243,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
               setError('');
             }}
             placeholder="••••••••"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500 pr-10"
             required
           />
           <button
@@ -258,7 +261,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
           <input type="checkbox" className="mr-2" />
           <span className="text-gray-600">Ghi nhớ đăng nhập</span>
         </label>
-        <a href="/forgot-password" className="text-blue-600 hover:text-blue-700">
+        <a href="/forgot-password" className="text-primary-700 hover:text-primary-800">
           Quên mật khẩu?
         </a>
       </div>
@@ -266,7 +269,7 @@ export const PhoneLoginForm: React.FC<PhoneLoginFormProps> = ({ onSuccess }) => 
       <button
         type="submit"
         disabled={loading}
-        className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+        className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
       >
         {loading ? (
           <>

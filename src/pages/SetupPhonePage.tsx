@@ -70,7 +70,7 @@ const SetupPhonePage: React.FC = () => {
               <MessageCircle className="w-7 h-7 text-white" />
             </div>
             <span className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">
-              ZaloChat
+              Riff
             </span>
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Hoàn tất đăng ký</h2>

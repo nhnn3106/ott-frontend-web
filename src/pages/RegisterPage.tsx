@@ -1,8 +1,8 @@
 // pages/RegisterPage.tsx
 
-import React, { useState, useEffect } from 'react';
-import { userApi, authApi } from '../services/api';
-import { AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { userApi } from '../services/api';
+import { AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function RegisterPage() {
   const [step, setStep] = useState<'form' | 'otp'>('form');
@@ -19,55 +19,38 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  
-  
-  const [restoreStatus, setRestoreStatus] = useState<{
-    canRestore: boolean;
-    message: string;
-    daysRemaining?: number;
-  } | null>(null);
 
-
-  useEffect(() => {
-    const checkRestore = async () => {
-      if (formData.phone || formData.email) {
-        try {
-          let response;
-          if (formData.phone && formData.phone.length >= 10) {
-            response = await authApi.checkRestoreByPhone(formData.phone);
-          } else if (formData.email && formData.email.includes('@')) {
-            response = await authApi.checkRestoreByEmail(formData.email);
-          }
-          
-          if (response?.result) {
-            const { canRestore, accountDeleted, message, daysRemaining } = response.result;
-            
-            if (canRestore) {
-              setRestoreStatus({
-                canRestore: true,
-                message,
-                daysRemaining,
-              });
-            } else if (accountDeleted && !canRestore) {
-              // Account đã xóa > 30 ngày HOẶC phone/email đã dùng cho account khác
-              setRestoreStatus({
-                canRestore: false,
-                message,
-              });
-            } else {
-              setRestoreStatus(null);
-            }
-          }
-        } catch (err) {
-          // Ignore error, chỉ là check thông tin thêm
-          console.log('Check restore error (ignored):', err);
-        }
-      }
-    };
-
-    const debounce = setTimeout(checkRestore, 500);
-    return () => clearTimeout(debounce);
-  }, [formData.phone, formData.email]);
+  const mapRegisterError = (code: number | undefined, fallback: string): string => {
+    switch (code) {
+      case 1300:
+        return 'Số điện thoại không hợp lệ.';
+      case 1301:
+        return 'Email không hợp lệ.';
+      case 1302:
+        return 'Mật khẩu chưa đúng định dạng yêu cầu của hệ thống.';
+      case 1303:
+      case 1308:
+        return 'Họ và tên không hợp lệ.';
+      case 1400:
+        return 'Số điện thoại đã được sử dụng.';
+      case 1401:
+        return 'Email đã được sử dụng.';
+      case 1500:
+      case 1501:
+        return 'Mã OTP không tồn tại hoặc đã hết hạn.';
+      case 1503:
+        return 'Mã OTP không đúng.';
+      case 1504:
+      case 1506:
+        return 'Bạn đã nhập sai OTP quá nhiều lần. Vui lòng yêu cầu mã mới.';
+      case 1505:
+        return 'Bạn đã yêu cầu OTP quá nhiều lần. Vui lòng thử lại sau.';
+      case 6099:
+        return 'Tài khoản đã xóa gần đây và vẫn có thể khôi phục. Vui lòng đăng nhập để khôi phục.';
+      default:
+        return fallback;
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -81,6 +64,11 @@ export default function RegisterPage() {
     
     if (!formData.phone || !formData.email || !formData.password || !formData.fullName) {
       setError('Vui lòng điền đầy đủ thông tin');
+      return;
+    }
+
+    if (!/^0\d{9}$/.test(formData.phone.trim())) {
+      setError('Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0');
       return;
     }
     
@@ -106,7 +94,7 @@ export default function RegisterPage() {
       setSuccess(response.result?.message || 'OTP đã được gửi về email của bạn');
       setStep('otp');
     } catch (err: any) {
-      setError(err.message || 'Có lỗi xảy ra');
+      setError(mapRegisterError(err.code, err.message || 'Không thể gửi OTP đăng ký'));
     } finally {
       setLoading(false);
     }
@@ -124,7 +112,7 @@ export default function RegisterPage() {
     setLoading(true);
     
     try {
-      const response = await userApi.register({
+      await userApi.register({
         phone: formData.phone,
         email: formData.email,
         password: formData.password,
@@ -135,64 +123,27 @@ export default function RegisterPage() {
       setSuccess('Đăng ký thành công! Chuyển đến trang đăng nhập...');
       setTimeout(() => window.location.href = '/login', 2000);
     } catch (err: any) {
-      setError(err.message || 'Đăng ký thất bại');
+      setError(mapRegisterError(err.code, err.message || 'Đăng ký thất bại'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
-        <h2 className="text-3xl font-bold text-center mb-6">Đăng ký</h2>
-
-        {/* ✅ Restore Status Banner */}
-        {restoreStatus && (
-          <div className={`mb-4 p-4 rounded-lg border ${
-            restoreStatus.canRestore 
-              ? 'bg-blue-50 border-blue-300' 
-              : 'bg-amber-50 border-amber-300'
-          }`}>
-            <div className="flex items-start gap-3">
-              {restoreStatus.canRestore ? (
-                <Clock className="w-5 h-5 text-blue-600 mt-0.5" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-              )}
-              <div className="flex-1">
-                <p className={`text-sm font-medium ${
-                  restoreStatus.canRestore ? 'text-blue-800' : 'text-amber-800'
-                }`}>
-                  {restoreStatus.canRestore ? 'Tài khoản có thể khôi phục' : 'Thông báo'}
-                </p>
-                <p className={`text-sm mt-1 ${
-                  restoreStatus.canRestore ? 'text-blue-700' : 'text-amber-700'
-                }`}>
-                  {restoreStatus.message}
-                </p>
-                {restoreStatus.canRestore && restoreStatus.daysRemaining && (
-                  <p className="text-xs text-blue-600 mt-2">
-                    Bạn có {restoreStatus.daysRemaining} ngày để khôi phục.{' '}
-                    <a href="/login" className="font-semibold underline">
-                      Đăng nhập để khôi phục
-                    </a>
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+    <div className="min-h-screen bg-linear-to-br from-primary-50 via-white to-primary-100 flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-primary-100">
+        <h2 className="text-3xl font-bold text-center mb-6 text-primary-800">Đăng ký</h2>
 
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded flex items-start gap-2">
-            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         {success && (
           <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded flex items-start gap-2">
-            <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <CheckCircle className="w-5 h-5 mt-0.5 shrink-0" />
             <span>{success}</span>
           </div>
         )}
@@ -209,7 +160,7 @@ export default function RegisterPage() {
                 value={formData.phone}
                 onChange={handleChange}
                 placeholder="0123456789"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
                 required
               />
             </div>
@@ -224,7 +175,7 @@ export default function RegisterPage() {
                 value={formData.email}
                 onChange={handleChange}
                 placeholder="example@email.com"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
                 required
               />
             </div>
@@ -239,7 +190,7 @@ export default function RegisterPage() {
                 value={formData.fullName}
                 onChange={handleChange}
                 placeholder="Nguyễn Văn A"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
                 required
               />
             </div>
@@ -254,7 +205,7 @@ export default function RegisterPage() {
                 value={formData.password}
                 onChange={handleChange}
                 placeholder="••••••••"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
                 required
                 minLength={8}
               />
@@ -271,7 +222,7 @@ export default function RegisterPage() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 placeholder="••••••••"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
                 required
               />
             </div>
@@ -279,7 +230,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? 'Đang gửi...' : 'Gửi mã OTP'}
             </button>
@@ -301,7 +252,7 @@ export default function RegisterPage() {
                 onChange={handleChange}
                 placeholder="000000"
                 maxLength={6}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-2xl font-mono tracking-widest focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-2xl font-mono tracking-widest focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
                 required
               />
               <p className="text-xs text-gray-500 mt-1 text-center">Mã gồm 6 chữ số</p>
@@ -310,7 +261,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? 'Đang xử lý...' : 'Hoàn tất đăng ký'}
             </button>
@@ -326,7 +277,7 @@ export default function RegisterPage() {
         )}
 
         <div className="mt-6 text-center">
-          <a href="/login" className="text-blue-600 hover:text-blue-700 font-semibold">
+          <a href="/login" className="text-primary-700 hover:text-primary-800 font-semibold">
             Đã có tài khoản? Đăng nhập
           </a>
         </div>

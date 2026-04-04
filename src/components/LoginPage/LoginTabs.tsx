@@ -14,15 +14,15 @@ export const LoginTabs: React.FC<LoginTabsProps> = ({ activeTab, setActiveTab })
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-2 p-1 bg-gray-100 rounded-xl">
+    <div className="grid grid-cols-3 gap-2 p-1 bg-primary-50 rounded-xl border border-primary-100">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => setActiveTab(tab.id)}
           className={`flex items-center justify-center gap-2 py-3 px-4 rounded-lg transition-all font-medium ${
             activeTab === tab.id
-              ? 'bg-white text-blue-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-800'
+              ? 'bg-white text-primary-700 shadow-sm'
+              : 'text-primary-600 hover:text-primary-800'
           }`}
         >
           <tab.icon className="w-4 h-4" />

@@ -18,25 +18,25 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-linear-to-br from-primary-50 via-white to-primary-100 flex items-center justify-center p-6">
       {/* Animated Background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-400 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-400 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-300 rounded-full mix-blend-multiply filter blur-xl opacity-25 animate-blob"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-primary-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
       </div>
 
       <div className="relative w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
           <a href="/" className="inline-flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-400 rounded-xl flex items-center justify-center shadow-lg">
+            <div className="w-12 h-12 bg-linear-to-br from-primary-700 to-primary-500 rounded-xl flex items-center justify-center shadow-lg">
               <MessageCircle className="w-7 h-7 text-white" />
             </div>
-            <span className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">
-              ZaloChat
+            <span className="text-3xl font-bold bg-linear-to-r from-primary-700 to-primary-500 bg-clip-text text-transparent">
+              Riff
             </span>
           </a>
-          <p className="text-gray-600">Đăng nhập để tiếp tục</p>
+          <p className="text-primary-700">Đăng nhập để tiếp tục</p>
         </div>
 
         {/* Login Form Container */}
@@ -68,7 +68,7 @@ const LoginPage: React.FC = () => {
         <div className="text-center mt-6">
           <p className="text-gray-600">
             Chưa có tài khoản?{' '}
-            <a href="/register" className="text-blue-600 hover:text-blue-700 font-semibold">
+            <a href="/register" className="text-primary-700 hover:text-primary-800 font-semibold">
               Đăng ký ngay
             </a>
           </p>

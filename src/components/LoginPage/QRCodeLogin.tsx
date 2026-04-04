@@ -63,7 +63,7 @@ export const QRCodeLogin: React.FC<QRCodeLoginProps> = ({ onSuccess }) => {
     if (loading && !qrCode) {
       return (
         <div className="aspect-square bg-gray-100 rounded-xl flex items-center justify-center">
-          <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+          <Loader2 className="w-16 h-16 text-primary-600 animate-spin" />
         </div>
       );
     }
@@ -111,7 +111,7 @@ export const QRCodeLogin: React.FC<QRCodeLoginProps> = ({ onSuccess }) => {
           <p className="text-sm text-gray-600 text-center">QR code đã hết hạn</p>
           <button
             onClick={handleGenerateNew}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
           >
             Tạo mã mới
           </button>
@@ -121,7 +121,7 @@ export const QRCodeLogin: React.FC<QRCodeLoginProps> = ({ onSuccess }) => {
 
     if (qrCode?.qrData) {
       return (
-        <div className="aspect-square bg-white p-4 rounded-xl border-2 border-gray-200">
+        <div className="aspect-square bg-white p-4 rounded-xl border-2 border-primary-100">
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrCode.qrData)}`}
             alt="QR Code"
@@ -132,8 +132,8 @@ export const QRCodeLogin: React.FC<QRCodeLoginProps> = ({ onSuccess }) => {
     }
 
     return (
-      <div className="aspect-square bg-gradient-to-br from-blue-100 to-purple-100 rounded-xl flex items-center justify-center">
-        <QrCode className="w-32 h-32 text-blue-600" />
+      <div className="aspect-square bg-linear-to-br from-primary-100 to-primary-200 rounded-xl flex items-center justify-center">
+        <QrCode className="w-32 h-32 text-primary-600" />
       </div>
     );
   };
@@ -159,19 +159,19 @@ export const QRCodeLogin: React.FC<QRCodeLoginProps> = ({ onSuccess }) => {
 
       <div className="space-y-3 text-sm text-gray-600">
         <div className="flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 font-semibold">
+          <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center shrink-0 font-semibold">
             1
           </div>
-          <p>Mở ứng dụng ZaloChat trên điện thoại</p>
+          <p>Mở ứng dụng Riff trên điện thoại</p>
         </div>
         <div className="flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 font-semibold">
+          <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center shrink-0 font-semibold">
             2
           </div>
           <p>Chọn biểu tượng quét QR</p>
         </div>
         <div className="flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 font-semibold">
+          <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center shrink-0 font-semibold">
             3
           </div>
           <p>Quét mã QR này để đăng nhập</p>
