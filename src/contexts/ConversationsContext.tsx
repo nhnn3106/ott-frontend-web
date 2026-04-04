@@ -205,13 +205,57 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     });
   }, []);
 
+  const handleRevokedMessage = useCallback((payload: any) => {
+    const convId = payload.conversation_id?.toString();
+    if (!convId) return;
+
+    const revokedMsgId = String(payload.msg_id || "");
+    const revokedContent = Array.isArray(payload.content)
+      ? String(payload.content[0] || "Tin nhắn đã được thu hồi")
+      : String(payload.content || "Tin nhắn đã được thu hồi");
+
+    setConversations((prev) =>
+      prev.map((item) => {
+        if (item.conversation._id !== convId) return item;
+
+        const currentLast = item.conversation.last_message;
+        if (
+          !currentLast?.msg_id ||
+          String(currentLast.msg_id) !== revokedMsgId
+        ) {
+          return item;
+        }
+
+        return {
+          ...item,
+          conversation: {
+            ...item.conversation,
+            last_message: {
+              ...currentLast,
+              content: revokedContent,
+              type: "text",
+              sender_name: payload.sender_name || currentLast.sender_name || "",
+            },
+          },
+        };
+      }),
+    );
+  }, []);
+
   useEffect(() => {
     socketService.connect();
     socketService.onNewMessage(handleIncomingMessage);
+
+    const socket = socketService.getSocket();
+    socket?.on("tin_nhan_thu_hoi", handleRevokedMessage);
+
     return () => {
       socketService.offNewMessage(handleIncomingMessage);
+
+      const cleanupSocket = socketService.getSocket();
+      cleanupSocket?.off("tin_nhan_thu_hoi", handleRevokedMessage);
     };
-  }, [handleIncomingMessage]);
+  }, [handleIncomingMessage, handleRevokedMessage]);
 
   // Category Actions
   const addCategory = useCallback((category: Category) => {

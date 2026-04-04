@@ -113,6 +113,7 @@
   .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(174, 127, 83, 0.4) transparent;
+    scrollbar-gutter: stable;
   }
 
   /* WebKit browsers (Chrome, Safari, Edge) */

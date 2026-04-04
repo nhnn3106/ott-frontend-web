@@ -1,5 +1,13 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { X, Users, Pin, Image, FileText, Link as LinkIcon, UserRoundPen } from "lucide-react";
+import {
+  X,
+  Users,
+  Pin,
+  Image,
+  FileText,
+  Link as LinkIcon,
+  UserRoundPen,
+} from "lucide-react";
 import { useUser } from "../../contexts/UserContext";
 import { useConversations } from "../../contexts/ConversationsContext";
 import {
@@ -56,7 +64,9 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     [],
   );
   const [fileMessagesPreview, setFileMessagesPreview] = useState<Message[]>([]);
-  const [linkMessagesPreview, setLinkMessagesPreview] = useState<LinkData[]>([]);
+  const [linkMessagesPreview, setLinkMessagesPreview] = useState<LinkData[]>(
+    [],
+  );
   const [allMediaMessages, setAllMediaMessages] = useState<Message[]>([]);
   const [allFileMessages, setAllFileMessages] = useState<Message[]>([]);
   const [allLinkMessages, setAllLinkMessages] = useState<LinkData[]>([]);
@@ -190,6 +200,26 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     }
   }, [isOpen, conversation?._id, loadSidebarData]);
 
+  useEffect(() => {
+    const handlePinnedUpdated = (event: Event) => {
+      const custom = event as CustomEvent<{ conversationId?: string }>;
+      if (custom.detail?.conversationId !== conversation?._id) return;
+      if (!isOpen) return;
+      void loadSidebarData();
+    };
+
+    window.addEventListener(
+      "chat:pinned-updated",
+      handlePinnedUpdated as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        "chat:pinned-updated",
+        handlePinnedUpdated as EventListener,
+      );
+    };
+  }, [conversation?._id, isOpen, loadSidebarData]);
+
   // Load available users for create group modal
   useEffect(() => {
     if (showCreateGroupModal) {
@@ -223,7 +253,18 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
         currentUser._id,
         false,
       );
-      setPinnedMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+      setPinnedMessages((prev) =>
+        prev.filter(
+          (msg) =>
+            String(msg.msg_id || "") !== String(messageId) &&
+            String(msg._id || "") !== String(messageId),
+        ),
+      );
+      window.dispatchEvent(
+        new CustomEvent("chat:pinned-updated", {
+          detail: { conversationId: conversation._id },
+        }),
+      );
     } catch (error) {
       console.error("Error unpinning message:", error);
       setError("Không thể bỏ ghim tin nhắn");
@@ -401,7 +442,10 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
       {error && (
         <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
           {error}
-          <button onClick={() => setError(null)} className="ml-2 font-bold cursor-pointer">
+          <button
+            onClick={() => setError(null)}
+            className="ml-2 font-bold cursor-pointer"
+          >
             ×
           </button>
         </div>
@@ -569,9 +613,10 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
       <MediaViewer
         isOpen={viewerOpen}
         onClose={() => setViewerOpen(false)}
+        conversationId={conversation._id}
         initialMessageId={viewerMessageId}
         initialImageIndex={viewerImageIndex}
-        messages={allMediaMessages}
+        seedMessages={allMediaMessages}
       />
 
       {/* Modals */}
