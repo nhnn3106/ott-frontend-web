@@ -1,5 +1,6 @@
 // src/components/Chat/ChatArea.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useUser } from "../../contexts/UserContext";
 import { useConversations } from "../../contexts/ConversationsContext";
 import { useChat } from "../../hooks/useChat";
@@ -45,20 +46,25 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     return matched || conversation;
   }, [conversations, conversation]);
 
-  const { messages, loadMessages } = useChat(
+  const { messages, loadMessages, loadOlderMessages, loading, hasMore } = useChat(
     activeConversation?._id,
     normalizedUserId,
   );
 
   const [isOpeningCall, setIsOpeningCall] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastMarkedRef = useRef<string>("0");
+  const isLoadingMoreRef = useRef(false);
+  const scrollHeightRef = useRef(0);
+  const isFirstLoadRef = useRef(true); // Track if this is first load for this conversation
 
   // State quản lý Media Viewer & Tin nhắn
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Sidebar state (Internal fallback nếu không truyền từ props)
   const [internalSidebarOpen, setInternalSidebarOpen] = useState(false);
@@ -106,16 +112,26 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   useEffect(() => {
     lastMarkedRef.current = "0";
     setReplyToMessage(null);
-  }, [activeConversation?._id]);
+    scrollHeightRef.current = 0; // Reset scroll position when conversation changes
+    isLoadingMoreRef.current = false; // Reset loading state
+    isFirstLoadRef.current = true; // Mark as first load for new conversation
+
+    // Immediately clear unread when entering a conversation
+    updateParticipant(activeConversation._id, { unread_count: 0 });
+  }, [activeConversation?._id, updateParticipant]);
 
   useEffect(() => {
     if (!messages.length || !normalizedUserId || !activeConversation?._id)
       return;
 
+    // Mark ALL visible messages as read (including our own)
+    // This is correct because we're viewing them
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg.msg_id || lastMsg.msg_id === lastMarkedRef.current) return;
 
     lastMarkedRef.current = lastMsg.msg_id;
+
+    console.log(`📖 Marking conversation as read up to msg_id: ${lastMsg.msg_id}`);
 
     // Cập nhật UI ngay lập tức thông qua context
     updateParticipant(activeConversation._id, {
@@ -131,7 +147,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       activeConversation._id,
       normalizedUserId,
       lastMsg.msg_id,
-    ).catch(console.error);
+    ).then(updated => {
+      console.log(`✓ Backend confirmed read status update:`, updated);
+    }).catch(error => {
+      console.error(`✗ Failed to mark as read:`, error);
+    });
   }, [messages, normalizedUserId, activeConversation?._id, updateParticipant]);
 
   const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
@@ -156,9 +176,90 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     }
   };
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messages]);
+  /**
+   * Handle scroll to load older messages (infinite scroll)
+   */
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    // Check if user scrolled to top (100px threshold)
+    if (
+      container.scrollTop < 100 &&
+      hasMore &&
+      !isLoadingMoreRef.current &&
+      !loading
+    ) {
+      isLoadingMoreRef.current = true;
+      console.log("📥 User scrolled to top - loading older messages");
+
+      // Save scroll height BEFORE loading
+      scrollHeightRef.current = container.scrollHeight;
+
+      loadOlderMessages().finally(() => {
+        isLoadingMoreRef.current = false;
+      });
+    }
+
+    // Show/hide scroll button based on scroll position
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      100;
+
+    setShowScrollButton(!isNearBottom);
+  };
+
+  const scrollToBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    container.scrollTop = container.scrollHeight;
+    setShowScrollButton(false);
+  };
+
+  /**
+   * Restore scroll position after loading older messages
+   * Auto-scroll to bottom on first load for new conversation (BEFORE render visible)
+   * Auto-scroll to bottom when new messages arrive
+   * Use useLayoutEffect to scroll before browser paint
+   */
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    // First load of new conversation: scroll to bottom BEFORE render
+    if (isFirstLoadRef.current && messages.length > 0 && !loading) {
+      console.log("✓ First load: scrolling to bottom (before render)");
+
+      // Use requestAnimationFrame to ensure DOM is fully calculated
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+        isFirstLoadRef.current = false;
+      });
+      return;
+    }
+
+    // If we just loaded older messages, restore scroll position
+    if (scrollHeightRef.current > 0 && !isLoadingMoreRef.current) {
+      requestAnimationFrame(() => {
+        const newScrollHeight = container.scrollHeight;
+        const heightDifference = newScrollHeight - scrollHeightRef.current;
+        container.scrollTop = heightDifference;
+        scrollHeightRef.current = 0;
+        console.log("✓ Scroll position restored");
+      });
+      return;
+    }
+
+    // Auto-scroll to bottom when new messages arrive (always scroll)
+    if (!isLoadingMoreRef.current && !loading) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+        setShowScrollButton(false); // Hide button when scrolling to bottom
+        console.log("✓ Auto-scrolled to bottom (new message)");
+      });
+    }
+  }, [messages, loading]);
 
   useEffect(() => {
     const applySubtleHighlight = (container: HTMLElement) => {
@@ -278,8 +379,24 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           onToggleSidebar={toggleSidebar}
         />
 
-        <div className="flex-1 p-4 gap-2 overflow-y-auto custom-scrollbar flex flex-col">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 p-4 gap-2 overflow-y-auto custom-scrollbar flex flex-col relative"
+          onScroll={handleScroll}
+        >
           <div className="flex-1 min-h-0" />
+
+          {/* Loading indicator for older messages */}
+          {loading && <div className="text-center text-sm text-gray-500">Đang tải tin nhắn cũ...</div>}
+
+          {/* No more messages indicator */}
+          {!hasMore && messages.length > 0 && (
+            <div className="flex justify-center py-2">
+              <div className="text-sm text-gray-400">
+                Đây là tin nhắn đầu tiên của cuộc trò chuyện
+              </div>
+            </div>
+          )}
 
           {messages.length === 0 ? (
             <ChatEmpty />
@@ -340,6 +457,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             })
           )}
           <div ref={messagesEndRef} />
+
+          {/* Scroll to bottom button */}
+          {showScrollButton && (
+            <button
+              onClick={scrollToBottom}
+              className="fixed right-6 bottom-32 bg-primary-500 hover:bg-primary-600 text-white rounded-full p-3 shadow-lg transition-all duration-200 hover:scale-110 z-40"
+              title="Scroll to bottom"
+            >
+              <ChevronDown size={24} strokeWidth={2} />
+            </button>
+          )}
         </div>
 
         <ChatInput
