@@ -10,7 +10,6 @@ import SetupPhonePage from '../pages/SetupPhonePage';
 import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 
 // Main pages
-import HomePage from '../pages/HomePage';
 import SocialPage from '../pages/SocialPage';
 import CallPage from '../pages/CallPage';
 import UserSelectionPage from '../pages/UserSelectionPage';
