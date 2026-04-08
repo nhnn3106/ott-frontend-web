@@ -72,6 +72,7 @@ export const AppRouter: React.FC = () => {
 
       {/* Profile & Account settings */}
       <Route path="/profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
+      <Route path="/settings" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
       <Route path="/account/password/set" element={<PrivateRoute><SetPasswordPage /></PrivateRoute>} />
       <Route path="/account/password/change" element={<PrivateRoute><ChangePasswordPage /></PrivateRoute>} />
       <Route path="/account/email/change" element={<PrivateRoute><ChangeEmailPage /></PrivateRoute>} />

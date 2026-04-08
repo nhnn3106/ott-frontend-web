@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useProfile } from '../hooks/useProfile';
 import { useSessions } from '../hooks/useSessions';
 import { ProfileHeader } from '../components/ProfilePage/ProfileHeader';
 import { EditProfileForm } from '../components/ProfilePage/EditProfileForm';
@@ -21,9 +20,7 @@ type TabId = typeof TABS[number]['id'];
 
 const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  // Lấy thêm hàm cập nhật user (Ví dụ: setUser) từ Context
   const { user, updateProfile } = useAuth();
-  const { updateProfile: updateProfileApi } = useProfile();
   const { sessions, revokeSession, revokeAllOtherSessions } = useSessions();
   const [showEdit, setShowEdit] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('info');
@@ -82,8 +79,6 @@ const ProfilePage: React.FC = () => {
 
         {/* Tabs + content card */}
         <div style={{ marginTop: 20, background: 'white', borderRadius: 20, border: '1px solid var(--color-primary-100)', boxShadow: 'var(--shadow-md)', overflow: 'hidden' }}>
-
-          {/* Tab bar */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--color-primary-100)', background: 'var(--color-primary-50)' }}>
             {TABS.map(tab => {
               const active = activeTab === tab.id;
@@ -93,9 +88,14 @@ const ProfilePage: React.FC = () => {
                   onClick={() => setActiveTab(tab.id)}
                   className="transition-base"
                   style={{
-                    flex: 1, padding: '14px 8px', border: 'none', cursor: 'pointer',
-                    background: 'transparent', fontFamily: 'var(--font-body)',
-                    fontSize: '0.875rem', fontWeight: active ? 700 : 500,
+                    flex: 1,
+                    padding: '14px 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: 'transparent',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '0.875rem',
+                    fontWeight: active ? 700 : 500,
                     color: active ? 'var(--color-primary-800)' : 'var(--color-primary-400)',
                     borderBottom: active ? '2.5px solid var(--color-primary-500)' : '2.5px solid transparent',
                     marginBottom: -1,
@@ -127,7 +127,7 @@ const ProfilePage: React.FC = () => {
                     className="btn-ripple transition-base"
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600, color: 'white', fontFamily: 'var(--font-body)', background: 'linear-gradient(135deg, var(--color-primary-700), var(--color-primary-500))', boxShadow: '0 3px 10px rgba(139,102,66,0.28)' }}
                   >
-                    <Edit size={13} /> Chỉnh sửa
+                    Chỉnh sửa
                   </button>
                 </div>
 
