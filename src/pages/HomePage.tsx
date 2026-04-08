@@ -22,6 +22,31 @@ const HomePage: React.FC = () => {
     setMessages(mockMessages);
   };
 
+  useEffect(() => {
+    const handleConversationDissolved = (event: Event) => {
+      const custom = event as CustomEvent<{ conversationId?: string }>;
+      if (
+        custom.detail?.conversationId &&
+        selectedConversation?._id === custom.detail.conversationId
+      ) {
+        setSelectedConversation(null);
+        setMessages([]);
+      }
+    };
+
+    window.addEventListener(
+      'chat:conversation-dissolved',
+      handleConversationDissolved as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        'chat:conversation-dissolved',
+        handleConversationDissolved as EventListener,
+      );
+    };
+  }, [selectedConversation?._id]);
+
   const handleSendMessage = (content: string) => {
     if (!user || !selectedConversation) return;
     setMessages(prev => [...prev, {
