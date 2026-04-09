@@ -311,15 +311,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       }
 
       if (msg.sender_name) {
-        const participant = (activeConversation?.participants || []).find(
-          (item) => String(item.user_id || item._id || "") === senderId,
-        );
-
-        const preferredName =
-          (participant?.nickname || "").trim() ||
-          (msg.sender_name || "").trim();
-
-        if (preferredName) return preferredName;
+        return msg.sender_name;
       }
 
       const participant = (activeConversation?.participants || []).find(
@@ -327,8 +319,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       );
 
       return (
-        participant?.nickname ||
         participant?.display_name ||
+        participant?.nickname ||
         participant?.name ||
         "Thành viên"
       );
@@ -1311,7 +1303,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         >
           {primaryPinnedMessage && (
             <div
-              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
+              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-50 "
               style={{
                 transform: "translate3d(0, 0, 0)", 
                 willChange: "transform", // Báo trước cho trình duyệt để tối ưu
@@ -1375,7 +1367,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 </div>
 
                 {showPinnedMenu && pinnedMessages.length > 1 && (
-                  <div className="absolute right-2 top-[calc(100%+8px)] z-40 w-[320px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+                  <div className="absolute right-2 top-[calc(100%+8px)] z-50 w-[320px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
                     {pinnedMessages.slice(1).map((item) => (
                       <div
                         key={item._id || item.msg_id}
