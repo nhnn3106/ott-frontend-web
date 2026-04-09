@@ -211,7 +211,12 @@ export function useSocialLayoutController() {
     }, []);
 
     const handleNewPost = useCallback(
-        async (content: string, media: UploadedMedia[], visibility: string) => {
+        async (
+            content: string,
+            media: UploadedMedia[],
+            visibility: string,
+            accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[],
+        ) => {
             if (!currentUser.id) return;
 
             const tempId = `temp-${Date.now()}`;
@@ -237,6 +242,7 @@ export function useSocialLayoutController() {
                 visibility,
                 files,
                 captions,
+                accessControls,
             );
 
             if (saved) {

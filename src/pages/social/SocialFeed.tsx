@@ -1,16 +1,14 @@
 import React from "react";
+import { Link } from "react-router-dom";
 
 import SocialRightSidebar from "../../components/social/SocialRightSidebar";
 import SocialLeftSidebar from "../../components/social/SocialLeftSidebar";
 import PostFeed from "../../components/social/PostFeed";
 import CreatePostModal from "../../components/social/CreatePostModal";
 import SocialFeedLayout from "../../components/social/layout/SocialFeedLayout";
-import LeftSidebarSection from "../../components/social/layout/LeftSidebarSection";
-import CenterFeedSection from "../../components/social/layout/CenterFeedSection";
-import RightSidebarSection from "../../components/social/layout/RightSidebarSection";
 import InfiniteScrollIndicator from "../../components/social/feed/InfiniteScrollIndicator";
 import EndOfFeedNotice from "../../components/social/feed/EndOfFeedNotice";
-import StoryFeed from "../../components/social/feed/StoryFeed";
+import StoryFeed from "../../components/social/story/StoryFeed";
 import CreatePostEntry from "../../components/social/feed/CreatePostEntry";
 import { useSocialFeed } from "../../hooks/useSocialFeed";
 
@@ -33,14 +31,40 @@ const SocialFeed: React.FC = () => {
     handleNewPost,
   } = useSocialFeed();
 
+  console.log(currentUser);
+
+  if (!loadingDB && !currentUser.id) {
+    return (
+      <SocialFeedLayout
+        containerRef={containerRef}
+        center={
+          <div className="flex items-center justify-center min-h-[70vh]">
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-6 text-center max-w-md">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Chua chon user demo
+              </h2>
+              <p className="text-sm text-gray-500 mt-2">
+                Hay dang nhap demo bang userId de test tinh nang social.
+              </p>
+              <Link
+                to="/social/demo-login"
+                className="inline-flex items-center justify-center mt-4 px-4 py-2 rounded-xl bg-primary-500 text-white font-semibold hover:bg-primary-600 transition">
+                Di den dang nhap demo
+              </Link>
+            </div>
+          </div>
+        }
+      />
+    );
+  }
+
   return (
     <>
-      <SocialFeedLayout containerRef={containerRef}>
-        <div className="flex gap-4">
-          <LeftSidebarSection>
-            <SocialLeftSidebar currentUser={currentUser} />
-          </LeftSidebarSection>
-          <CenterFeedSection>
+      <SocialFeedLayout
+        containerRef={containerRef}
+        left={<SocialLeftSidebar currentUser={currentUser} />}
+        center={
+          <>
             <CreatePostEntry
               currentUser={currentUser}
               onOpenModal={() => openModal(false)}
@@ -60,14 +84,18 @@ const SocialFeed: React.FC = () => {
               currentUser={currentUser}
               loading={loadingDB}
             />
-          </CenterFeedSection>
-          <RightSidebarSection>
-            <SocialRightSidebar />
-          </RightSidebarSection>
-        </div>
-        <InfiniteScrollIndicator isLoading={loadingMore} />
-        <EndOfFeedNotice show={!hasMore && !loadingDB && posts.length > 0} />
-      </SocialFeedLayout>
+          </>
+        }
+        right={<SocialRightSidebar currentUserId={currentUser.id} />}
+        bottom={
+          <>
+            <InfiniteScrollIndicator isLoading={loadingMore} />
+            <EndOfFeedNotice
+              show={!hasMore && !loadingDB && posts.length > 0}
+            />
+          </>
+        }
+      />
 
       <CreatePostModal
         isOpen={isModalOpen}

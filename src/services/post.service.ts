@@ -198,6 +198,7 @@ export async function findPostsWithAuthorized(
     currentUserId?: string,
 ): Promise<PostsPage | null> {
     try {
+        console.log(`${API_MEDIA_SERVER_URL}/posts/page/${currentUserId}?page=${page}&size=${size}&sort=createdAt,desc`);
         const res = await fetch(
             `${API_MEDIA_SERVER_URL}/posts/page/${currentUserId}?page=${page}&size=${size}&sort=createdAt,desc`,
             { signal: AbortSignal.timeout(10_000) },
@@ -274,12 +275,16 @@ export async function createPost(
     visibility: string,
     files: File[],
     captions?: string[],
+    accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[],
 ): Promise<Post | null> {
     try {
         const form = new FormData();
         form.append("accountId", accountId);
         form.append("caption", caption);
         form.append("visibility", visibility.toUpperCase());
+        if (accessControls && accessControls.length > 0) {
+            form.append("accessControls", JSON.stringify(accessControls));
+        }
         files.forEach((f) => form.append("files", f));
         // Per-file captions – gửi theo đúng thứ tự file
         if (captions && captions.length > 0) {

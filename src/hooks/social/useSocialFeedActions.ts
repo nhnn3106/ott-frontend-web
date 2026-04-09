@@ -2,7 +2,8 @@ import { useCallback } from "react";
 
 import { createPost, deletePost, toggleLike } from "../../services/post.service";
 import type { Post, User } from "../../components/social/types";
-import type { UploadedMedia } from "../../components/social/CreatePostModal";
+import type { UploadedMedia } from "../../components/social/create-post";
+
 
 type Params = {
     currentUser: User;
@@ -64,6 +65,9 @@ export const useSocialFeedActions = ({
 
     const handleDeletePost = useCallback(
         async (id: string) => {
+            if (!window.confirm("Bạn có chắc chắn muốn xóa bài viết này không?")) {
+                return;
+            }
             setPosts((prev) => prev.filter((p) => p.id !== id));
             await deletePost(id);
         },
@@ -71,7 +75,12 @@ export const useSocialFeedActions = ({
     );
 
     const handleNewPost = useCallback(
-        async (content: string, media: UploadedMedia[], visibility: string) => {
+        async (
+            content: string,
+            media: UploadedMedia[],
+            visibility: string,
+            accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[],
+        ) => {
             if (!currentUser.id) return;
             const tempId = `temp-${Date.now()}`;
             const optimisticPost: Post = {
@@ -96,6 +105,7 @@ export const useSocialFeedActions = ({
                 visibility,
                 files,
                 captions,
+                accessControls,
             );
 
             if (saved) {

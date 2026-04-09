@@ -39,11 +39,18 @@ export const useSocialFeedBootstrap = ({
     useEffect(() => {
         (async () => {
             try {
-                const me = await fetchUserById("usr_002");
+                const demoUserId = localStorage.getItem("socialDemoUserId")?.trim();
+                if (!demoUserId) {
+                    setHasMore(false);
+                    return;
+                }
+
+                const me = await fetchUserById(demoUserId);
                 const dbCurrentUser: User | undefined =
                     me ?
                         {
                             id: me.id,
+                            name: me.displayName ?? me.username,
                             displayName: me.displayName ?? me.username,
                             avatar: me.avatarUrl ?? undefined,
                             color: AVATAR_COLORS[0],
