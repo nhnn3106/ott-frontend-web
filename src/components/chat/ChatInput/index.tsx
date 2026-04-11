@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { MessageService } from "../../../services";
 import type { ChatInputProps } from "../../../types/message.type";
+import { convertEmojiImageMarkupToText } from "../../../constants/emoji.constants";
 import { getFullUrl } from "../../../utils";
 import { getFileNameFromUrl } from "../../../utils";
 import { EmojiPicker } from "./EmojiPicker";
@@ -29,6 +30,7 @@ import { UploadProgress } from "./UploadProgress";
 import { ImageInput } from "./ImageInput";
 import { FileInput } from "./FileInput";
 import { StagingArea } from "./StagingArea";
+import { TextInput, type TextInputHandle } from "./TextInput";
 
 const FILE_ACCEPT_TYPES =
   "image/*,video/*,audio/*,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,.txt,.json,.csv,.zip,.rar,.7z,.tar,.gz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/x-7z-compressed,application/gzip,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,.env,.ini,.conf,.config,.yaml,.yml,.toml,.md,.xml,.log,.js,.ts,.tsx,.jsx,.mjs,.cjs,.py,.java,.cpp,.c,.h,.hpp,.cs,.go,.rs,.php,.rb,.sh,.bat,.ps1,.sql";
@@ -135,7 +137,7 @@ export const ChatInput = ({
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [isVoicePaused, setIsVoicePaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const textInputRef = useRef<HTMLTextAreaElement>(null);
+  const textInputRef = useRef<TextInputHandle>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -209,13 +211,6 @@ export const ChatInput = ({
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     if (files.length > 0) addToPending(files);
-  };
-
-  const resizeTextInput = () => {
-    const el = textInputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   };
 
   const getReplyPreviewText = () => {
@@ -535,7 +530,7 @@ export const ChatInput = ({
     if (text.trim()) {
       try {
         const messageType = isStandaloneLink(text) ? "link" : "text";
-        const messageContent = text;
+        const messageContent = convertEmojiImageMarkupToText(text);
 
         await MessageService.sendMessage(
           conversationId,
@@ -547,7 +542,6 @@ export const ChatInput = ({
           replyToMsgId,
         );
         setText("");
-        if (textInputRef.current) textInputRef.current.style.height = "auto";
         await onSendSuccess();
         if (replyToMsgId) onCancelReply?.();
       } catch {
@@ -744,29 +738,29 @@ export const ChatInput = ({
   const canSend =
     (text.trim().length > 0 || pendingFiles.length > 0) && !isUploading;
 
-  const handleTextPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pastedText = e.clipboardData.getData("text/plain");
-    if (!pastedText) return;
-
-    e.preventDefault();
-    const target = e.currentTarget;
-    const start = target.selectionStart ?? text.length;
-    const end = target.selectionEnd ?? text.length;
-    const nextValue = text.slice(0, start) + pastedText + text.slice(end);
-
-    setText(nextValue);
-
-    requestAnimationFrame(() => {
-      target.selectionStart = target.selectionEnd = start + pastedText.length;
-      resizeTextInput();
-    });
-  };
-
-  const handleTextKeyDown = async (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleTextKeyDown = async (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (canSend) await handleSend();
     }
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    if (import.meta.env.DEV) {
+      console.log("[emoji-caret] handleEmojiSelect", {
+        emoji,
+        textLength: text.length,
+        hasInputRef: !!textInputRef.current,
+      });
+    }
+
+    if (!textInputRef.current) {
+      setText((prev) => prev + emoji);
+      setShowEmojiPicker(false);
+      return;
+    }
+    textInputRef.current.insertTextAtCaret(emoji);
+    setShowEmojiPicker(false);
   };
 
   return (
@@ -776,10 +770,7 @@ export const ChatInput = ({
     >
       {showEmojiPicker && (
         <EmojiPicker
-          onSelect={(emoji) => {
-            setText((prev) => prev + emoji);
-            setShowEmojiPicker(false);
-          }}
+          onSelect={handleEmojiSelect}
           onClose={() => setShowEmojiPicker(false)}
         />
       )}
@@ -922,19 +913,13 @@ export const ChatInput = ({
             <Smile size={20} />
           </button>
 
-          <textarea
+          <TextInput
             ref={textInputRef}
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              resizeTextInput();
-            }}
-            onPaste={handleTextPaste}
+            onChange={setText}
             onKeyDown={handleTextKeyDown}
             placeholder={isUploading ? "Đang tải lên..." : "Nhập tin nhắn..."}
             disabled={isUploading}
-            rows={1}
-            className="flex-1 bg-transparent border-none focus:ring-0 outline-none text-sm resize-none max-h-35 leading-5 py-1.5"
           />
 
           {canSend && (

@@ -1305,7 +1305,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             <div
               className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-50 "
               style={{
-                transform: "translate3d(0, 0, 0)", 
+                transform: "translate3d(0, 0, 0)",
                 willChange: "transform", // Báo trước cho trình duyệt để tối ưu
               }}
             >
@@ -1373,7 +1373,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                         key={item._id || item.msg_id}
                         className="w-full rounded-md px-2.5 py-2 text-left text-slate-800 hover:bg-slate-50"
                       >
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-stretch gap-2">
                           <button
                             type="button"
                             onClick={(event) => {
@@ -1385,7 +1385,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                             <div className="text-[12px] text-slate-500">
                               Tin nhắn ghim
                             </div>
-                            <div className="text-[13px] text-slate-800 pr-2 flex items-center gap-2 min-w-0">
+                            <div className="text-[13px] text-slate-800 pr-2 flex items-center gap-2 w-60">
                               {renderPinnedTypeVisual(item, "sm")}
                               <span className="truncate">
                                 {getPinnedSenderName(item)}:{" "}
@@ -1527,6 +1527,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         </div>
 
         <ChatInput
+          key={activeConversation._id}
           conversationId={activeConversation._id}
           senderId={normalizedUserId || ""}
           onSendSuccess={handleSendSuccess}
