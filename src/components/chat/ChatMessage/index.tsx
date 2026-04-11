@@ -22,6 +22,7 @@ export const ChatMessage = memo(
     onRevoke,
     onDelete,
     onPin,
+    onForward,
   }: {
     msg: any;
     isMe: boolean;
@@ -35,6 +36,7 @@ export const ChatMessage = memo(
     onRevoke?: (msg: any) => void;
     onDelete?: (msg: any) => void;
     onPin?: (msg: any) => void;
+    onForward?: (msg: any) => void;
   }) => {
     const msgType = msg.type?.toLowerCase();
     const isDeleted = !!msg.is_deleted;
@@ -109,6 +111,7 @@ export const ChatMessage = memo(
             onRevoke={onRevoke}
             onDelete={onDelete}
             onPin={onPin}
+            onForward={onForward}
           />
         );
 
@@ -128,6 +131,7 @@ export const ChatMessage = memo(
             onRevoke={onRevoke}
             onDelete={onDelete}
             onPin={onPin}
+            onForward={onForward}
           />
         );
 
@@ -148,6 +152,7 @@ export const ChatMessage = memo(
             onRevoke={onRevoke}
             onDelete={onDelete}
             onPin={onPin}
+            onForward={onForward}
           />
         );
 
@@ -168,6 +173,7 @@ export const ChatMessage = memo(
             onRevoke={onRevoke}
             onDelete={onDelete}
             onPin={onPin}
+            onForward={onForward}
           />
         );
 
@@ -185,6 +191,7 @@ export const ChatMessage = memo(
             onRevoke={onRevoke}
             onDelete={onDelete}
             onPin={onPin}
+            onForward={onForward}
           />
         );
 
@@ -203,6 +210,7 @@ export const ChatMessage = memo(
             onRevoke={onRevoke}
             onDelete={onDelete}
             onPin={onPin}
+            onForward={onForward}
           />
         );
     }

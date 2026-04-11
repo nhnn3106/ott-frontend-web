@@ -24,6 +24,7 @@ export const FileMessage = ({
   onRevoke,
   onDelete,
   onPin,
+  onForward,
 }: {
   msg: Message;
   url: string;
@@ -39,6 +40,7 @@ export const FileMessage = ({
   onRevoke?: (msg: Message) => void;
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
+  onForward?: (msg: Message) => void;
 }) => {
   // 1. Xử lý thông tin File
   const rawFileName = fileName || getFileNameFromUrl(url, "file");
@@ -62,6 +64,7 @@ export const FileMessage = ({
       onRevoke={onRevoke}
       onDelete={onDelete}
       onPin={onPin}
+      onForward={onForward}
     >
       {(borderRadius) => (
         <a

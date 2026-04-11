@@ -15,6 +15,7 @@ export const ImageMessage = ({
   onRevoke,
   onDelete,
   onPin,
+  onForward,
 }: {
   msg: Message;
   urls: string[];
@@ -29,6 +30,7 @@ export const ImageMessage = ({
   onRevoke?: (msg: Message) => void;
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
+  onForward?: (msg: Message) => void;
 }) => {
   const count = urls.length;
 
@@ -206,6 +208,7 @@ export const ImageMessage = ({
       onRevoke={onRevoke}
       onDelete={onDelete}
       onPin={onPin}
+      onForward={onForward}
     >
       {(borderRadius) => renderGrid(borderRadius)}
     </MessageLayout>

@@ -19,6 +19,7 @@ export const AudioMessage = ({
   onRevoke,
   onDelete,
   onPin,
+  onForward,
 }: {
   msg: Message;
   url: string;
@@ -34,6 +35,7 @@ export const AudioMessage = ({
   onRevoke?: (msg: Message) => void;
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
+  onForward?: (msg: Message) => void;
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -96,6 +98,7 @@ export const AudioMessage = ({
       onRevoke={onRevoke}
       onDelete={onDelete}
       onPin={onPin}
+      onForward={onForward}
     >
       {(borderRadius) => (
         <div
@@ -157,7 +160,7 @@ export const AudioMessage = ({
               )}
             </button>
 
-<div
+            <div
               ref={progressRef}
               onClick={handleSeek}
               className="relative flex-1 h-10 flex items-center cursor-pointer"
@@ -165,7 +168,7 @@ export const AudioMessage = ({
             >
               {waveformBars.map((height, i) => {
                 const barProgress = i / waveformBars.length;
-                
+
                 // SỬA Ở ĐÂY: Thêm điều kiện progress > 0
                 // Nếu progress = 0 (chưa play), không thanh nào được active
                 // Đồng thời, nếu barProgress <= progress thì mới active

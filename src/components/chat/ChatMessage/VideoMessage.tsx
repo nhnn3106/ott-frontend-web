@@ -17,6 +17,7 @@ export const VideoMessage = ({
   onRevoke,
   onDelete,
   onPin,
+  onForward,
 }: {
   msg: Message;
   url: string;
@@ -31,6 +32,7 @@ export const VideoMessage = ({
   onRevoke?: (msg: Message) => void;
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
+  onForward?: (msg: Message) => void;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -144,6 +146,7 @@ export const VideoMessage = ({
       onRevoke={onRevoke}
       onDelete={onDelete}
       onPin={onPin}
+      onForward={onForward}
     >
       {(borderRadius) => (
         <div
@@ -267,4 +270,4 @@ export const VideoMessage = ({
       )}
     </MessageLayout>
   );
-};;
+};

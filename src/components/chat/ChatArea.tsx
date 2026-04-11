@@ -33,6 +33,7 @@ import { ChatTimeSeparator } from "./ChatTimeSeparator";
 import ChatSidebarRight from "./ChatSidebarRight";
 import { ConfirmModal } from "../modal/ConfirmModal";
 import { ReplacePinnedModal } from "../modal/ReplacePinnedModal";
+import { ForwardMessageModal } from "../modal/ForwardMessageModal";
 
 // Utils
 import {
@@ -124,6 +125,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const [pendingPinMessage, setPendingPinMessage] = useState<Message | null>(
     null,
   );
+  const [forwardModalOpen, setForwardModalOpen] = useState(false);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(
+    null,
+  );
+  const [isForwarding, setIsForwarding] = useState(false);
   const [locallyRemovedPinnedMap, setLocallyRemovedPinnedMap] = useState<
     Record<string, Message>
   >({});
@@ -941,6 +947,96 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       action: "delete",
       message: msg,
     });
+  };
+
+  const handleForwardMessage = (msg: Message) => {
+    setForwardingMessage(msg);
+    setForwardModalOpen(true);
+  };
+
+  const handleConfirmForwardMessage = async (conversationIds: string[]) => {
+    if (!forwardingMessage || !normalizedUserId) return;
+
+    const payloadContent = (
+      Array.isArray(forwardingMessage.content)
+        ? forwardingMessage.content
+        : [forwardingMessage.content]
+    )
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (typeof item === "object" && item) {
+          return String(item.url || item.text || item.name || "");
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (payloadContent.length === 0) {
+      alert("Không có nội dung hợp lệ để chuyển tiếp");
+      return;
+    }
+    const payloadType = String(forwardingMessage.type || "text") as
+      | "text"
+      | "link"
+      | "image"
+      | "video"
+      | "file"
+      | "audio";
+
+    if (
+      !["text", "link", "image", "video", "file", "audio"].includes(payloadType)
+    ) {
+      alert("Loại tin nhắn này chưa hỗ trợ chuyển tiếp");
+      return;
+    }
+
+    const firstValue = String(payloadContent[0] || "");
+    const fileName =
+      payloadType === "file" ||
+      payloadType === "video" ||
+      payloadType === "audio"
+        ? getFileNameFromUrl(getFullUrl(firstValue))
+        : undefined;
+
+    setIsForwarding(true);
+    try {
+      const settled = await Promise.allSettled(
+        conversationIds.map((conversationId) =>
+          MessageService.sendMessage(
+            conversationId,
+            normalizedUserId,
+            payloadContent,
+            payloadType,
+            Number(forwardingMessage.size || 0),
+            fileName,
+          ),
+        ),
+      );
+
+      const successCount = settled.filter(
+        (result) => result.status === "fulfilled",
+      ).length;
+
+      if (successCount === 0) {
+        alert("Chuyển tiếp thất bại");
+        return;
+      }
+
+      if (successCount < conversationIds.length) {
+        alert(
+          `Đã chuyển tiếp ${successCount}/${conversationIds.length} hội thoại`,
+        );
+      }
+
+      if (conversationIds.includes(String(activeConversation?._id || ""))) {
+        await loadMessageContextAfterLast();
+      }
+
+      setForwardModalOpen(false);
+      setForwardingMessage(null);
+    } finally {
+      setIsForwarding(false);
+    }
   };
 
   const handlePinMessage = async (msg: Message) => {
@@ -1973,6 +2069,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                       onRevoke={handleRevokeMessage}
                       onDelete={handleDeleteMessage}
                       onPin={handlePinMessage}
+                      onForward={handleForwardMessage}
                     />
                   </div>
                 </React.Fragment>
@@ -2070,6 +2167,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           setPendingPinMessage(null);
         }}
         onConfirm={handleConfirmReplacePinned}
+      />
+
+      <ForwardMessageModal
+        isOpen={forwardModalOpen}
+        message={forwardingMessage}
+        conversations={conversations}
+        currentConversationId={activeConversation?._id}
+        currentUserId={normalizedUserId}
+        isSubmitting={isForwarding}
+        onClose={() => {
+          setForwardModalOpen(false);
+          setForwardingMessage(null);
+        }}
+        onConfirm={handleConfirmForwardMessage}
       />
     </div>
   );
