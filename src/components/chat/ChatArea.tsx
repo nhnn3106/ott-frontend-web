@@ -22,6 +22,11 @@ import { useChat } from "../../hooks/useChat";
 import { primeMessageSenderCache } from "../../hooks/useMessageSender";
 import { MessageService, ParticipantService } from "../../services";
 import type { ChatAreaProps } from "../../interfaces";
+import type {
+  ImageSendError,
+  ImageSendSuccess,
+  Message as ChatMessageType,
+} from "../../types/message.type";
 
 // Components
 import { ChatHeader } from "./ChatHeader";
@@ -134,6 +139,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     Record<string, Message>
   >({});
   const [removedPinnedNoticeOpen, setRemovedPinnedNoticeOpen] = useState(false);
+  const [optimisticImageMessages, setOptimisticImageMessages] = useState<
+    Array<ChatMessageType>
+  >([]);
+  const imageUploadRemovalTimersRef = useRef<Map<string, number>>(new Map());
   const pinnedMenuRef = useRef<HTMLDivElement>(null);
 
   const getStableMessageId = useCallback((msg?: Message | null) => {
@@ -196,6 +205,199 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const getConversationName = () => {
     return getConversationDisplayName(activeConversation, normalizedUserId);
   };
+
+  const revokePreviewUrls = useCallback((urls?: string[]) => {
+    (urls || []).forEach((url) => {
+      if (typeof url === "string" && url.startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    imageUploadRemovalTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    imageUploadRemovalTimersRef.current.clear();
+
+    setOptimisticImageMessages((prev) => {
+      prev.forEach((item) => revokePreviewUrls(item.local_preview_urls));
+      return [];
+    });
+  }, [activeConversation?._id, revokePreviewUrls]);
+
+  const clearImageRemovalTimer = useCallback((clientMessageId: string) => {
+    const timerId = imageUploadRemovalTimersRef.current.get(clientMessageId);
+    if (timerId) {
+      window.clearTimeout(timerId);
+      imageUploadRemovalTimersRef.current.delete(clientMessageId);
+    }
+  }, []);
+
+  const upsertOptimisticImageMessage = useCallback(
+    (draft: ChatMessageType) => {
+      const clientMessageId = String(
+        draft.local_client_id || draft.msg_id || draft._id || "",
+      );
+      if (!clientMessageId) return;
+
+      clearImageRemovalTimer(clientMessageId);
+
+      setOptimisticImageMessages((prev) => {
+        const existing = prev.find(
+          (item) =>
+            String(item.local_client_id || item.msg_id || item._id || "") ===
+            clientMessageId,
+        );
+
+        if (
+          existing?.local_preview_urls?.length &&
+          draft.local_preview_urls?.length
+        ) {
+          if (
+            existing.local_preview_urls.join("|") !==
+            draft.local_preview_urls.join("|")
+          ) {
+            revokePreviewUrls(existing.local_preview_urls);
+          }
+        }
+
+        const optimisticMessage: ChatMessageType = {
+          ...draft,
+          _id: draft._id || clientMessageId,
+          msg_id: draft.msg_id || clientMessageId,
+          created_at: draft.created_at || new Date().toISOString(),
+          createdAt: draft.createdAt || new Date().toISOString(),
+          sender_name:
+            draft.sender_name ||
+            currentUser?.name ||
+            currentUser?.display_name ||
+            "Bạn",
+          reactions: Array.isArray(draft.reactions) ? draft.reactions : [],
+          local_status: draft.local_status || "uploading",
+          local_error: draft.local_error,
+          local_upload_progress: draft.local_upload_progress ?? 0,
+          local_preview_urls: draft.local_preview_urls || [],
+          local_retry: draft.local_retry,
+        };
+
+        if (existing) {
+          return prev.map((item) =>
+            String(item.local_client_id || item.msg_id || item._id || "") ===
+            clientMessageId
+              ? optimisticMessage
+              : item,
+          );
+        }
+
+        return [...prev, optimisticMessage];
+      });
+    },
+    [clearImageRemovalTimer, currentUser, revokePreviewUrls],
+  );
+
+  const updateOptimisticImageMessage = useCallback(
+    (
+      clientMessageId: string,
+      updater: (message: ChatMessageType) => ChatMessageType,
+    ) => {
+      setOptimisticImageMessages((prev) =>
+        prev.map((item) =>
+          item.local_client_id === clientMessageId ? updater(item) : item,
+        ),
+      );
+    },
+    [],
+  );
+
+  const removeOptimisticImageMessage = useCallback(
+    (clientMessageId: string) => {
+      clearImageRemovalTimer(clientMessageId);
+
+      setOptimisticImageMessages((prev) => {
+        const item = prev.find(
+          (entry) => entry.local_client_id === clientMessageId,
+        );
+        if (item?.local_preview_urls?.length) {
+          revokePreviewUrls(item.local_preview_urls);
+        }
+
+        return prev.filter(
+          (entry) => entry.local_client_id !== clientMessageId,
+        );
+      });
+    },
+    [clearImageRemovalTimer, revokePreviewUrls],
+  );
+
+  const handleImageSendStart = useCallback(
+    (draft: ChatMessageType) => {
+      upsertOptimisticImageMessage(draft);
+    },
+    [upsertOptimisticImageMessage],
+  );
+
+  const handleImageSendProgress = useCallback(
+    (clientMessageId: string, progress: number) => {
+      updateOptimisticImageMessage(clientMessageId, (message) => ({
+        ...message,
+        local_status: "uploading",
+        local_upload_progress: progress,
+      }));
+    },
+    [updateOptimisticImageMessage],
+  );
+
+  const handleImageSendError = useCallback(
+    ({ clientMessageId, error }: ImageSendError) => {
+      clearImageRemovalTimer(clientMessageId);
+      updateOptimisticImageMessage(clientMessageId, (message) => ({
+        ...message,
+        local_status: "error",
+        local_error: error,
+        local_upload_progress: 0,
+      }));
+    },
+    [clearImageRemovalTimer, updateOptimisticImageMessage],
+  );
+
+  const handleImageSendSuccess = useCallback(
+    ({ clientMessageId, sentMessage }: ImageSendSuccess) => {
+      clearImageRemovalTimer(clientMessageId);
+
+      const nextMessage: ChatMessageType = {
+        ...(sentMessage as ChatMessageType),
+        local_client_id: clientMessageId,
+        local_status: "success",
+        local_error: undefined,
+        local_upload_progress: 100,
+      };
+
+      updateOptimisticImageMessage(clientMessageId, (message) => ({
+        ...message,
+        ...nextMessage,
+      }));
+
+      appendMessage(sentMessage);
+
+      const timerId = window.setTimeout(() => {
+        removeOptimisticImageMessage(clientMessageId);
+        forceScrollToBottomRef.current = true;
+        const container = messagesContainerRef.current;
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      }, 650);
+
+      imageUploadRemovalTimersRef.current.set(clientMessageId, timerId);
+    },
+    [
+      appendMessage,
+      clearImageRemovalTimer,
+      removeOptimisticImageMessage,
+      updateOptimisticImageMessage,
+    ],
+  );
 
   const loadPinnedMessages = useCallback(async (): Promise<Message[]> => {
     if (!activeConversation?._id) {
@@ -428,22 +630,23 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   }, [pinnedMessages]);
 
   const renderedMessages = useMemo(() => {
-    const seen = new Set<string>();
-    return messages.filter((item) => {
+    const mergedByKey = new Map<string, Message>();
+
+    [...messages, ...optimisticImageMessages].forEach((item) => {
       const stableId = String(item?.msg_id || item?._id || "").trim();
 
-      // Keep items without ids to avoid dropping temporary client-only entries.
-      if (!stableId) return true;
-
-      const scopedKey = `${stableId}:${String(item?.conversation_id || activeConversation?._id || "")}`;
-      if (seen.has(scopedKey)) {
-        return false;
+      if (!stableId) {
+        const fallbackKey = `no-id:${mergedByKey.size}`;
+        mergedByKey.set(fallbackKey, item);
+        return;
       }
 
-      seen.add(scopedKey);
-      return true;
+      const scopedKey = `${stableId}:${String(item?.conversation_id || activeConversation?._id || "")}`;
+      mergedByKey.set(scopedKey, item);
     });
-  }, [messages, activeConversation?._id]);
+
+    return Array.from(mergedByKey.values());
+  }, [messages, optimisticImageMessages, activeConversation?._id]);
 
   const hydratedMessages = useMemo(() => {
     const messageById = new Map<string, Message>();
@@ -551,7 +754,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       if (!isSystemMsg) {
         items.push({
           kind: "message",
-          key: `message-${String(currentMsg.msg_id || currentMsg._id || index)}-${index}`,
+          key: `message-${String(
+            currentMsg.local_client_id ||
+              currentMsg.msg_id ||
+              currentMsg._id ||
+              index,
+          )}-${index}`,
           message: currentMsg,
           showTime: shouldShowTimestamp(
             currentMsg.createdAt || "",
@@ -2076,8 +2284,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                   {item.showTime && <ChatTimeSeparator time={item.time} />}
 
                   <div
-                    id={`chat-msg-${msg.msg_id || msg._id}`}
-                    data-message-id={String(msg.msg_id || msg._id)}
+                    id={`chat-msg-${msg.msg_id || msg._id || msg.local_client_id}`}
+                    data-message-id={String(
+                      msg.msg_id || msg._id || msg.local_client_id || "",
+                    )}
                   >
                     <ChatMessage
                       msg={{
@@ -2127,6 +2337,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           conversationId={activeConversation._id}
           senderId={normalizedUserId || ""}
           onSendSuccess={handleSendSuccess}
+          onUploadStart={handleImageSendStart}
+          onUploadProgress={handleImageSendProgress}
+          onUploadSuccess={handleImageSendSuccess}
+          onUploadError={handleImageSendError}
           replyToMessage={replyToMessage}
           onCancelReply={() => setReplyToMessage(null)}
         />

@@ -440,6 +440,8 @@ export const MessageLayout = ({
   }, [showReactionDetails, activeReactionFilter, reactionGroups]);
 
   const hasReactions = reactionGroups.length > 0;
+  const isUploadInFlight =
+    msg.local_status === "uploading" || msg.local_status === "error";
   const containerMargin = isLast
     ? hasReactions
       ? "mb-3"
@@ -448,14 +450,20 @@ export const MessageLayout = ({
       ? "mb-4"
       : "mb-1";
 
-  const canDeleteForMe = !!onDelete;
+  const canDeleteForMe = !!onDelete && !isUploadInFlight;
   const canRevokeForAll =
-    isMe && !msg.is_deleted && !msg.is_revoked && !!onRevoke;
-  const canPinMessage = !msg.is_deleted && !msg.is_revoked && !!onPin;
+    isMe &&
+    !msg.is_deleted &&
+    !msg.is_revoked &&
+    !isUploadInFlight &&
+    !!onRevoke;
+  const canPinMessage =
+    !msg.is_deleted && !msg.is_revoked && !isUploadInFlight && !!onPin;
   const canForwardMessage =
     !msg.is_deleted &&
     !msg.is_revoked &&
     !String(msg.type || "").startsWith("system_") &&
+    !isUploadInFlight &&
     !!onForward;
 
   // ==========================================
@@ -880,103 +888,110 @@ export const MessageLayout = ({
                 </div>
               )}
 
-              {onReply && !msg.is_deleted && !msg.is_revoked && (
-                <button
-                  type="button"
-                  onClick={() => onReply(msg)}
-                  className="inline-flex items-center justify-center w-8 h-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                  title="Trả lời"
-                >
-                  <Reply size={16} strokeWidth={2} />
-                </button>
-              )}
-
-              {onReact && !msg.is_deleted && !msg.is_revoked && (
-                <div
-                  className="relative"
-                  onMouseEnter={openReactionPickerOnHover}
-                  onMouseLeave={closeReactionPickerOnLeave}
-                >
+              {onReply &&
+                !msg.is_deleted &&
+                !msg.is_revoked &&
+                !isUploadInFlight && (
                   <button
-                    ref={reactionTriggerRef}
                     type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setShowReactionPicker((prev) => !prev);
-                    }}
-                    className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-                      showReactionPicker
-                        ? "text-slate-600 bg-slate-100"
-                        : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                    }`}
-                    title="Thả reaction"
+                    onClick={() => onReply(msg)}
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    title="Trả lời"
                   >
-                    <SmilePlus size={16} strokeWidth={2} />
+                    <Reply size={16} strokeWidth={2} />
                   </button>
+                )}
 
-                  {showReactionPicker && (
-                    <div
-                      ref={reactionDropdownRef}
-                      className={`absolute ${
-                        showReactionPickerUpward
-                          ? "bottom-[calc(100%+6px)] slide-in-from-bottom-2"
-                          : "top-[calc(100%+6px)] slide-in-from-top-2"
-                      } rounded-md bg-white/95 backdrop-blur-md border border-slate-200/80 shadow-xl px-2 py-1.5 flex items-center gap-0.5 animate-in fade-in zoom-in-95 duration-200 ${
-                        showReactionPickerLeftward
-                          ? `right-0 ${showReactionPickerUpward ? "origin-bottom-right" : "origin-top-right"}`
-                          : `left-0 ${showReactionPickerUpward ? "origin-bottom-left" : "origin-top-left"}`
+              {onReact &&
+                !msg.is_deleted &&
+                !msg.is_revoked &&
+                !isUploadInFlight && (
+                  <div
+                    className="relative"
+                    onMouseEnter={openReactionPickerOnHover}
+                    onMouseLeave={closeReactionPickerOnLeave}
+                  >
+                    <button
+                      ref={reactionTriggerRef}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setShowReactionPicker((prev) => !prev);
+                      }}
+                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                        showReactionPicker
+                          ? "text-slate-600 bg-slate-100"
+                          : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                       }`}
+                      title="Thả reaction"
                     >
-                      {QUICK_REACTIONS.map((reaction) => (
-                        <button
-                          key={reaction}
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleSelectReaction(reaction);
-                          }}
-                          className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-100/80 hover:scale-110 transition-all duration-150"
-                        >
-                          <EmojiGlyph
-                            emoji={normalizeReactionType(reaction)}
-                            size={18}
-                          />
-                        </button>
-                      ))}
+                      <SmilePlus size={16} strokeWidth={2} />
+                    </button>
 
-                      {myReactionTypes.length > 0 && (
-                        <>
-                          <div className="mx-1 h-5 w-px bg-slate-200" />
+                    {showReactionPicker && (
+                      <div
+                        ref={reactionDropdownRef}
+                        className={`absolute ${
+                          showReactionPickerUpward
+                            ? "bottom-[calc(100%+6px)] slide-in-from-bottom-2"
+                            : "top-[calc(100%+6px)] slide-in-from-top-2"
+                        } rounded-md bg-white/95 backdrop-blur-md border border-slate-200/80 shadow-xl px-2 py-1.5 flex items-center gap-0.5 animate-in fade-in zoom-in-95 duration-200 ${
+                          showReactionPickerLeftward
+                            ? `right-0 ${showReactionPickerUpward ? "origin-bottom-right" : "origin-top-right"}`
+                            : `left-0 ${showReactionPickerUpward ? "origin-bottom-left" : "origin-top-left"}`
+                        }`}
+                      >
+                        {QUICK_REACTIONS.map((reaction) => (
                           <button
+                            key={reaction}
                             type="button"
-                            onClick={async (event) => {
+                            onClick={(event) => {
                               event.stopPropagation();
-                              for (const type of myReactionTypes) {
-                                await Promise.resolve(onReact(msg, type));
-                              }
-                              setShowReactionPicker(false);
+                              void handleSelectReaction(reaction);
                             }}
-                            className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100/80 hover:text-slate-700 transition-all duration-150"
-                            title="Gỡ reaction"
+                            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-100/80 hover:scale-110 transition-all duration-150"
                           >
-                            <X size={16} />
+                            <EmojiGlyph
+                              emoji={normalizeReactionType(reaction)}
+                              size={18}
+                            />
                           </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                        ))}
+
+                        {myReactionTypes.length > 0 && (
+                          <>
+                            <div className="mx-1 h-5 w-px bg-slate-200" />
+                            <button
+                              type="button"
+                              onClick={async (event) => {
+                                event.stopPropagation();
+                                for (const type of myReactionTypes) {
+                                  await Promise.resolve(onReact(msg, type));
+                                }
+                                setShowReactionPicker(false);
+                              }}
+                              className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100/80 hover:text-slate-700 transition-all duration-150"
+                              title="Gỡ reaction"
+                            >
+                              <X size={16} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
           )}
 
           {/* HIỂN THỊ REACTION ĐÃ THẢ */}
           {hasReactions && (
             <div
-              className={`absolute -bottom-4 ${
-                /* Đẩy xuống -bottom-4 thay vì -2.5 để thoát khỏi vùng chữ */
-                isMe ? "right-2" : "left-2"
-              } z-20 flex items-center gap-0.5 rounded-full bg-white px-1 py-px shadow-sm ring-1 ring-slate-100/50 select-none`}
+              className={`absolute ${
+                msg.type === "video" || msg.type === "image"
+                  ? "-bottom-0.5"
+                  : "-bottom-2.5"
+              } ${isMe ? "right-0" : "left-0"} z-20 flex items-center gap-0.5 rounded-full bg-white py-px shadow-sm ring-1 ring-slate-100/50 select-none`}
             >
               <button
                 type="button"
@@ -989,9 +1004,7 @@ export const MessageLayout = ({
                 title="Xem chi tiết biểu cảm"
               >
                 {topReactionGroups.map((reaction) => (
-                  <span key={reaction.type} className="shrink-0">
-                    <EmojiGlyph emoji={reaction.type} size={12} />
-                  </span>
+                  <EmojiGlyph emoji={reaction.type} size={12} />
                 ))}
                 {totalReactionCount > 1 && (
                   <span className="ml-0.5 text-[10px] font-semibold leading-none text-slate-600 tabular-nums">

@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  type ReactElement,
   type ClipboardEvent,
   type ChangeEvent,
   type KeyboardEvent,
@@ -26,11 +27,12 @@ import { convertEmojiImageMarkupToText } from "../../../constants/emoji.constant
 import { getFullUrl } from "../../../utils";
 import { getFileNameFromUrl } from "../../../utils";
 import { EmojiPicker } from "./EmojiPicker";
-import { UploadProgress } from "./UploadProgress";
 import { ImageInput } from "./ImageInput";
 import { FileInput } from "./FileInput";
 import { StagingArea } from "./StagingArea";
 import { TextInput, type TextInputHandle } from "./TextInput";
+import type { Message } from "../../../types/message.type";
+import { ConfirmModal } from "../../modal/ConfirmModal";
 
 const FILE_ACCEPT_TYPES =
   "image/*,video/*,audio/*,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,.txt,.json,.csv,.zip,.rar,.7z,.tar,.gz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/x-7z-compressed,application/gzip,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,.env,.ini,.conf,.config,.yaml,.yml,.toml,.md,.xml,.log,.js,.ts,.tsx,.jsx,.mjs,.cjs,.py,.java,.cpp,.c,.h,.hpp,.cs,.go,.rs,.php,.rb,.sh,.bat,.ps1,.sql";
@@ -122,21 +124,70 @@ const isStandaloneLink = (value: string): boolean => {
   return !!normalizeLink(candidate);
 };
 
+const createUploadClientId = () =>
+  `upload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+const MB = 1024 * 1024;
+const DEFAULT_MAX_FILE_SIZE = 50 * MB;
+const VIDEO_MAX_FILE_SIZE = 100 * MB;
+
+const getMaxUploadSize = (file: File) => {
+  if (file.type.startsWith("video/")) {
+    return VIDEO_MAX_FILE_SIZE;
+  }
+  return DEFAULT_MAX_FILE_SIZE;
+};
+
+const validateUploadFiles = (files: File[]) => {
+  const valid: File[] = [];
+  const invalid: Array<{ file: File; maxSizeMb: number }> = [];
+
+  files.forEach((file) => {
+    const maxSize = getMaxUploadSize(file);
+    if (file.size > maxSize) {
+      invalid.push({ file, maxSizeMb: Math.floor(maxSize / MB) });
+      return;
+    }
+    valid.push(file);
+  });
+
+  return { valid, invalid };
+};
+
+const buildInvalidFilesMessage = (
+  invalid: Array<{ file: File; maxSizeMb: number }>,
+) => {
+  if (invalid.length === 0) return "";
+  return "File bạn chọn quá lớn. Kích thước tối đa là 100MB.";
+};
+
 export const ChatInput = ({
   conversationId,
   senderId,
   onSendSuccess,
+  onUploadStart,
+  onUploadProgress,
+  onUploadSuccess,
+  onUploadError,
   replyToMessage,
   onCancelReply,
-}: ChatInputProps) => {
+}: ChatInputProps): ReactElement => {
   const [text, setText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [isVoicePaused, setIsVoicePaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [uploadLimitModal, setUploadLimitModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+  }>({
+    isOpen: false,
+    title: "Không tải được file lên",
+    message: "",
+  });
   const textInputRef = useRef<TextInputHandle>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -453,35 +504,171 @@ export const ChatInput = ({
     return "tin nhắn";
   };
 
-  // --- Upload helpers (được gọi khi Send) ---
+  const normalizeUploadError = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message;
+    }
 
-  // Nhiều ảnh → 1 message
-  const uploadImages = async (files: File[], replyToMsgId?: string) => {
-    const MAX = 50 * 1024 * 1024;
-    const valid = files.filter((f) => {
-      if (f.size > MAX) {
-        alert(`"${f.name}" quá lớn (giới hạn 50MB).`);
-        return false;
-      }
-      return true;
+    if (typeof error === "string" && error.trim()) {
+      return error;
+    }
+
+    return fallback;
+  };
+
+  const showUploadLimitModal = (
+    invalid: Array<{ file: File; maxSizeMb: number }>,
+  ) => {
+    const message = buildInvalidFilesMessage(invalid);
+    if (!message) return;
+
+    setUploadLimitModal({
+      isOpen: true,
+      title: "Không tải được file lên",
+      message,
     });
-    if (valid.length === 0) return;
+  };
 
-    setIsUploading(true);
-    setUploadProgress(10);
+  const isAbortError = (error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return true;
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      return true;
+    }
+    return false;
+  };
+
+  const buildReplyPreview = (): Message["reply_to"] => {
+    if (!replyToMessage) return null;
+
+    const rawContent = Array.isArray(replyToMessage.content)
+      ? String(replyToMessage.content[0] || "")
+      : String(replyToMessage.content || "");
+
+    return {
+      msg_id: String(replyToMessage.msg_id || replyToMessage._id || ""),
+      sender_id: String(replyToMessage.sender_id || ""),
+      sender_name: String(replyToMessage.sender_name || ""),
+      type: replyToMessage.type,
+      content: rawContent,
+      raw_content: rawContent,
+      file_name: replyToMessage.fileName,
+      url: rawContent,
+      media_urls: Array.isArray(replyToMessage.content)
+        ? replyToMessage.content
+            .map((item) => String(item || ""))
+            .filter(Boolean)
+        : undefined,
+      media_count: Array.isArray(replyToMessage.content)
+        ? replyToMessage.content.filter(Boolean).length
+        : undefined,
+      is_deleted: Boolean(replyToMessage.is_deleted),
+      is_revoked: Boolean(replyToMessage.is_revoked),
+    };
+  };
+
+  const buildLocalDraftMessage = ({
+    clientMessageId,
+    type,
+    content,
+    fileName,
+    size,
+    previewUrls,
+    retry,
+    cancel,
+  }: {
+    clientMessageId: string;
+    type: Message["type"];
+    content: Message["content"];
+    fileName?: string;
+    size?: number;
+    previewUrls: string[];
+    retry: () => Promise<void>;
+    cancel?: () => void;
+  }): Message => {
+    const now = new Date().toISOString();
+    return {
+      _id: clientMessageId,
+      msg_id: clientMessageId,
+      conversation_id: conversationId,
+      sender_id: senderId,
+      sender_name: "Bạn",
+      fileName,
+      content,
+      type,
+      size,
+      created_at: now,
+      createdAt: now,
+      reply_to_msg_id: replyToMessage?.msg_id || null,
+      reply_to: buildReplyPreview(),
+      reactions: [],
+      is_deleted: false,
+      is_revoked: false,
+      local_client_id: clientMessageId,
+      local_status: "uploading",
+      local_error: undefined,
+      local_upload_progress: 0,
+      local_preview_urls: previewUrls,
+      local_retry: retry,
+      local_cancel: cancel,
+    };
+  };
+
+  const inferFileMessageType = (file: File): Message["type"] => {
+    if (file.type.startsWith("video/")) return "video";
+    if (file.type.startsWith("audio/")) return "audio";
+    return "file";
+  };
+
+  const uploadImageBatch = async (
+    files: File[],
+    replyToMsgId?: string,
+    clientMessageId = createUploadClientId(),
+  ) => {
+    if (files.length === 0) return;
+
+    const previewUrls = files.map((file) => URL.createObjectURL(file));
+    const abortController = new AbortController();
+
+    const retry = async () => {
+      await uploadImageBatch(files, replyToMsgId, clientMessageId);
+    };
+
+    const cancel = () => {
+      abortController.abort();
+    };
+
+    const draft = buildLocalDraftMessage({
+      clientMessageId,
+      type: "image",
+      content: previewUrls as unknown as Message["content"],
+      previewUrls,
+      retry,
+      cancel,
+    });
+
+    onUploadStart?.(draft);
+
     try {
       const keys = await Promise.all(
-        valid.map(async (file) => {
+        files.map(async (file) => {
           const mimeType = resolveMimeType(file);
           const { uploadUrl, key } = await MessageService.getPresignedUrl(
             file.name,
             mimeType,
+            abortController.signal,
           );
-          await MessageService.uploadFileToS3(uploadUrl, file, mimeType);
+          await MessageService.uploadFileToS3(
+            uploadUrl,
+            file,
+            mimeType,
+            abortController.signal,
+          );
           return key;
         }),
       );
-      setUploadProgress(80);
+
       const sentMessage = await MessageService.sendMessage(
         conversationId,
         senderId,
@@ -490,36 +677,95 @@ export const ChatInput = ({
         0,
         undefined,
         replyToMsgId,
+        abortController.signal,
       );
-      setUploadProgress(100);
-      await onSendSuccess(sentMessage);
+
+      onUploadProgress?.(clientMessageId, 100);
+      onUploadSuccess?.({ clientMessageId, sentMessage });
+
       if (replyToMsgId) onCancelReply?.();
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi khi upload ảnh. Vui lòng thử lại!");
+    } catch (error) {
+      if (isAbortError(error)) {
+        onUploadError?.({ clientMessageId, error: "Đã hủy gửi" });
+        return;
+      }
+
+      const errorMessage = normalizeUploadError(
+        error,
+        "Lỗi khi upload ảnh. Vui lòng thử lại!",
+      );
+      console.error(error);
+      onUploadError?.({ clientMessageId, error: errorMessage });
+      alert(errorMessage);
     } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
+      previewUrls.forEach((url) => {
+        if (url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
+      });
     }
   };
 
+  // --- Upload helpers (được gọi khi Send) ---
+
+  // Nhiều ảnh → 1 message (gửi cụm)
+  const uploadImages = async (files: File[], replyToMsgId?: string) => {
+    await uploadImageBatch(files, replyToMsgId);
+  };
+
   // 1 file (video / tệp) → 1 message
-  const uploadSingleFile = async (file: File, replyToMsgId?: string) => {
-    const MAX = 50 * 1024 * 1024;
-    if (file.size > MAX) {
-      alert(`"${file.name}" quá lớn (giới hạn 50MB).`);
+  const uploadSingleFile = async (
+    file: File,
+    replyToMsgId?: string,
+    clientMessageId = createUploadClientId(),
+  ) => {
+    const maxSize = getMaxUploadSize(file);
+    if (file.size > maxSize) {
+      showUploadLimitModal([{ file, maxSizeMb: Math.floor(maxSize / MB) }]);
       return;
     }
 
-    setIsUploading(true);
-    setUploadProgress(10);
+    const previewUrl = URL.createObjectURL(file);
+    const abortController = new AbortController();
+
+    const retry = async () => {
+      await uploadSingleFile(file, replyToMsgId, clientMessageId);
+    };
+
+    const cancel = () => {
+      abortController.abort();
+    };
+
+    const localType = inferFileMessageType(file);
+
+    const draft = buildLocalDraftMessage({
+      clientMessageId,
+      type: localType,
+      content: [previewUrl] as unknown as Message["content"],
+      fileName: file.name,
+      size: file.size,
+      previewUrls: [previewUrl],
+      retry,
+      cancel,
+    });
+
+    onUploadStart?.(draft);
+
+    const mimeType = resolveMimeType(file);
+
     try {
-      const mimeType = resolveMimeType(file);
       const { uploadUrl, fileCategory, key } =
-        await MessageService.getPresignedUrl(file.name, mimeType);
-      setUploadProgress(40);
-      await MessageService.uploadFileToS3(uploadUrl, file, mimeType);
-      setUploadProgress(70);
+        await MessageService.getPresignedUrl(
+          file.name,
+          mimeType,
+          abortController.signal,
+        );
+      await MessageService.uploadFileToS3(
+        uploadUrl,
+        file,
+        mimeType,
+        abortController.signal,
+      );
       const sentMessage = await MessageService.sendMessage(
         conversationId,
         senderId,
@@ -528,16 +774,29 @@ export const ChatInput = ({
         file.size,
         file.name,
         replyToMsgId,
+        abortController.signal,
       );
-      setUploadProgress(100);
+      onUploadProgress?.(clientMessageId, 100);
+      onUploadSuccess?.({ clientMessageId, sentMessage });
       await onSendSuccess(sentMessage);
       if (replyToMsgId) onCancelReply?.();
     } catch (err) {
+      if (isAbortError(err)) {
+        onUploadError?.({ clientMessageId, error: "Đã hủy gửi" });
+        return;
+      }
+
+      const errorMessage = normalizeUploadError(
+        err,
+        `Lỗi khi upload "${file.name}".`,
+      );
       console.error(err);
-      alert(`Lỗi khi upload "${file.name}".`);
+      onUploadError?.({ clientMessageId, error: errorMessage });
+      alert(errorMessage);
     } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
+      if (previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
     }
   };
 
@@ -547,39 +806,63 @@ export const ChatInput = ({
     if (!text.trim() && pendingFiles.length === 0) return;
 
     const replyToMsgId = replyToMessage?.msg_id;
+    const filesToUpload = [...pendingFiles];
+    const { valid: validFiles, invalid: invalidFiles } =
+      validateUploadFiles(filesToUpload);
+    const hasFiles = validFiles.length > 0;
 
-    // Upload file staged trước
-    if (pendingFiles.length > 0) {
-      const files = [...pendingFiles];
-      setPendingFiles([]); // xoá staging ngay khi bắt đầu gửi
-
-      const images = files.filter((f) => f.type.startsWith("image/"));
-      const others = files.filter((f) => !f.type.startsWith("image/"));
-
-      if (images.length > 0) await uploadImages(images, replyToMsgId);
-      for (const file of others) await uploadSingleFile(file, replyToMsgId);
+    if (invalidFiles.length > 0) {
+      showUploadLimitModal(invalidFiles);
+      return;
     }
 
-    // Sau đó gửi text nếu có
-    if (text.trim()) {
-      try {
-        const messageType = isStandaloneLink(text) ? "link" : "text";
-        const messageContent = convertEmojiImageMarkupToText(text);
+    if (hasFiles) {
+      setIsUploading(true);
+    }
 
-        const sentMessage = await MessageService.sendMessage(
-          conversationId,
-          senderId,
-          messageContent,
-          messageType,
-          0,
-          undefined,
-          replyToMsgId,
+    try {
+      if (hasFiles) {
+        setPendingFiles([]); // xoá staging ngay khi bắt đầu gửi
+
+        const images = validFiles.filter((f) => f.type.startsWith("image/"));
+        const others = validFiles.filter((f) => !f.type.startsWith("image/"));
+
+        const uploadTasks: Promise<unknown>[] = [];
+        if (images.length > 0) {
+          uploadTasks.push(uploadImages(images, replyToMsgId));
+        }
+        uploadTasks.push(
+          ...others.map((file) => uploadSingleFile(file, replyToMsgId)),
         );
-        setText("");
-        await onSendSuccess(sentMessage);
-        if (replyToMsgId) onCancelReply?.();
-      } catch {
-        alert("Gửi tin nhắn thất bại");
+
+        await Promise.allSettled(uploadTasks);
+      }
+
+      // Sau đó gửi text nếu có
+      if (text.trim()) {
+        try {
+          const messageType = isStandaloneLink(text) ? "link" : "text";
+          const messageContent = convertEmojiImageMarkupToText(text);
+
+          const sentMessage = await MessageService.sendMessage(
+            conversationId,
+            senderId,
+            messageContent,
+            messageType,
+            0,
+            undefined,
+            replyToMsgId,
+          );
+          setText("");
+          await onSendSuccess(sentMessage);
+          if (replyToMsgId) onCancelReply?.();
+        } catch {
+          alert("Gửi tin nhắn thất bại");
+        }
+      }
+    } finally {
+      if (hasFiles) {
+        setIsUploading(false);
       }
     }
   };
@@ -589,25 +872,59 @@ export const ChatInput = ({
   // Icon ảnh: upload và gửi ngay (không qua staging)
   const handleImageFiles = async (files: File[]) => {
     if (isUploading || files.length === 0) return;
-    await uploadImages(files, replyToMessage?.msg_id);
+
+    const { valid, invalid } = validateUploadFiles(files);
+    if (invalid.length > 0 || valid.length === 0) {
+      if (invalid.length > 0) showUploadLimitModal(invalid);
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      await uploadImages(valid, replyToMessage?.msg_id);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Icon tệp: upload và gửi ngay (ảnh gộp 1 tin; file/video gửi từng tin)
   const handleAttachFiles = async (files: File[]) => {
     if (isUploading || files.length === 0) return;
 
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    const others = files.filter((f) => !f.type.startsWith("image/"));
+    const { valid, invalid } = validateUploadFiles(files);
+    if (invalid.length > 0 || valid.length === 0) {
+      if (invalid.length > 0) showUploadLimitModal(invalid);
+      return;
+    }
 
-    if (images.length > 0) await uploadImages(images, replyToMessage?.msg_id);
-    for (const file of others)
-      await uploadSingleFile(file, replyToMessage?.msg_id);
+    setIsUploading(true);
+    try {
+      const images = valid.filter((f) => f.type.startsWith("image/"));
+      const others = valid.filter((f) => !f.type.startsWith("image/"));
+
+      const uploadTasks: Promise<unknown>[] = [];
+      if (images.length > 0) {
+        uploadTasks.push(uploadImages(images, replyToMessage?.msg_id));
+      }
+      uploadTasks.push(
+        ...others.map((file) => uploadSingleFile(file, replyToMessage?.msg_id)),
+      );
+
+      await Promise.allSettled(uploadTasks);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Mic: ghi âm và gửi ngay
   const handleVoiceFile = async (file: File) => {
     if (isUploading) return;
-    await uploadSingleFile(file, replyToMessage?.msg_id);
+    setIsUploading(true);
+    try {
+      await uploadSingleFile(file, replyToMessage?.msg_id);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const startVoiceRecording = async () => {
@@ -809,7 +1126,19 @@ export const ChatInput = ({
         />
       )}
 
-      {isUploading && <UploadProgress progress={uploadProgress} />}
+      <ConfirmModal
+        isOpen={uploadLimitModal.isOpen}
+        title={uploadLimitModal.title}
+        message={uploadLimitModal.message}
+        confirmText="Đóng"
+        hideCancelButton
+        onConfirm={() =>
+          setUploadLimitModal((prev) => ({ ...prev, isOpen: false }))
+        }
+        onCancel={() =>
+          setUploadLimitModal((prev) => ({ ...prev, isOpen: false }))
+        }
+      />
 
       {/* Staging area — hiện khi có file chờ gửi */}
       {pendingFiles.length > 0 && (

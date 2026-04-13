@@ -30,6 +30,7 @@ export interface Message {
   conversation_id?: string;
   size?: number;
   sender_name?: string;
+  fileName?: string;
   reply_to_msg_id?: string | null;
   reply_to?: MessageReplyPreview | null;
   reactions?: MessageReaction[];
@@ -40,6 +41,13 @@ export interface Message {
   is_pinned?: boolean;
   pinned_at?: string | null;
   pinned_by?: string | null;
+  local_client_id?: string;
+  local_status?: "uploading" | "success" | "error";
+  local_error?: string;
+  local_upload_progress?: number;
+  local_preview_urls?: string[];
+  local_retry?: () => void | Promise<void>;
+  local_cancel?: () => void;
 }
 
 export interface MessageReaction {
@@ -89,9 +97,36 @@ export interface ChatNotificationProps {
 export interface ChatInputProps {
   conversationId: string;
   senderId: string;
-  onSendSuccess: (sentMessage?: Message | null) => void | Promise<void>;
+  onSendSuccess: (
+    sentMessage?: Message | null,
+    meta?: { kind?: "text" | "link" | "file" | "video" | "audio" },
+  ) => void | Promise<void>;
+  onUploadStart?: (draft: Message) => void;
+  onUploadProgress?: (clientMessageId: string, progress: number) => void;
+  onUploadSuccess?: (payload: ImageSendSuccess) => void;
+  onUploadError?: (payload: ImageSendError) => void;
   replyToMessage?: Message | null;
   onCancelReply?: () => void;
+}
+
+export interface ImageSendDraft {
+  clientMessageId: string;
+  conversationId: string;
+  senderId: string;
+  files: File[];
+  previewUrls: string[];
+  replyToMessage?: Message | null;
+  retry: () => Promise<void>;
+}
+
+export interface ImageSendSuccess {
+  clientMessageId: string;
+  sentMessage: Message;
+}
+
+export interface ImageSendError {
+  clientMessageId: string;
+  error: string;
 }
 
 export interface FileMessageProps {
