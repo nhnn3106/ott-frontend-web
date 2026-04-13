@@ -1003,8 +1003,12 @@ export const MessageLayout = ({
                 className="flex items-center gap-0.5 rounded-full px-1 py-0.5 transition-colors hover:bg-slate-50"
                 title="Xem chi tiết biểu cảm"
               >
-                {topReactionGroups.map((reaction) => (
-                  <EmojiGlyph emoji={reaction.type} size={12} />
+                {topReactionGroups.map((reaction, index) => (
+                  <EmojiGlyph
+                    key={`${reaction.type}-${index}`}
+                    emoji={reaction.type}
+                    size={12}
+                  />
                 ))}
                 {totalReactionCount > 1 && (
                   <span className="ml-0.5 text-[10px] font-semibold leading-none text-slate-600 tabular-nums">
