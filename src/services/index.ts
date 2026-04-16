@@ -7,7 +7,16 @@ export { socketService } from "./socket.service";
 export { relationshipSocketService } from "./relationshipSocket.service";
 
 // Social / media services
-export { fetchPosts, fetchPostsByUser, fetchPostById, createPost, deletePost } from "./post.service";
+export {
+  fetchPosts,
+  fetchPostsByUser,
+  fetchPostById,
+  createPost,
+  deletePost,
+} from "./post.service";
 export type { ApiPost, ApiMedia } from "./post.service";
 export { fetchUsers, fetchUserByUsername } from "./social.service";
 export type { ApiUser } from "./social.service";
+
+// Admin analytics service
+export { adminService } from "./adminService";

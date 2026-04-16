@@ -10,6 +10,10 @@ import SocialPage from "../pages/SocialPage";
 import UserSelectionPage from "../pages/UserSelectionPage";
 import CallPage from "../pages/CallPage";
 import { SocialProfile } from "../pages/social";
+import Dashboard from "../pages/admin/Dashboard";
+import ContentModeration from "../pages/admin/ContentModeration";
+import UserManagement from "../pages/admin/UserManagement";
+import AdminLayout from "../components/admin/AdminLayout";
 
 /**
  * Application route configuration
@@ -61,6 +65,28 @@ export const routes: RouteObject[] = [
     element: <SocialProfile />,
   },
   {
+    path: "/admin",
+    element: (
+      <AdminLayout>
+        <Dashboard />
+      </AdminLayout>
+    ),
+  },
+  {
+    path: "/admin/moderation",
+    element: (
+      <AdminLayout>
+        <ContentModeration />
+      </AdminLayout>
+    ),
+  },
+  {
+    path: "/admin/users",
+    element: (
+      <AdminLayout>
+        <UserManagement />
+      </AdminLayout>
+    ),
     path: "/call",
     element: <CallPage />,
   },
@@ -79,10 +105,10 @@ export const ROUTE_PATHS = {
   NOTIFICATIONS: "/notifications",
   SETTINGS: "/settings",
   SOCIAL: "/social",
+  ADMIN: "/admin",
+  ADMIN_MODERATION: "/admin/moderation",
   CALL: "/call",
-  SOCIAL_FEED: "/social",
   SOCIAL_PROFILE: (userId?: string) =>
-    userId ? `/social/profile/${userId}` : "/social/profile",
 } as const;
 
 export type RoutePath = (typeof ROUTE_PATHS)[keyof typeof ROUTE_PATHS];

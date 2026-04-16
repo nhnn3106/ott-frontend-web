@@ -12,10 +12,31 @@ import "./App.css";
 
 function AppContent() {
   const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith("/admin");
+  const adminRoutes = routes.filter((route) =>
+    route.path?.startsWith("/admin"),
+  );
+  const appRoutes = routes.filter((route) => !route.path?.startsWith("/admin"));
+
+  if (isAdminRoute) {
+    return (
+      <div className="w-screen h-screen overflow-hidden bg-white">
+        <Routes>
+          {adminRoutes.map((route) => (
+            <Route key={route.path} path={route.path} element={route.element} />
+          ))}
+          <Route
+            path="*"
+            element={<Navigate to={ROUTE_PATHS.ADMIN} replace />}
+          />
+        </Routes>
+      </div>
+    );
+  }
 
   if (location.pathname === ROUTE_PATHS.CALL) {
     return (
-      <div className="h-screen w-screen overflow-hidden bg-slate-950">
+      <div className="w-screen h-screen overflow-hidden bg-slate-950">
         <Routes>
           <Route path={ROUTE_PATHS.CALL} element={<CallPage />} />
           <Route
@@ -28,7 +49,7 @@ function AppContent() {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-white">
+    <div className="w-screen h-screen overflow-hidden bg-white">
       {/* {isAuthenticated ? ( */}
       <MainLayout>
         <Routes>
@@ -36,7 +57,7 @@ function AppContent() {
             path="/"
             element={<Navigate to={ROUTE_PATHS.CHAT} replace />}
           />
-          {routes.map((route) => (
+          {appRoutes.map((route) => (
             <Route key={route.path} path={route.path} element={route.element} />
           ))}
           <Route
