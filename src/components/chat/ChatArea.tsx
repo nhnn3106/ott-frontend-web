@@ -311,7 +311,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         if (existing) {
           return prev.map((item) =>
             String(item.local_client_id || item.msg_id || item._id || "") ===
-            clientMessageId
+              clientMessageId
               ? optimisticMessage
               : item,
           );
@@ -497,14 +497,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         ? firstContent
         : typeof firstContent === "object" && firstContent
           ? String(
-              (firstContent as { text?: string; url?: string; name?: string })
-                .text ||
-                (firstContent as { text?: string; url?: string; name?: string })
-                  .url ||
-                (firstContent as { text?: string; url?: string; name?: string })
-                  .name ||
-                "",
-            )
+            (firstContent as { text?: string; url?: string; name?: string })
+              .text ||
+            (firstContent as { text?: string; url?: string; name?: string })
+              .url ||
+            (firstContent as { text?: string; url?: string; name?: string })
+              .name ||
+            "",
+          )
           : String(firstContent || "");
 
     if (
@@ -518,24 +518,24 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           ? firstContent
           : typeof firstContent === "object" && firstContent
             ? String(
-                (firstContent as { url?: string; text?: string; name?: string })
-                  .url ||
-                  (
-                    firstContent as {
-                      url?: string;
-                      text?: string;
-                      name?: string;
-                    }
-                  ).text ||
-                  (
-                    firstContent as {
-                      url?: string;
-                      text?: string;
-                      name?: string;
-                    }
-                  ).name ||
-                  "",
-              )
+              (firstContent as { url?: string; text?: string; name?: string })
+                .url ||
+              (
+                firstContent as {
+                  url?: string;
+                  text?: string;
+                  name?: string;
+                }
+              ).text ||
+              (
+                firstContent as {
+                  url?: string;
+                  text?: string;
+                  name?: string;
+                }
+              ).name ||
+              "",
+            )
             : "";
 
       const fallbackLabel =
@@ -585,11 +585,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (typeof firstContent === "object" && firstContent) {
       return String(
         (firstContent as { url?: string; text?: string; name?: string }).url ||
-          (firstContent as { url?: string; text?: string; name?: string })
-            .text ||
-          (firstContent as { url?: string; text?: string; name?: string })
-            .name ||
-          "",
+        (firstContent as { url?: string; text?: string; name?: string })
+          .text ||
+        (firstContent as { url?: string; text?: string; name?: string })
+          .name ||
+        "",
       );
     }
     return "";
@@ -637,10 +637,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         );
         const participantAny = participant as
           | {
-              avatar?: string;
-              avatar_url?: string;
-              profile_picture?: string;
-            }
+            avatar?: string;
+            avatar_url?: string;
+            profile_picture?: string;
+          }
           | undefined;
 
         return {
@@ -816,20 +816,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const timelineItems = useMemo(() => {
     const items: Array<
       | {
-          kind: "system-group";
-          key: string;
-          messages: Message[];
-          showTime: boolean;
-          time: string;
-        }
+        kind: "system-group";
+        key: string;
+        messages: Message[];
+        showTime: boolean;
+        time: string;
+      }
       | {
-          kind: "message";
-          key: string;
-          message: Message;
-          showTime: boolean;
-          time: string;
-          index: number;
-        }
+        kind: "message";
+        key: string;
+        message: Message;
+        showTime: boolean;
+        time: string;
+        index: number;
+      }
     > = [];
 
     for (let index = 0; index < hydratedMessages.length; index += 1) {
@@ -842,9 +842,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           kind: "message",
           key: `message-${String(
             currentMsg.local_client_id ||
-              currentMsg.msg_id ||
-              currentMsg._id ||
-              index,
+            currentMsg.msg_id ||
+            currentMsg._id ||
+            index,
           )}-${index}`,
           message: currentMsg,
           showTime: shouldShowTimestamp(
@@ -1437,8 +1437,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       setForwardModalOpen(false);
       setForwardingMessage(null);
     } catch (error) {
-       console.error("Lỗi chuyển tiếp tin nhắn:", error);
-       alert(error instanceof Error ? error.message : "Chuyển tiếp thất bại");
+      console.error("Lỗi chuyển tiếp tin nhắn:", error);
+      alert(error instanceof Error ? error.message : "Chuyển tiếp thất bại");
     } finally {
       setIsForwarding(false);
     }
@@ -1716,12 +1716,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 type: isSystemLikeType(previousMessage.type)
                   ? "text"
                   : (previousMessage.type as
-                      | "text"
-                      | "link"
-                      | "image"
-                      | "video"
-                      | "file"
-                      | "audio"),
+                    | "text"
+                    | "link"
+                    | "image"
+                    | "video"
+                    | "file"
+                    | "audio"),
                 createdAt:
                   previousMessage.createdAt ||
                   (previousMessage as Message & { created_at?: string })
@@ -2265,7 +2265,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         >
           {primaryPinnedMessage && (
             <div
-              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-50 "
+              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
               style={{
                 transform: "translate3d(0, 0, 0)",
                 willChange: "transform", // Báo trước cho trình duyệt để tối ưu

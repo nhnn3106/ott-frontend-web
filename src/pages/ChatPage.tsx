@@ -244,19 +244,37 @@ const ChatContent: React.FC = () => {
       setIncomingCall(payload);
     };
 
-    socketService.onIncomingCall(onIncomingCall);
-    socketService.onCallEnded(onCallEnded);
-    
+    // Fail-safe: Nếu nhận được tin nhắn báo cuộc gọi kết thúc/nhỡ -> đóng modal ngay
+    const onNewMessage = (message: any) => {
+      if (["call_end", "call_missed", "call_busy"].includes(message.type)) {
+        setIncomingCall((prev) => {
+          if (!prev) return null;
+          if (String(prev.conversationId) === String(message.conversation_id)) {
+            console.log("Fail-safe: Received call notification message, closing modal.");
+            return null;
+          }
+          return prev;
+        });
+      }
+    };
+
     // Đảm bảo lắng nghe cả sự kiện người dùng từ chối (cho trường hợp đồng bộ nhiều tab)
     const onCallDeclined = (payload: { conversationId: string }) => {
       setIncomingCall((prev) => (String(prev?.conversationId) === String(payload.conversationId) ? null : prev));
     };
+
+    socketService.onIncomingCall(onIncomingCall);
+    socketService.onCallEnded(onCallEnded);
     socketService.onCallDeclined(onCallDeclined);
+    
+    // Đăng ký listener tin nhắn để làm fail-safe cho cuộc gọi
+    socketService.onNewMessage(onNewMessage);
 
     return () => {
       socketService.offIncomingCall(onIncomingCall);
       socketService.offCallEnded(onCallEnded);
       socketService.offCallDeclined(onCallDeclined);
+      socketService.offNewMessage(onNewMessage);
     };
   }, [normalizedUserId]);
 
@@ -288,7 +306,7 @@ const ChatContent: React.FC = () => {
 
       {/* ── INCOMING CALL MODAL (Modern Warm Brown Theme) ─────────────── */}
       {incomingCall && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 transition-all">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 transition-all">
           <div className="relative w-72 rounded-[2rem] bg-stone-900 text-white shadow-2xl ring-1 ring-amber-500/20 animate-scale-in overflow-hidden">
 
             {/* Top accent glow */}
