@@ -70,10 +70,9 @@ export const useSocialFeedActions = ({
 
     const handleDeletePost = useCallback(
         async (id: string) => {
-            setPosts((prev) => prev.filter((p) => p.id !== id));
             await deletePost(id);
         },
-        [setPosts],
+        [],
     );
 
     const handleUpdatePost = useCallback(
@@ -87,26 +86,6 @@ export const useSocialFeedActions = ({
             if (!currentUser.id) {
                 return { ok: false, error: "Không tìm thấy tài khoản." };
             }
-            let previousPost: Post | null = null;
-            setPosts((prev) =>
-                prev.map((p) => {
-                    if (p.id !== postId) return p;
-                    previousPost = p;
-                    return {
-                        ...p,
-                        content,
-                        visibility,
-                        media: media.map((m) => ({
-                            type: m.type,
-                            url: m.url,
-                            caption: m.caption ?? null,
-                        })),
-                        accessControls,
-                        time: "Vừa xong",
-                    };
-                }),
-            );
-
             const result = await updatePost(
                 postId,
                 currentUser.id,
@@ -116,20 +95,12 @@ export const useSocialFeedActions = ({
                 accessControls,
             );
             if (result.post) {
-                setPosts((prev) =>
-                    prev.map((p) => (p.id === postId ? result.post! : p)),
-                );
                 return { ok: true };
             }
 
-            if (previousPost) {
-                setPosts((prev) =>
-                    prev.map((p) => (p.id === postId ? previousPost! : p)),
-                );
-            }
             return { ok: false, error: result.error };
         },
-        [currentUser.id, setPosts],
+        [currentUser.id],
     );
 
     const handleNewPost = useCallback(
@@ -142,21 +113,6 @@ export const useSocialFeedActions = ({
             if (!currentUser.id) {
                 return { ok: false, error: "Không tìm thấy tài khoản." };
             }
-            const tempId = `temp-${Date.now()}`;
-            const optimisticPost: Post = {
-                id: tempId,
-                author: currentUser,
-                time: "Vừa xong",
-                content,
-                media: media.map((m) => ({ type: m.type, url: m.url })),
-                likes: 0,
-                comments: 0,
-                shares: 0,
-                visibility,
-                relationship: "self",
-            };
-            setPosts((prev) => [optimisticPost, ...prev]);
-
             const fileMedia = media.filter((m) => m.file) as Required<UploadedMedia>[];
             const files = fileMedia.map((m) => m.file);
             const captions = fileMedia.map((m) => m.caption ?? "");
@@ -170,16 +126,11 @@ export const useSocialFeedActions = ({
             );
 
             if (result.post) {
-                setPosts((prev) =>
-                    prev.map((p) => (p.id === tempId ? result.post! : p)),
-                );
                 return { ok: true };
             }
-
-            setPosts((prev) => prev.filter((p) => p.id !== tempId));
             return { ok: false, error: result.error };
         },
-        [currentUser, setPosts],
+        [currentUser],
     );
 
     return { toggleLikePost, handleDeletePost, handleNewPost, handleUpdatePost };

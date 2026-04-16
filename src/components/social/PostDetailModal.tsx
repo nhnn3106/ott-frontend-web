@@ -104,7 +104,13 @@ const PostDetailModal: React.FC<Props> = ({
               onProfile={onProfile}
             />
 
-            <PostBody content={post.content} media={post.media} />
+            <PostBody
+              content={post.content}
+              media={post.media}
+              totalLikes={post.likes}
+              isInView
+              variant="carousel"
+            />
 
             <PostReactionsSummary
               reactionCounts={reactionCounts}

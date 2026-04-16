@@ -34,6 +34,8 @@ const PostCard: React.FC<Props> = ({
   onEdit,
   currentUser,
 }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isInView, setIsInView] = useState(false);
   const [commentCount, setCommentCount] = useState(post.comments);
   const [reaction, setReaction] = useState<ReactionKey | null>(
     initialReaction ?? null,
@@ -72,6 +74,16 @@ const PostCard: React.FC<Props> = ({
   }, [showMenu]);
 
   const currentReaction = getReactionByKey(reaction);
+
+  useEffect(() => {
+    if (!cardRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsInView(entry.isIntersecting),
+      { threshold: 0.4 },
+    );
+    observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const handleReactionClick = (key: ReactionKey) => {
     const prev = reaction;
@@ -139,6 +151,7 @@ const PostCard: React.FC<Props> = ({
   return (
     <>
       <div
+        ref={cardRef}
         className="bg-white rounded-2xl shadow-sm overflow-hidden mb-4"
         onClick={() => openModal(false)}>
         {/* Relationship badge */}
@@ -166,7 +179,12 @@ const PostCard: React.FC<Props> = ({
           />
         </div>
 
-        <PostBody content={post.content} media={post.media} />
+        <PostBody
+          content={post.content}
+          media={post.media}
+          totalLikes={post.likes}
+          isInView={isInView}
+        />
 
         <div>
           <PostReactionsSummary
