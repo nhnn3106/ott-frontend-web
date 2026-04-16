@@ -7,6 +7,7 @@ import { FileMessage } from "./FileMessage";
 import { AudioMessage } from "./AudioMessage";
 import { LinkMessage } from "./LinkMessage";
 import { RevokedMessage } from "./RevokedMessage";
+import { CallMessage } from "./CallMessage";
 
 export const ChatMessage = memo(
   ({
@@ -23,6 +24,7 @@ export const ChatMessage = memo(
     onDelete,
     onPin,
     onForward,
+    conversation,
   }: {
     msg: any;
     isMe: boolean;
@@ -37,10 +39,25 @@ export const ChatMessage = memo(
     onDelete?: (msg: any) => void;
     onPin?: (msg: any) => void;
     onForward?: (msg: any) => void;
+    conversation?: any;
   }) => {
     const msgType = msg.type?.toLowerCase();
     const isDeleted = !!msg.is_deleted;
     const isRevoked = !!msg.is_revoked;
+
+    const fullUrl = useMemo(() => {
+      if (msgType === "text" || msgType === "link" || msgType === "image") {
+        return "";
+      }
+      const content = Array.isArray(msg.content) ? msg.content[0] : msg.content;
+      return getFullUrl(content);
+    }, [msg.content, msgType]);
+
+    const imageUrls = useMemo(() => {
+      if (msgType !== "image") return [];
+      const content = Array.isArray(msg.content) ? msg.content : [msg.content];
+      return content.map((c: string) => getFullUrl(c));
+    }, [msg.content, msgType]);
 
     if (isRevoked) {
       return (
@@ -77,22 +94,6 @@ export const ChatMessage = memo(
         />
       );
     }
-
-    // Cho video/file/audio: chỉ lấy phần tử đầu tiên
-    const fullUrl = useMemo(() => {
-      if (msgType === "text" || msgType === "link" || msgType === "image") {
-        return "";
-      }
-      const content = Array.isArray(msg.content) ? msg.content[0] : msg.content;
-      return getFullUrl(content);
-    }, [msg.content, msgType]);
-
-    // Cho ảnh: lấy toàn bộ mảng URL
-    const imageUrls = useMemo(() => {
-      if (msgType !== "image") return [];
-      const content = Array.isArray(msg.content) ? msg.content : [msg.content];
-      return content.map((c: string) => getFullUrl(c));
-    }, [msg.content, msgType]);
 
     switch (msgType) {
       case "image":
@@ -192,6 +193,25 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+          />
+        );
+
+      case "call_start":
+      case "call_join":
+      case "call_end":
+      case "call_missed":
+      case "call_cancel":
+      case "call_no_answer":
+        return (
+          <CallMessage
+            msg={msg}
+            isMe={isMe}
+            currentUserId={currentUserId}
+            isFirstInSequence={isFirstInSequence}
+            isLastInSequence={isLastInSequence}
+            isTopBoundary={isTopBoundary}
+            onDelete={onDelete}
+            conversation={conversation}
           />
         );
 

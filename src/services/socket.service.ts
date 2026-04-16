@@ -3,7 +3,6 @@ import { SOCKET_CHAT_SERVER_URL } from "../config/api.config";
 
 type CallType = "voice" | "video";
 
-
 class SocketService {
   private socket: Socket | null = null;
 
@@ -126,6 +125,51 @@ class SocketService {
     }
   }
 
+  startTyping(conversationId: string, userId: string) {
+    this.emitWhenConnected("nguoi_dung_dang_soan_tin_nhan", {
+      conversationId,
+      userId,
+    });
+  }
+
+  stopTyping(conversationId: string, userId: string) {
+    this.emitWhenConnected("nguoi_dung_ngung_soan_tin_nhan", {
+      conversationId,
+      userId,
+    });
+  }
+
+  onTyping(
+    callback: (payload: { conversationId: string; userId: string }) => void,
+  ) {
+    this.socket?.on("nguoi_dung_dang_soan_tin_nhan", callback);
+  }
+
+  offTyping(
+    callback?: (payload: { conversationId: string; userId: string }) => void,
+  ) {
+    if (callback) {
+      this.socket?.off("nguoi_dung_dang_soan_tin_nhan", callback);
+    } else {
+      this.socket?.removeAllListeners("nguoi_dung_dang_soan_tin_nhan");
+    }
+  }
+
+  onTypingStopped(
+    callback: (payload: { conversationId: string; userId: string }) => void,
+  ) {
+    this.socket?.on("nguoi_dung_ngung_soan_tin_nhan", callback);
+  }
+
+  offTypingStopped(
+    callback?: (payload: { conversationId: string; userId: string }) => void,
+  ) {
+    if (callback) {
+      this.socket?.off("nguoi_dung_ngung_soan_tin_nhan", callback);
+    } else {
+      this.socket?.removeAllListeners("nguoi_dung_ngung_soan_tin_nhan");
+    }
+  }
 
   getSocket(): Socket | null {
     return this.socket;
@@ -160,6 +204,14 @@ class SocketService {
       conversationId,
       userId,
       callerId,
+    });
+  }
+
+  emitCameraState(conversationId: string, userId: string, isCameraOff: boolean) {
+    this.emitWhenConnected("trang_thai_camera", {
+      conversationId,
+      userId,
+      isCameraOff,
     });
   }
 
@@ -346,6 +398,41 @@ class SocketService {
       this.socket?.off("nguoi_dung_tu_choi_goi", callback);
     } else {
       this.socket?.removeAllListeners("nguoi_dung_tu_choi_goi");
+    }
+  }
+
+  onCallBusy(
+    callback: (payload: {
+      conversationId: string;
+      targetUserId: string;
+    }) => void,
+  ) {
+    this.socket?.on("nguoi_dung_ban_goi", callback);
+  }
+
+  offCallBusy(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("nguoi_dung_ban_goi", callback);
+    } else {
+      this.socket?.removeAllListeners("nguoi_dung_ban_goi");
+    }
+  }
+
+  onCameraStateChanged(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      isCameraOff: boolean;
+    }) => void,
+  ) {
+    this.socket?.on("thay_doi_trang_thai_camera", callback);
+  }
+
+  offCameraStateChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("thay_doi_trang_thai_camera", callback);
+    } else {
+      this.socket?.removeAllListeners("thay_doi_trang_thai_camera");
     }
   }
 }
