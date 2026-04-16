@@ -3,6 +3,7 @@ export interface PostMediaItem {
     url: string;
     id?: string;
     caption?: string | null;
+    likes?: number;
 }
 
 export interface User {
