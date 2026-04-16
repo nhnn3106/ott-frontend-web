@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { MessageCircle, Phone, PhoneOff } from "lucide-react";
 import Sidebar from "../components/chat/ChatSidebarLeft";
-import { ConversationsProvider } from "../contexts/ConversationsContext";
+import { ConversationsProvider, useConversations } from "../contexts/ConversationsContext";
 import { useUser } from "../contexts/UserContext";
 import type { Conversation, ConversationWithParticipant } from "../types";
 import { ChatArea } from "../components";
@@ -18,8 +18,9 @@ type IncomingCallPayload = {
   callType: "voice" | "video";
 };
 
-const ChatPage: React.FC = () => {
+const ChatContent: React.FC = () => {
   const { currentUser } = useUser();
+  const { conversations } = useConversations();
   const normalizedUserId = currentUser?.user_id || currentUser?._id;
   useEffect(() => {
     socketService.connect();
@@ -49,12 +50,15 @@ const ChatPage: React.FC = () => {
       return;
     }
 
-    const displayName = selectedConversation
-      ? getConversationDisplayName(selectedConversation, normalizedUserId)
+    const targetConv = conversations.find(
+      (c) => c.conversation._id === payload.conversationId,
+    )?.conversation;
+
+    const displayName = targetConv
+      ? getConversationDisplayName(targetConv, normalizedUserId)
       : payload.callerId;
-    const displayAvatar = selectedConversation
-      ? getConversationDisplayAvatar(selectedConversation, normalizedUserId) ||
-        ""
+    const displayAvatar = targetConv
+      ? getConversationDisplayAvatar(targetConv, normalizedUserId) || ""
       : "";
 
     const params = new URLSearchParams({
@@ -101,8 +105,21 @@ const ChatPage: React.FC = () => {
       setIncomingCall(payload);
     };
 
+    const onCallEnded = (payload: { conversationId: string }) => {
+      setIncomingCall((prev) => {
+        if (prev && prev.conversationId === payload.conversationId) {
+          return null;
+        }
+        return prev;
+      });
+    };
+
     socketService.onIncomingCall(onIncomingCall);
-    return () => socketService.offIncomingCall(onIncomingCall);
+    socketService.onCallEnded(onCallEnded);
+    return () => {
+      socketService.offIncomingCall(onIncomingCall);
+      socketService.offCallEnded(onCallEnded);
+    };
   }, [normalizedUserId]);
 
   useEffect(() => {
@@ -134,21 +151,29 @@ const ChatPage: React.FC = () => {
   }, [selectedConversation?._id]);
 
   return (
-    <ConversationsProvider>
-      <div className="flex h-full w-full" style={{ zoom: 0.9 }}>
-        {incomingCall && (
+    <div className="flex h-full w-full" style={{ zoom: 0.9 }}>
+      {incomingCall && (() => {
+        const targetConv = conversations.find(
+          (c) => c.conversation._id === incomingCall.conversationId,
+        )?.conversation;
+        const callerNameDisplay = targetConv
+          ? getConversationDisplayName(targetConv, normalizedUserId)
+          : incomingCall.callerId;
+          
+        return (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 px-4">
             <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-sm text-white">
+
               <p className="text-center text-zinc-200 text-sm tracking-wide">
                 Cuoc goi den
               </p>
               <div className="mt-4 flex justify-center">
                 <div className="h-18 w-18 rounded-full bg-zinc-700 flex items-center justify-center text-xl font-semibold uppercase">
-                  {incomingCall.callerId.slice(0, 1)}
+                  {callerNameDisplay?.slice(0, 1) || "U"}
                 </div>
               </div>
               <p className="text-center mt-3 text-xl font-semibold">
-                {incomingCall.callerId}
+                {callerNameDisplay}
               </p>
               <p className="text-center text-zinc-300 text-sm mt-1">
                 {incomingCall.callType === "video"
@@ -177,7 +202,8 @@ const ChatPage: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
+        );
+      })()}
 
         {/* Chat Sidebar */}
         <Sidebar
@@ -185,7 +211,6 @@ const ChatPage: React.FC = () => {
           selectedConversationId={selectedConversation?._id}
         />
 
-        {/* Chat Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {selectedConversation ? (
             <ChatArea conversation={selectedConversation} />
@@ -206,6 +231,13 @@ const ChatPage: React.FC = () => {
           )}
         </div>
       </div>
+  );
+};
+
+const ChatPage: React.FC = () => {
+  return (
+    <ConversationsProvider>
+      <ChatContent />
     </ConversationsProvider>
   );
 };

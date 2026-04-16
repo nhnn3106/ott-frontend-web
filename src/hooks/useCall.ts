@@ -71,6 +71,9 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [remoteCameraStates, setRemoteCameraStates] = useState<
+    Record<string, boolean>
+  >({});
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -95,6 +98,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     setIsMuted(false);
     setIsCameraOff(false);
     setIsScreenSharing(false);
+    setRemoteCameraStates({});
     remoteMediaStreamRef.current.clear();
     pendingIceCandidatesRef.current.clear();
     activeConversationRef.current = null;
@@ -121,6 +125,13 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     peerConnectionsRef.current.delete(targetUserId);
     remoteMediaStreamRef.current.delete(targetUserId);
     pendingIceCandidatesRef.current.delete(targetUserId);
+
+    setRemoteCameraStates((prev) => {
+      if (!(targetUserId in prev)) return prev;
+      const copy = { ...prev };
+      delete copy[targetUserId];
+      return copy;
+    });
 
     setRemoteStreams((prev) =>
       prev.filter((item) => item.userId !== targetUserId),
@@ -453,8 +464,14 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       track.enabled = !track.enabled;
     });
 
-    setIsCameraOff((prev) => !prev);
-  }, [callType, isScreenSharing]);
+    setIsCameraOff((prev) => {
+      const nextState = !prev;
+      if (activeConversationRef.current && userId) {
+        socketService.emitCameraState(activeConversationRef.current, userId, nextState);
+      }
+      return nextState;
+    });
+  }, [callType, isScreenSharing, userId]);
 
   const stopScreenShare = useCallback(async () => {
     if (callType !== "video") return;
@@ -740,6 +757,23 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       });
     };
 
+    const handleCameraStateChanged = (payload: {
+      conversationId: string;
+      userId: string;
+      isCameraOff: boolean;
+    }) => {
+      if (
+        !activeConversationRef.current ||
+        payload.conversationId !== activeConversationRef.current
+      ) {
+        return;
+      }
+      setRemoteCameraStates((prev) => ({
+        ...prev,
+        [payload.userId]: payload.isCameraOff,
+      }));
+    };
+
     socketService.onIncomingCall(handleIncomingCall);
     socketService.onCallJoined(handleCallJoined);
     socketService.onOffer(handleOffer);
@@ -749,6 +783,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     socketService.onCallEnded(handleCallEnded);
     socketService.onCallDeclined(handleCallDeclined);
     socketService.onCallBusy(handleCallBusy);
+    socketService.onCameraStateChanged(handleCameraStateChanged);
 
     return () => {
       socketService.offIncomingCall(handleIncomingCall);
@@ -760,6 +795,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       socketService.offCallEnded(handleCallEnded);
       socketService.offCallDeclined(handleCallDeclined);
       socketService.offCallBusy(handleCallBusy);
+      socketService.offCameraStateChanged(handleCameraStateChanged);
     };
   }, [
     cleanupAllPeers,
@@ -800,6 +836,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       isMuted,
       isCameraOff,
       isScreenSharing,
+      remoteCameraStates,
       startCall,
       joinExistingCall,
       acceptIncomingCall,
@@ -817,6 +854,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       incomingCall,
       isCameraOff,
       isScreenSharing,
+      remoteCameraStates,
       isConnecting,
       isInCall,
       isMuted,

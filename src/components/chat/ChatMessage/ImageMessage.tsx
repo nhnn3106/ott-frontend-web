@@ -18,6 +18,7 @@ const createImagePreview = async (url: string): Promise<string> => {
 
   const blob = await response.blob();
   if (!blob.type.startsWith("image/")) return url;
+  if (blob.type.includes("svg")) return url;
 
   const bitmap = await createImageBitmap(blob);
   const scale = Math.min(
@@ -243,7 +244,7 @@ export const ImageMessage = ({
           <img
             src={getDisplaySrc(urls[0])}
             alt="Attachment"
-            className="block h-auto w-auto object-cover"
+            className="block w-full h-auto object-cover min-w-[200px] min-h-[120px]"
             loading="eager"
             fetchPriority="high"
             decoding="async"

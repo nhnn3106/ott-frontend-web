@@ -24,6 +24,7 @@ export const ChatMessage = memo(
     onDelete,
     onPin,
     onForward,
+    conversation,
   }: {
     msg: any;
     isMe: boolean;
@@ -38,6 +39,7 @@ export const ChatMessage = memo(
     onDelete?: (msg: any) => void;
     onPin?: (msg: any) => void;
     onForward?: (msg: any) => void;
+    conversation?: any;
   }) => {
     const msgType = msg.type?.toLowerCase();
     const isDeleted = !!msg.is_deleted;
@@ -209,6 +211,7 @@ export const ChatMessage = memo(
             isLastInSequence={isLastInSequence}
             isTopBoundary={isTopBoundary}
             onDelete={onDelete}
+            conversation={conversation}
           />
         );
 

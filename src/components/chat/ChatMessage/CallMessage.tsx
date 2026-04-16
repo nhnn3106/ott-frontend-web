@@ -1,6 +1,7 @@
 import { Phone, PhoneMissed, PhoneOff, Video } from "lucide-react";
 import type { Message } from "../../../types";
 import { MessageLayout } from "./MessageLayout";
+import { getConversationDisplayAvatar, getConversationDisplayName } from "../../../utils";
 
 const getCallMeta = (type: string) => {
   switch (type) {
@@ -25,6 +26,7 @@ export const CallMessage = ({
   isLastInSequence,
   isTopBoundary,
   onDelete,
+  conversation,
 }: {
   msg: Message;
   isMe: boolean;
@@ -33,6 +35,7 @@ export const CallMessage = ({
   isLastInSequence: boolean;
   isTopBoundary?: boolean;
   onDelete?: (msg: Message) => void;
+  conversation?: any;
 }) => {
   const rawText = Array.isArray(msg.content)
     ? msg.content.join("")
@@ -62,11 +65,21 @@ export const CallMessage = ({
     const conversationId = String(msg.conversation_id || "");
     if (!conversationId) return;
 
-    const params = new URLSearchParams({
+    const queryParams: Record<string, string> = {
       conversationId,
       type: isVideoCall ? "video" : "voice",
       action: "start",
-    });
+    };
+
+    if (conversation && currentUserId) {
+      queryParams.name = getConversationDisplayName(conversation, currentUserId) || "Cuộc gọi";
+      queryParams.avatar = getConversationDisplayAvatar(conversation, currentUserId) || "";
+    } else {
+      queryParams.name = "Cuộc gọi";
+      queryParams.avatar = "";
+    }
+
+    const params = new URLSearchParams(queryParams);
 
     const callWindow = window.open(
       `/call?${params.toString()}`,

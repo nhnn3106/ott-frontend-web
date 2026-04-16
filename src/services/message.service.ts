@@ -99,6 +99,45 @@ export class MessageService {
     }
   }
 
+  static async forwardMessage(
+    originalMsgId: string,
+    conversationId: string,
+    targetConversationIds: string[],
+    senderId: string,
+    signal?: AbortSignal,
+  ) {
+    try {
+      const response = await fetch(`${API_CHAT_SERVER_URL}/messages/forward`, {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
+        body: JSON.stringify({
+          originalMsgId,
+          conversationId,
+          targetConversationIds,
+          senderId,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) errorMessage = errorData.error;
+        } catch {}
+        throw new Error(errorMessage);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error forwarding message:", error);
+      throw error;
+    }
+  }
+
   // Get messages from database
   static async getMessages(conversationId: string, userId?: string) {
     try {

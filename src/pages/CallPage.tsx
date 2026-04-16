@@ -179,6 +179,7 @@ const CallPage: React.FC = () => {
     isMuted,
     isCameraOff,
     isScreenSharing,
+    remoteCameraStates,
     startCall,
     joinExistingCall,
     endCall,
@@ -365,8 +366,12 @@ const CallPage: React.FC = () => {
     }
 
     const syncRemoteVideoState = () => {
+      const isCameraOffByRemote = primaryRemote?.userId
+        ? remoteCameraStates[primaryRemote.userId] === true
+        : false;
+
       setIsRemoteVideoActive(
-        videoTrack.readyState === "live" && !videoTrack.muted,
+        videoTrack.readyState === "live" && !videoTrack.muted && !isCameraOffByRemote,
       );
     };
 
@@ -380,7 +385,7 @@ const CallPage: React.FC = () => {
       videoTrack.removeEventListener("unmute", syncRemoteVideoState);
       videoTrack.removeEventListener("ended", syncRemoteVideoState);
     };
-  }, [callType, primaryRemote]);
+  }, [callType, primaryRemote, remoteCameraStates]);
 
   if (!conversationId) {
     return (
