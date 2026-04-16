@@ -1340,67 +1340,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   };
 
   const handleConfirmForwardMessage = async (conversationIds: string[]) => {
-    if (!forwardingMessage || !normalizedUserId) return;
-
-    const payloadContent = (
-      Array.isArray(forwardingMessage.content)
-        ? forwardingMessage.content
-        : [forwardingMessage.content]
-    )
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (typeof item === "object" && item) {
-          return String(item.url || item.text || item.name || "");
-        }
-        return "";
-      })
-      .filter(Boolean);
-
-    if (payloadContent.length === 0) {
-      alert("Không có nội dung hợp lệ để chuyển tiếp");
-      return;
-    }
-    const payloadType = String(forwardingMessage.type || "text") as
-      | "text"
-      | "link"
-      | "image"
-      | "video"
-      | "file"
-      | "audio";
-
-    if (
-      !["text", "link", "image", "video", "file", "audio"].includes(payloadType)
-    ) {
-      alert("Loại tin nhắn này chưa hỗ trợ chuyển tiếp");
-      return;
-    }
-
-    const firstValue = String(payloadContent[0] || "");
-    const fileName =
-      payloadType === "file" ||
-      payloadType === "video" ||
-      payloadType === "audio"
-        ? getFileNameFromUrl(getFullUrl(firstValue))
-        : undefined;
+    if (!forwardingMessage || !normalizedUserId || !activeConversation?._id) return;
 
     setIsForwarding(true);
     try {
-      const settled = await Promise.allSettled(
-        conversationIds.map((conversationId) =>
-          MessageService.sendMessage(
-            conversationId,
-            normalizedUserId,
-            payloadContent,
-            payloadType,
-            Number(forwardingMessage.size || 0),
-            fileName,
-          ),
-        ),
+      const response = await MessageService.forwardMessage(
+        forwardingMessage.msg_id || forwardingMessage._id || "",
+        activeConversation._id,
+        conversationIds,
+        normalizedUserId
       );
 
-      const successCount = settled.filter(
-        (result) => result.status === "fulfilled",
-      ).length;
+      const results = response.results || [];
+      const successCount = results.length;
 
       if (successCount === 0) {
         alert("Chuyển tiếp thất bại");
@@ -1419,6 +1371,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       setForwardModalOpen(false);
       setForwardingMessage(null);
+    } catch (error) {
+       console.error("Lỗi chuyển tiếp tin nhắn:", error);
+       alert(error instanceof Error ? error.message : "Chuyển tiếp thất bại");
     } finally {
       setIsForwarding(false);
     }
@@ -2511,6 +2466,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                       onDelete={handleDeleteMessage}
                       onPin={handlePinMessage}
                       onForward={handleForwardMessage}
+                      conversation={activeConversation}
                     />
                   </div>
                 </React.Fragment>

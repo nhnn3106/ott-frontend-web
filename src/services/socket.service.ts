@@ -207,6 +207,14 @@ class SocketService {
     });
   }
 
+  emitCameraState(conversationId: string, userId: string, isCameraOff: boolean) {
+    this.emitWhenConnected("trang_thai_camera", {
+      conversationId,
+      userId,
+      isCameraOff,
+    });
+  }
+
   sendOffer(
     conversationId: string,
     fromUserId: string,
@@ -407,6 +415,24 @@ class SocketService {
       this.socket?.off("nguoi_dung_ban_goi", callback);
     } else {
       this.socket?.removeAllListeners("nguoi_dung_ban_goi");
+    }
+  }
+
+  onCameraStateChanged(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      isCameraOff: boolean;
+    }) => void,
+  ) {
+    this.socket?.on("thay_doi_trang_thai_camera", callback);
+  }
+
+  offCameraStateChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("thay_doi_trang_thai_camera", callback);
+    } else {
+      this.socket?.removeAllListeners("thay_doi_trang_thai_camera");
     }
   }
 }
