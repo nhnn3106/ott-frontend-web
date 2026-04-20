@@ -453,6 +453,26 @@ class SocketService {
       this.socket?.removeAllListeners("thay_doi_trang_thai_camera");
     }
   }
+
+  /** Read Status Synchronization */
+  onReadStatus(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+      readAt: string;
+    }) => void,
+  ) {
+    this.socket?.on("tin_nhan_doc", callback);
+  }
+
+  offReadStatus(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("tin_nhan_doc", callback);
+    } else {
+      this.socket?.removeAllListeners("tin_nhan_doc");
+    }
+  }
 }
 
 export const socketService = new SocketService();

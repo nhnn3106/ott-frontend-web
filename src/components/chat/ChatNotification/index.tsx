@@ -6,29 +6,55 @@ import { LeaveNotification } from "./LeaveNotification";
 import { PinNotification } from "./PinNotification";
 import { UnpinNotification } from "./UnpinNotification";
 import { DefaultNotification } from "./DefaultNotification";
+import { PollNotification } from "./PollNotification";
+
+import { useUser } from "../../../contexts/UserContext";
 
 export const ChatNotification: React.FC<ChatNotificationProps> = ({
   type,
   content,
+  msgId,
+  conversationId,
+  sender_id,
+  sender_name,
 }) => {
+  const { currentUser } = useUser();
+  const currentUserId = currentUser?._id || currentUser?.user_id;
+
+  let displayContent = content;
+  if (sender_id && currentUserId && String(sender_id) === String(currentUserId)) {
+    if (sender_name && content.startsWith(sender_name)) {
+      displayContent = "Bạn" + content.slice(sender_name.length);
+    }
+  }
   switch (type) {
+    case "system_poll":
+      return (
+        <PollNotification
+          content={displayContent}
+          msgId={msgId}
+          conversationId={conversationId}
+          sender_id={sender_id}
+          sender_name={sender_name}
+        />
+      );
     case "system_add":
-      return <AddNotification content={content} />;
+      return <AddNotification content={displayContent} />;
     case "system_block":
-      return <BlockNotification content={content} />;
+      return <BlockNotification content={displayContent} />;
     case "system_leave":
-      return <LeaveNotification content={content} />;
+      return <LeaveNotification content={displayContent} />;
     case "system_pin":
-      return <PinNotification content={content} />;
+      return <PinNotification content={displayContent} />;
     case "system_unpin":
-      return <UnpinNotification content={content} />;
+      return <UnpinNotification content={displayContent} />;
     case "call_start":
     case "call_join":
     case "call_end":
     case "call_cancel":
     case "call_no_answer":
-      return <DefaultNotification content={content} />;
+      return <DefaultNotification content={displayContent} />;
     default:
-      return <DefaultNotification content={content} />;
+      return <DefaultNotification content={displayContent} />;
   }
 };

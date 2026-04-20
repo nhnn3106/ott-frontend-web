@@ -23,7 +23,7 @@ const MenuItem: React.FC<MenuItemProps> = ({
       `}
     >
       <Icon className={`w-4 h-4 ${color}`} />
-      <span className={`text-sm ${isDanger ? 'text-red-600 font-medium' : 'text-gray-700'}`}>
+      <span className={`text-sm ${isDanger ? 'text-red-600 ' : 'text-gray-700'}`}>
         {label}
       </span>
       {hasSubmenu && (

@@ -42,7 +42,9 @@ const SearchMessageRow: React.FC<SearchMessageRowProps> = ({
           </div>
 
           <p className="mb-1 line-clamp-2 text-[15px] text-gray-800">
-            <span className="font-medium text-gray-700">{senderDisplayName}:</span>{" "}
+            {!(msg.preview || "").toLowerCase().trim().startsWith((senderDisplayName || "").toLowerCase().trim()) && (
+              <span className="font-medium text-gray-700">{senderDisplayName}:</span>
+            )}{" "}
             {highlightKeyword(msg.preview)}
           </p>
         </div>
