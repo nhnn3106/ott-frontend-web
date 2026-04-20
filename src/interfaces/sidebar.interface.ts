@@ -61,6 +61,7 @@ export interface MembersFullViewProps {
   onBack: () => void;
   onMemberRemoved: (userId: string) => void;
   onMemberRoleUpdated: (userId: string, newRole: "admin" | "user") => void;
+  onTransferOwnership?: (userId: string) => void;
   onAddMember: () => void;
 }
 

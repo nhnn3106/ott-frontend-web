@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 interface BaseNotificationProps {
   icon: ReactNode;
-  content: string;
+  content: ReactNode;
   badgeClassName: string;
 }
 

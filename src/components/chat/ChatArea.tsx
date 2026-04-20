@@ -72,8 +72,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   onToggleSidebar,
 }) => {
   const { currentUser } = useUser();
-  const { conversations, updateConversation, updateParticipant } =
-    useConversations();
+  const {
+    conversations,
+    updateConversation,
+    updateParticipant,
+    updateConversationParticipant,
+  } = useConversations();
 
   const normalizedUserId = currentUser?.user_id || currentUser?._id;
 
@@ -2184,14 +2188,34 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       unmarkTyping(payload.userId);
     };
 
+    const handleReadStatus = (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+    }) => {
+      if (payload.conversationId !== activeConversation?._id) return;
+      if (String(payload.userId) === String(normalizedUserId || "")) return;
+
+      updateConversationParticipant(payload.conversationId, payload.userId, {
+        last_read_message_id: payload.msgId,
+      } as any);
+    };
+
     socketService.onTyping(handleTypingStart);
     socketService.onTypingStopped(handleTypingStop);
+    socketService.onReadStatus(handleReadStatus);
 
     return () => {
       socketService.offTyping(handleTypingStart);
       socketService.offTypingStopped(handleTypingStop);
+      socketService.offReadStatus(handleReadStatus);
     };
-  }, [activeConversation?._id, normalizedUserId]);
+  }, [
+    activeConversation?._id,
+    normalizedUserId,
+    updateParticipant,
+    updateConversationParticipant,
+  ]);
 
   useEffect(() => {
     const handleRemovedReferenceNotice = (event: Event) => {
@@ -2253,6 +2277,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           disableCallActions={isOpeningCall}
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
+          hideCallActions={Boolean(activeConversation?.is_self_conversation)}
         />
 
         <div
@@ -2429,6 +2454,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                           <ChatNotification
                             type={systemMsg.type}
                             content={notificationContent}
+                            msgId={String(systemMsg.msg_id || systemMsg._id)}
+                            conversationId={activeConversation?._id}
+                            sender_id={String(systemMsg.sender_id || "")}
+                            sender_name={systemMsg.sender_name}
                           />
                         </div>
                       );
@@ -2587,7 +2616,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           {showScrollButton && (
             <button
               onClick={scrollToBottom}
-              className="fixed right-6 bottom-32 bg-primary-500 hover:bg-primary-600 text-white rounded-full p-3 shadow-lg transition-all duration-200 hover:scale-110 z-40"
+              className={`fixed ${
+                sidebarOpen ? "right-[344px]" : "right-6"
+              } bottom-32 bg-primary-500 hover:bg-primary-600 text-white rounded-full p-3 shadow-lg transition-all duration-200 hover:scale-110 z-[110]`}
               title="Scroll to bottom"
             >
               <ChevronDown size={24} strokeWidth={2} />

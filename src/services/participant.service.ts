@@ -294,4 +294,29 @@ export class ParticipantService {
 
     return await response.json();
   }
+
+  static async transferOwnership(
+    conversationId: string,
+    currentOwnerId: string,
+    newOwnerId: string,
+  ): Promise<{ success: boolean; conversationId: string; oldOwnerId: string; newOwnerId: string }> {
+    const response = await fetch(
+      `${API_CHAT_SERVER_URL}/participants/transfer-owner/${conversationId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
+        body: JSON.stringify({ currentOwnerId, newOwnerId }),
+      },
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to transfer ownership");
+    }
+
+    return await response.json();
+  }
 }
