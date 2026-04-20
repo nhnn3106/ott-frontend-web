@@ -8,6 +8,12 @@ export interface MessageContent {
   size?: number;
 }
 
+export interface PollOption {
+  id: string;
+  name: string;
+  voters: string[];
+}
+
 export interface Message {
   _id: string;
   msg_id?: string;
@@ -29,7 +35,9 @@ export interface Message {
     | "call_end"
     | "call_missed"
     | "call_cancel"
-    | "call_no_answer";
+    | "call_no_answer"
+    | "poll"
+    | "system_poll";
   created_at: string;
   createdAt?: string; // For backwards compatibility
   sender_id: String;
@@ -54,6 +62,10 @@ export interface Message {
   local_preview_urls?: string[];
   local_retry?: () => void | Promise<void>;
   local_cancel?: () => void;
+  // Poll fields
+  poll_question?: string | null;
+  poll_multiple_choice?: boolean;
+  poll_options?: PollOption[];
 }
 
 export interface MessageReaction {
@@ -82,7 +94,9 @@ export interface MessageReplyPreview {
     | "call_end"
     | "call_missed"
     | "call_cancel"
-    | "call_no_answer";
+    | "call_no_answer"
+    | "poll"
+    | "system_poll";
   content: string;
   raw_content?: string;
   file_name?: string;
@@ -91,6 +105,7 @@ export interface MessageReplyPreview {
   media_count?: number;
   is_deleted?: boolean;
   is_revoked?: boolean;
+  poll_question?: string | null;
 }
 
 export interface MessageAttachment {
@@ -104,6 +119,10 @@ export interface MessageAttachment {
 export interface ChatNotificationProps {
   type: string;
   content: string;
+  msgId?: string;
+  conversationId?: string;
+  sender_id?: string;
+  sender_name?: string;
 }
 
 export interface ChatInputProps {

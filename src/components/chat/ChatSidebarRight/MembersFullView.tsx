@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ArrowLeft, UserPlus, Crown, MoreHorizontal } from "lucide-react";
 import Avatar from "../../common/Avatar";
+import { ConfirmModal } from "../../modal/ConfirmModal";
 import type { MembersFullViewProps } from "../../../interfaces";
 
 const MembersFullView: React.FC<MembersFullViewProps> = ({
@@ -11,10 +12,13 @@ const MembersFullView: React.FC<MembersFullViewProps> = ({
   onBack,
   onMemberRemoved,
   onMemberRoleUpdated,
+  onTransferOwnership,
   onAddMember,
 }) => {
   const validMembers = (members || []).filter(member => member && member.user_id);
   const [menuOpenForUserId, setMenuOpenForUserId] = useState<string | null>(null);
+  const [transferConfirmOpen, setTransferConfirmOpen] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<{ id: string; name: string } | null>(null);
 
   const getDisplayName = (member: (typeof validMembers)[number]) => {
     return (member.nickname || "").trim() || member.name || `User ${member.user_id.slice(-4)}`;
@@ -78,12 +82,12 @@ const MembersFullView: React.FC<MembersFullViewProps> = ({
               key={member.user_id}
               className="relative flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-b-0"
             >
-              <Avatar 
-                src={member.avatar || ""} 
-                name={getDisplayName(member)} 
-                size={48} 
+              <Avatar
+                src={member.avatar || ""}
+                name={getDisplayName(member)}
+                size={48}
               />
-              
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-gray-900 truncate">
@@ -125,20 +129,38 @@ const MembersFullView: React.FC<MembersFullViewProps> = ({
 
                   {menuOpenForUserId === member.user_id && (
                     <div className="absolute right-0 top-10 z-20 w-44 rounded-xl border border-gray-200 bg-white py-2 shadow-lg">
-                      <button
-                        onClick={() => {
-                          onMemberRoleUpdated(
-                            member.user_id,
-                            member.role === "admin" ? "user" : "admin",
-                          );
-                          setMenuOpenForUserId(null);
-                        }}
-                        className="w-full cursor-pointer px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        {member.role === "admin"
-                          ? "Gỡ phó nhóm"
-                          : "Thêm phó nhóm"}
-                      </button>
+                      {currentUserId === ownerId && (
+                        <button
+                          onClick={() => {
+                            onMemberRoleUpdated(
+                              member.user_id,
+                              member.role === "admin" ? "user" : "admin",
+                            );
+                            setMenuOpenForUserId(null);
+                          }}
+                          className="w-full cursor-pointer px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          {member.role === "admin"
+                            ? "Gỡ phó nhóm"
+                            : "Thêm phó nhóm"}
+                        </button>
+                      )}
+
+                      {currentUserId === ownerId && onTransferOwnership && (
+                        <button
+                          onClick={() => {
+                            setTransferTarget({
+                              id: member.user_id,
+                              name: getDisplayName(member),
+                            });
+                            setTransferConfirmOpen(true);
+                            setMenuOpenForUserId(null);
+                          }}
+                          className="w-full cursor-pointer px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          Chuyển quyền trưởng nhóm
+                        </button>
+                      )}
 
                       <button
                         onClick={() => {
@@ -157,6 +179,26 @@ const MembersFullView: React.FC<MembersFullViewProps> = ({
           ))}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={transferConfirmOpen}
+        title="Chuyển quyền trưởng nhóm"
+        message={`Bạn có chắc chắn muốn chuyển quyền trưởng nhóm cho ${transferTarget?.name}? Người được chọn sẽ trở thành trưởng nhóm và có mọi quyền quản lý nhóm. Bạn sẽ mất quyền quản lý nhưng vẫn là một thành viên của nhóm. Hành động này không thể phục hồi.`}
+        confirmText="Chuyển ngay"
+        cancelText="Huỷ"
+        isDangerous={true}
+        onConfirm={() => {
+          if (transferTarget && onTransferOwnership) {
+            onTransferOwnership(transferTarget.id);
+          }
+          setTransferConfirmOpen(false);
+          setTransferTarget(null);
+        }}
+        onCancel={() => {
+          setTransferConfirmOpen(false);
+          setTransferTarget(null);
+        }}
+      />
     </div>
   );
 };

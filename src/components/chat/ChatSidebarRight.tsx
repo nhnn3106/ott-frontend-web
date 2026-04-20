@@ -18,7 +18,7 @@ import {
   UserService,
   ConversationService,
 } from "../../services";
-import type { Message } from "../../types";
+import type { Message, User } from "../../types";
 import type {
   ConversationMember,
   LinkData,
@@ -77,7 +77,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
   const [storageTab, setStorageTab] = useState<StorageTab>("media");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
   // Modals
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -181,9 +181,9 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
       });
 
       setMembers(mappedMembers);
-      setPinnedMessages(
-        filterValidMessages(pinnedData).map((message) => {
-          const senderId = String((message as any).sender_id || "");
+        setPinnedMessages(
+          filterValidMessages(pinnedData).map((message: Message) => {
+            const senderId = String(message.sender_id || "");
           const preferredName = memberNameById.get(senderId);
           if (!preferredName) return message;
           return {
@@ -387,6 +387,27 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     }
   };
 
+  const handleTransferOwnership = async (newOwnerId: string) => {
+    const normalizedUserId = currentUser?._id || currentUser?.user_id;
+    if (!normalizedUserId || !conversation?._id) return;
+
+    try {
+      await ParticipantService.transferOwnership(
+        conversation._id,
+        normalizedUserId,
+        newOwnerId,
+      );
+      // Reload UI
+      await loadSidebarData();
+      refreshConversations(normalizedUserId);
+    } catch (error) {
+      console.error("Error transferring ownership:", error);
+      setError(
+        error instanceof Error ? error.message : "Không thể chuyển quyền trưởng nhóm",
+      );
+    }
+  };
+
   const getOtherParticipants = (): string[] => {
     if (conversation.type !== "private") return [];
     return members
@@ -430,16 +451,16 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     setViewMode("main");
   }, []);
 
-  const handleCreateGroupFromPrivate = async (
-    groupName: string,
-    selectedUsers: any[],
-    groupAvatar?: string,
-  ) => {
-    try {
-      if (!currentUser?._id || !conversation?._id) return;
-
-      // Create group with selected users (including current user)
-      const userIds = selectedUsers.map((u) => u._id || u.user_id);
+    const handleCreateGroupFromPrivate = async (
+      groupName: string,
+      selectedUsers: User[],
+      groupAvatar?: string,
+    ) => {
+      try {
+        if (!currentUser?._id || !conversation?._id) return;
+  
+        // Create group with selected users (including current user)
+        const userIds = selectedUsers.map((u: User) => u._id || u.user_id);
       const newGroup = await ConversationService.createGroup(
         currentUser._id,
         groupName,
@@ -460,11 +481,22 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
 
   const isGroupChat = conversation?.type === "group";
   const isSelfConversation = Boolean(conversation?.is_self_conversation);
-  const isOwner = currentUser?._id === conversation?.created_by;
+  
+  // Get active conversation from context to ensure we have latest created_by
+  const activeConversation = conversations.find(
+    (item) => item.conversation._id === conversation._id,
+  )?.conversation || conversation;
+
+  const isOwner = currentUser?._id === activeConversation?.created_by;
+  
   const currentParticipant = conversations.find(
     (item) => item.conversation._id === conversation._id,
   )?.participant;
-  const isManager = Boolean(isOwner || currentParticipant?.roles === "admin");
+
+  // Use both role and roles for safety
+  const userRole = currentParticipant?.roles || (currentParticipant as any)?.role || "user";
+  const isAdmin = userRole === "admin";
+  const isManager = Boolean(isOwner || isAdmin);
   const selfConversationId =
     conversations.find((item) => item.conversation.is_self_conversation)
       ?.conversation._id || "";
@@ -808,18 +840,21 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
 
         {/* MEMBERS FULL VIEW */}
         {viewMode === "members" && (
-          <MembersFullView
-            members={members}
-            ownerId={conversation.created_by}
-            currentUserId={currentUser?._id || ""}
-            isManager={isManager}
-            onBack={handleBackToMain}
-            onMemberRemoved={handleMemberRemoved}
-            onMemberRoleUpdated={handleRoleUpdated}
-            onAddMember={() => {
-              setShowAddMemberModal(true);
-            }}
-          />
+          <div className="absolute inset-0 bg-white z-20">
+            <MembersFullView
+              members={members}
+              ownerId={conversation.created_by}
+              currentUserId={currentUser?._id || currentUser?.user_id || ""}
+              isManager={isManager}
+              onBack={handleBackToMain}
+              onMemberRemoved={handleMemberRemoved}
+              onMemberRoleUpdated={handleRoleUpdated}
+              onTransferOwnership={handleTransferOwnership}
+              onAddMember={() => {
+                setShowAddMemberModal(true);
+              }}
+            />
+          </div>
         )}
 
         {/* STORAGE FULL VIEW */}

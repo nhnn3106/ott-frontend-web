@@ -67,6 +67,9 @@ export class MessageService {
     size: number = 0,
     fileName?: string,
     replyToMsgId?: string,
+    pollQuestion?: string,
+    pollMultipleChoice?: boolean,
+    pollOptions?: { id: string; name: string; voters: string[] }[],
     signal?: AbortSignal,
   ) {
     try {
@@ -85,6 +88,9 @@ export class MessageService {
           size,
           fileName,
           replyToMsgId,
+          pollQuestion,
+          pollMultipleChoice,
+          pollOptions,
         }),
       });
 
@@ -261,6 +267,41 @@ export class MessageService {
       return await response.json();
     } catch (error) {
       console.error("Error reacting to message:", error);
+      throw error;
+    }
+  }
+
+  static async votePoll(
+    conversationId: string,
+    msgId: string,
+    userId: string,
+    optionIds: string[],
+  ) {
+    try {
+      const response = await fetch(
+        `${API_CHAT_SERVER_URL}/messages/${msgId}/vote`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+          },
+          body: JSON.stringify({ conversationId, userId, optionIds }),
+        },
+      );
+
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) errorMessage = errorData.error;
+        } catch {}
+        throw new Error(errorMessage);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error voting poll:", error);
       throw error;
     }
   }
