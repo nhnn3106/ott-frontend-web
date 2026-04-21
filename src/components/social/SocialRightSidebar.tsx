@@ -1,6 +1,4 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Gift, Users } from "lucide-react";
-import avatar from "../../assets/avatar.png";
 import {
   acceptFriendRequest,
   fetchFriends,
@@ -13,6 +11,8 @@ import {
   relationshipSocketService,
   type RelationshipRealtimePayload,
 } from "../../services/relationshipSocket.service";
+import FriendRequestsPanel from "./rightSidebar/FriendRequestsPanel";
+import FriendsPanel from "./rightSidebar/FriendsPanel";
 
 interface Props {
   currentUserId: string;
@@ -158,109 +158,15 @@ const SocialRightSidebar: React.FC<Props> = ({ currentUserId }) => {
   return (
     <aside className="w-80 shrink-0 hidden lg:block">
       <div className="sticky top-4 space-y-5">
-        {/* ── Friend Requests ──────────────────────────── */}
-        <div className="border-t border-primary-200 pt-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-primary-800">Loi moi ket ban</h3>
-            <button className="text-primary-500 font-medium text-sm hover:underline">
-              Xem tat ca
-            </button>
-          </div>
-          {requestsLoading && (
-            <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <Users className="size-8 text-primary-200" />
-              <p className="text-xs text-gray-400">Dang tai loi moi...</p>
-            </div>
-          )}
-          {!requestsLoading && requests.length === 0 && (
-            <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <Users className="size-8 text-primary-200" />
-              <p className="text-xs text-gray-400">
-                Chua co loi moi ket ban nao
-              </p>
-            </div>
-          )}
-          {!requestsLoading && requests.length > 0 && (
-            <div className="space-y-3">
-              {requests.map((req) => (
-                <div key={req.id} className="flex items-start gap-3">
-                  <div className="size-14 rounded-full overflow-hidden shrink-0 shadow">
-                    <img
-                      src={req.avatarUrl ?? avatar}
-                      alt={req.name}
-                      className="size-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm truncate">
-                      {req.name}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Vua gui loi moi
-                    </p>
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => handleAccept(req.id)}
-                        disabled={busyRequestId === req.id}
-                        className="flex-1 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-200 text-white py-1.5 rounded-lg text-sm font-medium transition">
-                        Xac nhan
-                      </button>
-                      <button
-                        onClick={() => handleReject(req.id)}
-                        disabled={busyRequestId === req.id}
-                        className="flex-1 bg-primary-100 hover:bg-primary-200 disabled:bg-primary-50 text-primary-800 py-1.5 rounded-lg text-sm font-medium transition">
-                        Xoa
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <FriendRequestsPanel
+          requests={requests}
+          loading={requestsLoading}
+          busyRequestId={busyRequestId}
+          onAccept={handleAccept}
+          onReject={handleReject}
+        />
 
-        {/* ── Friends ─────────────────────────────────── */}
-        <div className="border-t border-primary-200 pt-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-primary-800">Ban be</h3>
-            <button className="text-primary-500 font-medium text-sm hover:underline">
-              Xem tat ca
-            </button>
-          </div>
-          {friendsLoading && (
-            <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <Users className="size-8 text-primary-200" />
-              <p className="text-xs text-gray-400">Dang tai ban be...</p>
-            </div>
-          )}
-          {!friendsLoading && friends.length === 0 && (
-            <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <Users className="size-8 text-primary-200" />
-              <p className="text-xs text-gray-400">Chua co ban be</p>
-            </div>
-          )}
-          {!friendsLoading && friends.length > 0 && (
-            <div className="space-y-3">
-              {friends.map((friend) => (
-                <div key={friend.id} className="flex items-center gap-3">
-                  <div className="size-10 rounded-full overflow-hidden shrink-0 shadow">
-                    <img
-                      src={friend.avatarUrl ?? avatar}
-                      alt={friend.name}
-                      className="size-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm truncate">
-                      {friend.name}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">Ban be</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <FriendsPanel friends={friends} loading={friendsLoading} />
       </div>
     </aside>
   );

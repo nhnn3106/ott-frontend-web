@@ -221,6 +221,7 @@ export const StoryFeed: React.FC<Props> = ({
         storyGroups={storyGroups}
         suggestedUsers={suggestedUsers}
         currentUserAvatar={currentUserAvatar}
+        currentUserId={currentUserId}
         isLoading={isLoading}
         onCreateStory={() => setIsStoryModalOpen(true)}
         onOpenUserStories={openUserStories}

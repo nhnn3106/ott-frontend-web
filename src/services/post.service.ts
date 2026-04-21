@@ -10,6 +10,7 @@
 
 import { API_MEDIA_SERVER_URL } from "../config/api.config";
 import type { Post, PostUser, PostMediaItem } from "../components/social/types";
+import { authFetch } from "./api/fetchClient";
 
 /* ═══════════════════════════════════════════════════════
    Raw shapes trả về từ backend
@@ -126,7 +127,7 @@ function unwrapList<T>(json: unknown): T[] {
  */
 export async function fetchPosts(currentUserId?: string): Promise<Post[] | null> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts`,
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts`,
             //     {
             //     signal: AbortSignal.timeout(5_000),
             // }
@@ -170,7 +171,7 @@ export async function fetchPostsWithPage(
     currentUserId?: string,
 ): Promise<PostsPage | null> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/posts/page?page=${page}&size=${size}&sort=createdAt,desc`,
             { signal: AbortSignal.timeout(10_000) },
         );
@@ -203,7 +204,7 @@ export async function findPostsWithAuthorized(
     currentUserId?: string,
 ): Promise<PostsPage | null> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/posts/page/${currentUserId}?page=${page}&size=${size}&sort=createdAt,desc`,
             { signal: AbortSignal.timeout(10_000) },
         );
@@ -239,7 +240,7 @@ export async function findPostsWithAuthorized(
  */
 export async function fetchPostsByUser(userId: string, currentUserId?: string): Promise<Post[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/user/${userId}`);
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/user/${userId}`);
         if (!res.ok) return [];
 
         const raw = unwrapList<ApiPost>(await res.json());
@@ -257,7 +258,7 @@ export async function fetchPostsByUser(userId: string, currentUserId?: string): 
  */
 export async function fetchPostById(postId: string, currentUserId?: string): Promise<Post | null> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return null;
@@ -319,7 +320,7 @@ export async function createPost(
             captions.forEach((c) => form.append("captions", c));
         }
 
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts`, {
             method: "POST",
             body: form,
             signal: AbortSignal.timeout(30_000), // S3 upload có thể chậm
@@ -394,7 +395,7 @@ export async function updatePost(
             form.append("captions", m.caption ?? "");
         });
 
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
             method: "PUT",
             body: form,
             signal: AbortSignal.timeout(30_000),
@@ -433,7 +434,7 @@ export async function updatePost(
  */
 export async function deletePost(postId: string): Promise<boolean> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
             method: "DELETE",
             signal: AbortSignal.timeout(5_000),
         });
@@ -467,7 +468,7 @@ export async function toggleLike(
         const url = new URL(`${API_MEDIA_SERVER_URL}/posts/${postId}/like`);
         url.searchParams.set("accountId", accountId);
         url.searchParams.set("reactionType", reactionType.toUpperCase());
-        const res = await fetch(url.toString(), {
+        const res = await authFetch(url.toString(), {
             method: "POST",
             signal: AbortSignal.timeout(5_000),
         });
@@ -498,7 +499,7 @@ export interface ApiReaction {
  */
 export async function fetchUserReactions(accountId: string): Promise<ApiReaction[]> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/posts/reactions/by-account?accountId=${encodeURIComponent(accountId)}`,
             { signal: AbortSignal.timeout(5_000) },
         );
@@ -516,7 +517,7 @@ export async function fetchUserReactions(accountId: string): Promise<ApiReaction
  */
 export async function fetchPostReactions(postId: string): Promise<Record<string, number>> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/reactions`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/reactions`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return {};
@@ -609,7 +610,7 @@ export async function fetchRootComments(
     size = 20,
 ): Promise<CommentPage> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/posts/${postId}/comments/root?page=${page}&size=${size}`,
             { signal: AbortSignal.timeout(8_000) },
         );
@@ -643,7 +644,7 @@ async function fetchRootCommentsFallback(
     size: number,
 ): Promise<CommentPage> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`, {
             signal: AbortSignal.timeout(8_000),
         });
         if (!res.ok) {
@@ -691,7 +692,7 @@ export async function fetchReplies(
     size = 10,
 ): Promise<CommentPage> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/posts/comments/${commentId}/replies?page=${page}&size=${size}&sort=createdAt,asc`,
             { signal: AbortSignal.timeout(8_000) },
         );
@@ -715,7 +716,7 @@ export async function fetchReplies(
  */
 export async function fetchComments(postId: string): Promise<Comment[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
@@ -741,7 +742,7 @@ export async function addComment(
         url.searchParams.set("accountId", accountId);
         url.searchParams.set("text", text);
         if (parentCommentId) url.searchParams.set("parentCommentId", parentCommentId);
-        const res = await fetch(url.toString(), {
+        const res = await authFetch(url.toString(), {
             method: "POST",
             signal: AbortSignal.timeout(5_000),
         });
@@ -757,7 +758,7 @@ export async function addComment(
  */
 export async function deleteComment(postId: string, commentId: string): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/posts/${postId}/comments/${commentId}`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
         );
