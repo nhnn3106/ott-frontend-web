@@ -467,9 +467,6 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId],
   );
 
-  /**
-   * Handle reaction update
-   */
   const handleReactionUpdate = useCallback(
     (payload: any) => {
       const payloadConvId =
@@ -489,6 +486,32 @@ export const useChat = (conversationId: string, userId?: string) => {
           return {
             ...message,
             reactions: payload.reactions || [],
+          };
+        }),
+      );
+    },
+    [conversationId],
+  );
+
+  const handleMessageUpdated = useCallback(
+    (payload: any) => {
+      const payloadConvId =
+        payload.conversation_id?.toString() || payload.conversationId;
+
+      if (payloadConvId !== conversationId) return;
+
+      setMessages((prev) =>
+        prev.map((message: any) => {
+          if (
+            message.msg_id !== payload.msg_id &&
+            message._id !== payload._id
+          ) {
+            return message;
+          }
+
+          return {
+            ...message,
+            ...payload, // update all changed fields (e.g. poll_options)
           };
         }),
       );
@@ -524,10 +547,25 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId],
   );
 
+  const handleConversationSynced = useCallback(
+    (payload: any) => {
+      const payloadConversationId = String(
+        payload?._id || payload?.conversation?._id || payload?.conversationId || "",
+      );
+      if (!payloadConversationId || payloadConversationId !== String(conversationId || "")) {
+        return;
+      }
+
+      void loadMessages();
+    },
+    [conversationId, loadMessages],
+  );
+
   useEffect(() => {
     loadMessages();
     socketService.joinConversation(conversationId);
     socketService.onNewMessage(handleNewMessage);
+    socketService.onNewConversation(handleConversationSynced);
     socketService.onMessageReaction(handleReactionUpdate);
 
     // Add new event listeners for edit/delete/revoke
@@ -537,10 +575,12 @@ export const useChat = (conversationId: string, userId?: string) => {
       socket.on("tin_nhan_da_xoa", handleMessageDeleted);
       socket.on("tin_nhan_thu_hoi", handleMessageRevoked);
       socket.on("tin_nhan_pin", handleMessagePin);
+      socket.on("tin_nhan_cap_nhat", handleMessageUpdated);
     }
 
     return () => {
       socketService.offNewMessage(handleNewMessage);
+      socketService.offNewConversation(handleConversationSynced);
       socketService.offMessageReaction(handleReactionUpdate);
 
       const socket = socketService.getSocket();
@@ -549,17 +589,20 @@ export const useChat = (conversationId: string, userId?: string) => {
         socket.off("tin_nhan_da_xoa", handleMessageDeleted);
         socket.off("tin_nhan_thu_hoi", handleMessageRevoked);
         socket.off("tin_nhan_pin", handleMessagePin);
+        socket.off("tin_nhan_cap_nhat", handleMessageUpdated);
       }
     };
   }, [
     conversationId,
     loadMessages,
     handleNewMessage,
+    handleConversationSynced,
     handleReactionUpdate,
     handleMessageEdited,
     handleMessageDeleted,
     handleMessageRevoked,
     handleMessagePin,
+    handleMessageUpdated,
   ]);
 
   return {

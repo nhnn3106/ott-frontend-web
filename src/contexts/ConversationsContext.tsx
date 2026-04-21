@@ -12,6 +12,7 @@ import type {
   ConversationWithParticipant,
   Category,
   Participant,
+  ConversationParticipant,
 } from "../types";
 import { ConversationService, socketService } from "../services";
 import { useAuth } from "./AuthContext";
@@ -37,6 +38,11 @@ interface ConversationsContextType {
   updateParticipant: (
     conversationId: string,
     updates: Partial<Participant>,
+  ) => void;
+  updateConversationParticipant: (
+    conversationId: string,
+    userId: string,
+    updates: Partial<ConversationParticipant>,
   ) => void;
   addConversation: (conversation: Conversation) => void;
   removeConversation: (conversationId: string) => void;
@@ -66,7 +72,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   // Update specific conversation
   const updateConversation = useCallback(
@@ -75,7 +81,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
         prev.map((item) =>
           item.conversation._id === conversationId ?
             { ...item, conversation: { ...item.conversation, ...updates } }
-          : item,
+            : item,
         ),
       );
     },
@@ -103,7 +109,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
             mergedParticipant.unread_count =
               lastMsgId !== "0" && BigInt(lastMsgId) > BigInt(lastReadId) ?
                 mergedParticipant.unread_count || 1
-              : 0;
+                : 0;
           }
 
           return { ...item, participant: mergedParticipant };
@@ -114,6 +120,34 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
   );
 
   // Add new conversation
+  const updateConversationParticipant = useCallback(
+    (
+      conversationId: string,
+      userId: string,
+      updates: Partial<ConversationParticipant>,
+    ) => {
+      setConversations((prev) =>
+        prev.map((item) => {
+          if (item.conversation._id !== conversationId) return item;
+          if (!item.conversation.participants) return item;
+
+          const updatedParticipants = item.conversation.participants.map((p) =>
+            String(p.user_id) === String(userId) ? { ...p, ...updates } : p,
+          );
+
+          return {
+            ...item,
+            conversation: {
+              ...item.conversation,
+              participants: updatedParticipants,
+            },
+          };
+        }),
+      );
+    },
+    [],
+  );
+
   const addConversation = useCallback((conversation: Conversation) => {
     const newItem: ConversationWithParticipant = {
       conversation,
@@ -153,7 +187,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       const rawContent: string =
         Array.isArray(message.content) ?
           message.content[0] || ""
-        : message.content || "";
+          : message.content || "";
 
       let displayContent = "";
       switch (message.type) {
@@ -173,7 +207,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
           displayContent =
             rawContent.length > 50 ?
               rawContent.substring(0, 50) + "..."
-            : rawContent;
+              : rawContent;
       }
 
       const existing = prev[targetIndex];
@@ -183,7 +217,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       const nextUnread =
         isIncomingFromOther ?
           (Number(existing.participant.unread_count) || 0) + 1
-        : Number(existing.participant.unread_count) || 0;
+          : Number(existing.participant.unread_count) || 0;
 
       const updated: ConversationWithParticipant = {
         ...existing,
@@ -217,7 +251,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     const revokedContent =
       Array.isArray(payload.content) ?
         String(payload.content[0] || "Tin nhắn đã được thu hồi")
-      : String(payload.content || "Tin nhắn đã được thu hồi");
+        : String(payload.content || "Tin nhắn đã được thu hồi");
 
     setConversations((prev) =>
       prev.map((item) => {
@@ -247,6 +281,31 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     );
   }, []);
 
+  const handleCategoryUpdated = useCallback((payload: any) => {
+    const conversationId = String(payload?.conversationId || "");
+    if (!conversationId) return;
+
+    const nextCategoryId =
+      payload?.categoryId ?? payload?.participant?.settings?.category_id ?? null;
+
+    setConversations((prev) =>
+      prev.map((item) =>
+        item.conversation._id === conversationId ?
+          {
+            ...item,
+            participant: {
+              ...item.participant,
+              settings: {
+                ...item.participant.settings,
+                category_id: nextCategoryId,
+              },
+            },
+          }
+        : item,
+      ),
+    );
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) {
       socketService.disconnect();
@@ -258,6 +317,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
 
     const socket = socketService.getSocket();
     socket?.on("tin_nhan_thu_hoi", handleRevokedMessage);
+    socket?.on("cap_nhat_phan_loai", handleCategoryUpdated);
 
     const handleGroupDissolved = (payload: { conversationId?: string }) => {
       const conversationId = String(payload?.conversationId || "");
@@ -274,16 +334,40 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       );
     };
 
+    const handleNewConversation = async () => {
+      const currentUserId = String(
+        (user as { user_id?: string } | null)?.user_id || "",
+      ).trim();
+      if (!currentUserId) return;
+
+      try {
+        const loadedConversations =
+          await ConversationService.getUserConversations(currentUserId);
+        setConversations(loadedConversations);
+      } catch (err) {
+        console.error("Failed to refresh conversations on new conversation event", err);
+      }
+    };
+
     socketService.onGroupDissolved(handleGroupDissolved);
+    socketService.onNewConversation(handleNewConversation);
 
     return () => {
       socketService.offNewMessage(handleIncomingMessage);
 
       const cleanupSocket = socketService.getSocket();
       cleanupSocket?.off("tin_nhan_thu_hoi", handleRevokedMessage);
+      cleanupSocket?.off("cap_nhat_phan_loai", handleCategoryUpdated);
       socketService.offGroupDissolved(handleGroupDissolved);
+      socketService.offNewConversation(handleNewConversation);
     };
-  }, [handleIncomingMessage, handleRevokedMessage, isAuthenticated]);
+  }, [
+    handleCategoryUpdated,
+    handleIncomingMessage,
+    handleRevokedMessage,
+    isAuthenticated,
+    user,
+  ]);
 
   // Category Actions
   const addCategory = useCallback((category: Category) => {
@@ -313,7 +397,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
               settings: { ...item.participant.settings, category_id: null },
             },
           }
-        : item,
+          : item,
       ),
     );
   }, []);
@@ -340,13 +424,13 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
           );
 
           return BigInt(bestId) > BigInt(dbId) ?
-              {
-                ...newItem,
-                participant: {
-                  ...newItem.participant,
-                  last_read_message_id: bestId,
-                },
-              }
+            {
+              ...newItem,
+              participant: {
+                ...newItem.participant,
+                last_read_message_id: bestId,
+              },
+            }
             : newItem;
         });
       });
@@ -366,6 +450,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     setError,
     updateConversation,
     updateParticipant,
+    updateConversationParticipant,
     addConversation,
     removeConversation,
     addCategory,

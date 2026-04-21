@@ -8,6 +8,7 @@ import { AudioMessage } from "./AudioMessage";
 import { LinkMessage } from "./LinkMessage";
 import { RevokedMessage } from "./RevokedMessage";
 import { CallMessage } from "./CallMessage";
+import { PollMessage } from "./PollMessage";
 
 export const ChatMessage = memo(
   ({
@@ -69,6 +70,7 @@ export const ChatMessage = memo(
           isLastInSequence={isLastInSequence}
           isTopBoundary={isTopBoundary}
           onDelete={onDelete}
+          participants={conversation?.participants}
         />
       );
     }
@@ -113,6 +115,7 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+            participants={conversation?.participants}
           />
         );
 
@@ -133,6 +136,7 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+            participants={conversation?.participants}
           />
         );
 
@@ -154,6 +158,7 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+            participants={conversation?.participants}
           />
         );
 
@@ -175,6 +180,7 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+            participants={conversation?.participants}
           />
         );
 
@@ -193,6 +199,7 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+            participants={conversation?.participants}
           />
         );
 
@@ -215,6 +222,25 @@ export const ChatMessage = memo(
           />
         );
 
+      case "poll":
+        return (
+          <PollMessage
+            msg={msg}
+            isMe={isMe}
+            currentUserId={currentUserId}
+            isFirstInSequence={isFirstInSequence}
+            isLastInSequence={isLastInSequence}
+            isTopBoundary={isTopBoundary}
+            onReply={onReply}
+            onReact={onReact}
+            onRevoke={onRevoke}
+            onDelete={onDelete}
+            onPin={onPin}
+            onForward={onForward}
+            participants={conversation?.participants}
+          />
+        );
+
       case "text":
       default:
         return (
@@ -231,6 +257,7 @@ export const ChatMessage = memo(
             onDelete={onDelete}
             onPin={onPin}
             onForward={onForward}
+            participants={conversation?.participants}
           />
         );
     }

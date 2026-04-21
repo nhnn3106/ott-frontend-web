@@ -69,17 +69,8 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
     const lastMsg = conversation.last_message;
     if (!lastMsg?.content) return "Chưa có tin nhắn";
 
-    // System messages hiển thị thẳng.
-    // Call preview chỉ giữ lại trạng thái cuối cùng để không lộ các type trung gian.
-    if ((lastMsg.type as string)?.startsWith("system")) return lastMsg.content;
-
-    if ((lastMsg.type as string)?.startsWith("call_")) {
-      if (lastMsg.type === "call_start" || lastMsg.type === "call_join") {
-        return "Cuộc gọi";
-      }
-
-      return lastMsg.content;
-    }
+    const msgType = String(lastMsg.type || "").toLowerCase();
+    const normalizedContent = String(lastMsg.content || "").trim();
 
     const senderParticipant = (conversation.participants || []).find(
       (participant) => {
@@ -98,6 +89,31 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
 
     const prefix =
       lastMsg.sender_id === currentUserId ? "Bạn" : preferredSenderName;
+
+    // Các loại tin nhắn hệ thống, bình chọn, cuộc gọi được coi là "thông báo"
+    // Hoặc nếu nội dung đã bắt đầu bằng tên người gửi (hoặc "Bạn"), cũng coi là thông báo
+    const startsWithName = prefix && normalizedContent.toLowerCase().startsWith(prefix.toLowerCase());
+    const startsWithRealName = preferredSenderName && normalizedContent.toLowerCase().startsWith(preferredSenderName.toLowerCase());
+    const isNotification = msgType.startsWith("system") || msgType === "poll" || msgType.startsWith("call_");
+
+    if (isNotification || startsWithName || startsWithRealName) {
+      let displayContent = lastMsg.content || "";
+      
+      if (msgType === "poll" && !displayContent) {
+        displayContent = "[Bình chọn]";
+      } else if (msgType === "call_start" || msgType === "call_join") {
+        displayContent = "Cuộc gọi";
+      }
+
+      // Nếu là mình gửi và nội dung bắt đầu bằng tên mình, đổi tên đó thành "Bạn"
+      if (lastMsg.sender_id === currentUserId && preferredSenderName) {
+        if (displayContent.startsWith(preferredSenderName)) {
+          return "Bạn" + displayContent.slice(preferredSenderName.length);
+        }
+      }
+      
+      return displayContent;
+    }
 
     return prefix ? `${prefix}: ${lastMsg.content}` : lastMsg.content;
   };
