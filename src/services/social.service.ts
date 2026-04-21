@@ -4,7 +4,7 @@
  * Bài post → xem post.service.ts
  */
 
-import { API_MEDIA_SERVER_URL } from "../config/api.config";
+import { API_MEDIA_SERVER_URL, API_CHAT_SERVER_URL } from "../config/api.config";
 import { authFetch } from "./api/fetchClient";
 
 /* ─── Raw shape trả về từ backend ────────────────────── */
@@ -149,6 +149,26 @@ export async function fetchRelationshipOf(
     }
 }
 
+/**
+ * Lấy trạng thái quan hệ từ chat-service
+ */
+export async function fetchRelationshipStatusViaChat(
+    userId1: string,
+    userId2: string,
+): Promise<any | null> {
+    try {
+        const params = new URLSearchParams({ userId1, userId2 });
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/status?${params.toString()}`,
+            { signal: AbortSignal.timeout(5_000) },
+        );
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    }
+}
+
 export async function cancelRelationship(id: string | null): Promise<boolean> {
     if (!id) return false;
     try {
@@ -192,6 +212,40 @@ export async function acceptFriendRequest(
         const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/accept`,
             { method: "PATCH", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Chấp nhận kết bạn qua chat-service
+ */
+export async function acceptFriendRequestViaChat(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/accept/${relationshipId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Từ chối kết bạn qua chat-service
+ */
+export async function rejectFriendRequestViaChat(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/reject/${relationshipId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
         );
         return res.ok;
     } catch {
@@ -252,6 +306,31 @@ export async function sendFriendRequest(
             { method: "POST", signal: AbortSignal.timeout(5_000) },
         );
         if (!res.ok) throw new Error("Gửi kết bạn thất bại.")
+        return await res.json();
+    } catch (error) {
+        console.error(error)
+        return null;
+    }
+}
+
+/**
+ * Gửi lời mời kết bạn qua chat-service (sẽ sync qua media-service qua RabbitMQ)
+ */
+export async function sendFriendRequestViaChat(
+    requesterId: string,
+    receiverId: string,
+): Promise<any> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/send`,
+            { 
+                method: "POST", 
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requesterId, receiverId }),
+                signal: AbortSignal.timeout(5_000) 
+            },
+        );
+        if (!res.ok) throw new Error("Gửi kết bạn qua Chat thất bại.")
         return await res.json();
     } catch (error) {
         console.error(error)

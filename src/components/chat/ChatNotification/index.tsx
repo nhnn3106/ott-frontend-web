@@ -7,6 +7,7 @@ import { PinNotification } from "./PinNotification";
 import { UnpinNotification } from "./UnpinNotification";
 import { DefaultNotification } from "./DefaultNotification";
 import { PollNotification } from "./PollNotification";
+import { FriendRequestNotification } from "./FriendRequestNotification";
 
 import { useAuth } from "../../../contexts/AuthContext";
 
@@ -38,6 +39,8 @@ export const ChatNotification: React.FC<ChatNotificationProps> = ({
           sender_name={sender_name}
         />
       );
+    case "system_friend_request":
+      return <FriendRequestNotification content={displayContent} />;
     case "system_add":
       return <AddNotification content={displayContent} />;
     case "system_block":

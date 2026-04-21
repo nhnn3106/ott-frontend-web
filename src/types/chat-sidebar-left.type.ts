@@ -114,6 +114,7 @@ export interface SidebarHeaderProps {
   isSearchPanelOpen: boolean;
   onCloseSearchPanel: () => void;
   onOpenCreateGroup: () => void;
+  onOpenAddFriend: () => void;
   loading: boolean;
   error: string | null;
   filteredConversationCount: number;

@@ -75,19 +75,23 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           <div className="flex flex-col md:flex-row items-center md:items-end gap-4">
             {/* Avatar */}
             <div className="relative -mt-20">
-              <div className="size-32 md:size-40 rounded-full overflow-hidden border-4 border-white shadow-xl">
-                {avatarUrl ?
+              <div className="size-32 md:size-40 rounded-full overflow-hidden border-4 border-white shadow-xl bg-gray-100 flex items-center justify-center">
+                {avatarUrl ? (
                   <img
                     src={avatarUrl}
                     alt={displayName}
                     className="size-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = avatar;
+                    }}
                   />
-                : <img
+                ) : (
+                  <img
                     src={avatar}
                     alt="Profile"
                     className="size-full object-cover"
                   />
-                }
+                )}
               </div>
               {isOwner && (
                 <button
