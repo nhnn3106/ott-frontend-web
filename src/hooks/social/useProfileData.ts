@@ -51,18 +51,27 @@ export const useProfileData = (
 
       // Load full profile fields and set profile user
       const full = await fetchUserById(userId);
-      if (full) {
+      let chatUser = null;
+      
+      try {
+        const { UserService } = await import("../../services/user.service");
+        chatUser = await UserService.getUserById(userId);
+      } catch (e) {
+        console.error("Failed to fetch user from chat service", e);
+      }
+
+      if (full || chatUser) {
         setProfile({
-          bio: full.bio ?? "",
-          work: full.work ?? "",
-          location: full.location ?? "",
-          relationship: full.relationshipStatus ?? "",
+          bio: full?.bio ?? "",
+          work: full?.work ?? "",
+          location: full?.location ?? "",
+          relationship: full?.relationshipStatus ?? "",
         });
         setProfileUser({
-          displayName: full.displayName ?? full.username ?? "",
-          username: full.username ?? "",
-          avatarUrl: full.avatarUrl ?? undefined,
-          coverUrl: full.coverUrl ?? undefined,
+          displayName: full?.displayName || chatUser?.name || full?.username || "",
+          username: full?.username || chatUser?.name || "",
+          avatarUrl: full?.avatarUrl || chatUser?.avatar || undefined,
+          coverUrl: full?.coverUrl ?? undefined,
         });
       }
 

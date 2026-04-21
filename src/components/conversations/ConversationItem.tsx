@@ -91,27 +91,37 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       lastMsg.sender_id === currentUserId ? "Bạn" : preferredSenderName;
 
     // Các loại tin nhắn hệ thống, bình chọn, cuộc gọi được coi là "thông báo"
-    // Hoặc nếu nội dung đã bắt đầu bằng tên người gửi (hoặc "Bạn"), cũng coi là thông báo
-    const startsWithName = prefix && normalizedContent.toLowerCase().startsWith(prefix.toLowerCase());
-    const startsWithRealName = preferredSenderName && normalizedContent.toLowerCase().startsWith(preferredSenderName.toLowerCase());
-    const isNotification = msgType.startsWith("system") || msgType === "poll" || msgType.startsWith("call_");
+    const isNotification = 
+      msgType.startsWith("system") || 
+      msgType === "poll" || 
+      msgType.startsWith("call_");
 
-    if (isNotification || startsWithName || startsWithRealName) {
+    if (isNotification) {
       let displayContent = lastMsg.content || "";
       
       if (msgType === "poll" && !displayContent) {
         displayContent = "[Bình chọn]";
-      } else if (msgType === "call_start" || msgType === "call_join") {
+      } else if (msgType.startsWith("call_")) {
         displayContent = "Cuộc gọi";
       }
 
+      // Đối với tin nhắn hệ thống, thường nội dung đã bao gồm tên người dùng hoặc là câu thông báo chung
+      // Trả về trực tiếp nội dung mà không có tiền tố "Tên: "
+      return displayContent;
+    }
+
+    // Kiểm tra nếu nội dung đã bắt đầu bằng tên người gửi (hoặc "Bạn") để tránh lặp lại
+    const startsWithName = prefix && normalizedContent.toLowerCase().startsWith(prefix.toLowerCase());
+    const startsWithRealName = preferredSenderName && normalizedContent.toLowerCase().startsWith(preferredSenderName.toLowerCase());
+
+    if (startsWithName || startsWithRealName) {
+      let displayContent = lastMsg.content || "";
       // Nếu là mình gửi và nội dung bắt đầu bằng tên mình, đổi tên đó thành "Bạn"
       if (lastMsg.sender_id === currentUserId && preferredSenderName) {
         if (displayContent.startsWith(preferredSenderName)) {
           return "Bạn" + displayContent.slice(preferredSenderName.length);
         }
       }
-      
       return displayContent;
     }
 

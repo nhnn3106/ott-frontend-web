@@ -11,6 +11,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
   isSearchPanelOpen,
   onCloseSearchPanel,
   onOpenCreateGroup,
+  onOpenAddFriend,
   loading,
   error,
   filteredConversationCount,
@@ -45,8 +46,9 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
         {!isSearchPanelOpen && (
           <>
             <button
+              onClick={onOpenAddFriend}
               className="cursor-pointer p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Nhóm bạn mới"
+              title="Thêm bạn"
             >
               <MdPersonAddAlt className="w-5 h-5 text-gray-600" />
             </button>

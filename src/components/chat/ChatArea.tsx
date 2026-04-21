@@ -44,6 +44,8 @@ import ChatSidebarRight from "./ChatSidebarRight";
 import { ConfirmModal } from "../modal/ConfirmModal";
 import { ReplacePinnedModal } from "../modal/ReplacePinnedModal";
 import { ForwardMessageModal } from "../modal/ForwardMessageModal";
+import { FriendRequestBar } from "./FriendRequestBar";
+import { fetchRelationshipStatusViaChat } from "../../services/social.service";
 
 // Utils
 import {
@@ -178,6 +180,28 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     title: "",
     message: "",
   });
+
+  const [relationshipStatus, setRelationshipStatus] = useState<any>(null);
+
+  const fetchStatus = useCallback(async () => {
+    if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
+      const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
+      
+      // If participants list is not in activeConversation, try to find from members if it's a private chat
+      // Actually, private conversations should have user_id if we fetch correctly.
+      
+      if (otherParticipantId) {
+        const status = await fetchRelationshipStatusViaChat(normalizedUserId, otherParticipantId);
+        setRelationshipStatus(status);
+      }
+    } else {
+      setRelationshipStatus(null);
+    }
+  }, [activeConversation, normalizedUserId]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   const isParticipant = useMemo(() => {
     if (!activeConversation || activeConversation.type === "private") return true;
@@ -2315,6 +2339,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             isDissolved
           }
         />
+
+        {relationshipStatus?.status === "PENDING" && relationshipStatus?.receiver_id === normalizedUserId && (
+          <FriendRequestBar 
+            relationshipId={relationshipStatus._id} 
+            onStatusChange={fetchStatus} 
+          />
+        )}
 
         <div
           ref={messagesContainerRef}

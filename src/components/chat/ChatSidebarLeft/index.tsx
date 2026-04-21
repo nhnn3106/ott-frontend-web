@@ -4,6 +4,7 @@ import CategoryManagementModal from "../../modal/category/CategoryManagementModa
 import LoadingSkeleton from "../../common/LoadingSkeleton";
 import ErrorState from "../../common/ErrorState";
 import CreateGroupModal from "../../modal/group/CreateGroupModal";
+import AddFriendModal from "../../modal/friend/AddFriendModal";
 import { UserService } from "../../../services/user.service";
 import { ConversationService } from "../../../services/conversation.service";
 import { CategoryService, socketService } from "../../../services";
@@ -43,6 +44,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
+  const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
@@ -254,6 +256,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
           filterMode={filterMode}
           onFilterModeChange={setFilterMode}
           onManageCategories={() => setIsCategoryModalOpen(true)}
+          onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
         />
 
         <div className="flex-1 overflow-hidden">
@@ -311,6 +314,10 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
         userId={currentUser?.id || ""}
+      />
+      <AddFriendModal
+        isOpen={isAddFriendModalOpen}
+        onClose={() => setIsAddFriendModalOpen(false)}
       />
     </>
   );
