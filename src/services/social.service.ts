@@ -5,6 +5,7 @@
  */
 
 import { API_MEDIA_SERVER_URL } from "../config/api.config";
+import { authFetch } from "./api/fetchClient";
 
 /* ─── Raw shape trả về từ backend ────────────────────── */
 export interface ApiUser {
@@ -50,6 +51,7 @@ export interface FriendOption {
 
 export interface FriendRequestOption {
     id: string;
+    userId: string;
     name: string;
     avatarUrl?: string;
 }
@@ -62,7 +64,7 @@ export interface FriendRequestOption {
  */
 export async function fetchUsers(): Promise<ApiUser[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/users`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
@@ -79,7 +81,7 @@ export async function fetchUsers(): Promise<ApiUser[]> {
  */
 export async function fetchUserByUsername(username: string): Promise<ApiUser | null> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/users/username/${username}`,
             { signal: AbortSignal.timeout(5_000) },
         );
@@ -95,7 +97,7 @@ export async function fetchUserByUsername(username: string): Promise<ApiUser | n
  */
 export async function fetchUserById(id: string): Promise<ApiUser | null> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${id}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/users/${id}`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return null;
@@ -107,7 +109,7 @@ export async function fetchUserById(id: string): Promise<ApiUser | null> {
 
 export async function fetchFriends(userId: string): Promise<FriendOption[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/relationships/friends/${userId}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/relationships/friends/${userId}`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
@@ -134,7 +136,7 @@ export async function fetchRelationshipOf(
         const params = new URLSearchParams({ user1 });
         if (user2) params.set("user2", user2);
 
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships?${params.toString()}`,
             { signal: AbortSignal.timeout(5_000) },
         );
@@ -150,7 +152,7 @@ export async function fetchRelationshipOf(
 export async function cancelRelationship(id: string | null): Promise<boolean> {
     if (!id) return false;
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${id}/cancel`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
         );
@@ -166,7 +168,7 @@ export async function fetchPendingRequests(
     userId: string,
 ): Promise<FriendRequestOption[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/relationships/pending/${userId}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/relationships/pending/${userId}`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
@@ -174,6 +176,7 @@ export async function fetchPendingRequests(
         if (!Array.isArray(raw)) return [];
         return raw.map((rel) => ({
             id: rel.id,
+            userId: rel.requesterId,
             name: rel.requesterUsername,
             avatarUrl: rel.requesterAvatarUrl ?? undefined,
         }));
@@ -186,7 +189,7 @@ export async function acceptFriendRequest(
     relationshipId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/accept`,
             { method: "PATCH", signal: AbortSignal.timeout(5_000) },
         );
@@ -201,7 +204,7 @@ export async function blockRelationship(
     blockerId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/block?blockerId=${blockerId}`,
             { method: "PATCH", signal: AbortSignal.timeout(5_000) },
         );
@@ -215,7 +218,7 @@ export async function unfriendRelationship(
     relationshipId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/unfriend`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
         );
@@ -229,7 +232,7 @@ export async function rejectFriendRequest(
     relationshipId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/reject`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
         );
@@ -244,7 +247,7 @@ export async function sendFriendRequest(
     receiverId?: string,
 ): Promise<any> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/send?requesterId=${requesterId}&receiverId=${receiverId}`,
             { method: "POST", signal: AbortSignal.timeout(5_000) },
         );
@@ -276,7 +279,7 @@ export async function uploadUserAvatar(
     try {
         const form = new FormData();
         form.append("avatar", file);
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${userId}/avatar`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/users/${userId}/avatar`, {
             method: "PATCH",
             body: form,
             signal: AbortSignal.timeout(30_000),
@@ -301,7 +304,7 @@ export async function uploadUserCover(
     try {
         const form = new FormData();
         form.append("cover", file);
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${userId}/cover`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/users/${userId}/cover`, {
             method: "PATCH",
             body: form,
             signal: AbortSignal.timeout(30_000),
@@ -329,7 +332,7 @@ export async function updateUserProfile(
         location: fields.location,
         relationshipStatus: fields.relationship,
     };
-    const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${userId}`, {
+    const res = await authFetch(`${API_MEDIA_SERVER_URL}/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
