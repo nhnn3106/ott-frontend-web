@@ -1,14 +1,19 @@
 import { API_CHAT_SERVER_URL } from "../config/api.config";
 import type { SearchEverythingResponse } from "../types";
+import { authFetch } from "./api/fetchClient";
 
 export class MessageService {
+  static getChatApiUrl() {
+    return API_CHAT_SERVER_URL;
+  }
+
   static async getPresignedUrl(
     fileName: string,
     fileType: string,
     signal?: AbortSignal,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/presigned-url`,
         {
           method: "POST",
@@ -73,7 +78,7 @@ export class MessageService {
     signal?: AbortSignal,
   ) {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/messages`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/messages`, {
         method: "POST",
         signal,
         headers: {
@@ -113,7 +118,7 @@ export class MessageService {
     signal?: AbortSignal,
   ) {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/messages/forward`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/messages/forward`, {
         method: "POST",
         signal,
         headers: {
@@ -150,7 +155,7 @@ export class MessageService {
       const url = userId
         ? `${API_CHAT_SERVER_URL}/messages/${conversationId}?userId=${encodeURIComponent(userId)}`
         : `${API_CHAT_SERVER_URL}/messages/${conversationId}`;
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -183,7 +188,7 @@ export class MessageService {
         params.set("userId", userId);
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/${conversationId}/messages/around?${params.toString()}`,
         {
           method: "GET",
@@ -219,7 +224,7 @@ export class MessageService {
         params.set("userId", userId);
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/${conversationId}/messages/older?${params.toString()}`,
         {
           method: "GET",
@@ -248,7 +253,7 @@ export class MessageService {
     reactionType: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/reaction`,
         {
           method: "PUT",
@@ -278,7 +283,7 @@ export class MessageService {
     optionIds: string[],
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/vote`,
         {
           method: "PUT",
@@ -312,7 +317,7 @@ export class MessageService {
     userId: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/revoke`,
         {
           method: "PUT",
@@ -341,7 +346,7 @@ export class MessageService {
     userId: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/delete`,
         {
           method: "PUT",
@@ -372,7 +377,7 @@ export class MessageService {
     isPinned: boolean,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/pin`,
         {
           method: "PUT",
@@ -407,7 +412,7 @@ export class MessageService {
   // Toggle pin message (unpin if already pinned)
   static async togglePinMessage(msgId: string) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/toggle-pin`,
         {
           method: "PUT",
@@ -438,7 +443,7 @@ export class MessageService {
       }
 
       const query = params.toString();
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/pinned${query ? `?${query}` : ""}`,
         {
           method: "GET",
@@ -474,7 +479,7 @@ export class MessageService {
   // Get media messages (images/videos)
   static async getMediaMessages(conversationId: string, limit = 20, skip = 0) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/media?limit=${limit}&skip=${skip}`,
         {
           method: "GET",
@@ -504,7 +509,7 @@ export class MessageService {
     after = 10,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/media-around?messageId=${encodeURIComponent(messageId)}&before=${before}&after=${after}`,
         {
           method: "GET",
@@ -529,7 +534,7 @@ export class MessageService {
   // Get file messages
   static async getFileMessages(conversationId: string, limit = 20, skip = 0) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/files?limit=${limit}&skip=${skip}`,
         {
           method: "GET",
@@ -554,7 +559,7 @@ export class MessageService {
   // Get link messages
   static async getLinkMessages(conversationId: string, limit = 20, skip = 0) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/links?limit=${limit}&skip=${skip}`,
         {
           method: "GET",
@@ -588,7 +593,7 @@ export class MessageService {
       if (options?.limit) params.set("limit", String(options.limit));
       if (options?.senderId) params.set("senderId", options.senderId);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/search/${encodeURIComponent(userId)}?${params.toString()}`,
         {
           method: "GET",

@@ -31,10 +31,14 @@ class MediaSocketService {
         if (this.socket) return this.socket;
         if (!this.enabled) return null;
 
+        const token = localStorage.getItem("accessToken");
         const socket = io(this.endpoint, {
             transports: ["websocket", "polling"],
             timeout: 5000,
             reconnection: false,
+            auth: {
+                token: token,
+            },
         });
 
         socket.on("connect", () =>

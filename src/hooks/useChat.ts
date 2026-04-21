@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { MessageService } from "../services";
 import { socketService } from "../services/socket.service";
 import type { Message } from "../interfaces";
+import { authFetch } from "../services/api/fetchClient";
 
-const CHAT_API_URL =
-  import.meta.env.VITE_CHAT_API_URL || "http://localhost:5000/api";
+const CHAT_API_URL = MessageService.getChatApiUrl();
 
 const getRevokedReplyContent = () => ["Tin nhắn đã được thu hồi"];
 
@@ -130,7 +130,7 @@ export const useChat = (conversationId: string, userId?: string) => {
         ? `${CHAT_API_URL}/conversations/${conversationId}/messages?userId=${encodeURIComponent(userId)}`
         : `${CHAT_API_URL}/conversations/${conversationId}/messages`;
 
-      const response = await fetch(listUrl, {
+      const response = await authFetch(listUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -193,7 +193,7 @@ export const useChat = (conversationId: string, userId?: string) => {
         console.log("📥 Loading older messages...");
         setLoading(true);
 
-        const response = await fetch(
+        const response = await authFetch(
           `${CHAT_API_URL}/conversations/${conversationId}/messages/older?before=${beforeMsgId}&limit=20${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
           {
             method: "GET",

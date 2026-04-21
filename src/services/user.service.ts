@@ -1,15 +1,15 @@
 import type { User } from "../types";
 import { API_CHAT_SERVER_URL } from "../config/api.config";
+import { authFetch } from "./api/fetchClient";
 
 export class UserService {
   // 1. Get all users (Cũ)
   static async getAllUsers(): Promise<User[]> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/users`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/users`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
       });
       if (!response.ok) {
@@ -38,11 +38,10 @@ export class UserService {
   // 2. Get Single User by ID (Mới thêm) 👇
   static async getUserById(userId: string): Promise<User | null> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/users/${userId}`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/users/${userId}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true", // Quan trọng cho ngrok
         },
       });
 
@@ -68,4 +67,4 @@ export class UserService {
       throw error;
     }
   }
-}
+}

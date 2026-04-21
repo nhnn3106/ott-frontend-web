@@ -25,10 +25,14 @@ class SocketService {
   connect(): Socket {
     if (this.socket) return this.socket;
 
+    const token = localStorage.getItem("accessToken");
     const socket = io(SOCKET_CHAT_SERVER_URL, {
       transports: ["websocket", "polling"],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      auth: {
+        token: token,
+      },
     });
 
     socket.on("connect", () => console.log("Socket connection:", socket.id));

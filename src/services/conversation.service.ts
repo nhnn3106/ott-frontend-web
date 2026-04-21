@@ -1,5 +1,6 @@
 import type { Conversation, ConversationWithParticipant } from "../types";
 import { API_CHAT_SERVER_URL } from "../config/api.config";
+import { authFetch } from "./api/fetchClient";
 
 export class ConversationService {
   // Get user conversations from database - returns conversation with participant settings
@@ -7,13 +8,12 @@ export class ConversationService {
     userId: string,
   ): Promise<ConversationWithParticipant[]> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/participants/${userId}`,
         {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true", // <--- Thêm dòng này
           },
         },
       );
@@ -40,7 +40,6 @@ export class ConversationService {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           creatorId,
@@ -72,7 +71,6 @@ export class ConversationService {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ creatorId, type }),
       });
@@ -99,7 +97,7 @@ export class ConversationService {
     },
   ): Promise<Conversation> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/${conversationId}`,
         {
           method: "PUT",
@@ -128,7 +126,7 @@ export class ConversationService {
     userId: string,
   ): Promise<{ success: boolean; conversationId: string }> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/${conversationId}/dissolve/${userId}`,
         {
           method: "DELETE",
@@ -157,7 +155,7 @@ export class ConversationService {
     userId: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/add-member`,
         {
           method: "POST",
@@ -188,7 +186,7 @@ export class ConversationService {
     addedBy: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/add-member`,
         {
           method: "POST",
