@@ -36,7 +36,7 @@ export class ConversationService {
     avatar?: string,
   ): Promise<Conversation> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/conversations`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -67,7 +67,7 @@ export class ConversationService {
     type: "private" | "group",
   ) {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/conversations`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -103,7 +103,6 @@ export class ConversationService {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
           body: JSON.stringify(updateData),
         },
@@ -132,7 +131,6 @@ export class ConversationService {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
         },
       );
@@ -161,7 +159,6 @@ export class ConversationService {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
           body: JSON.stringify({ conversationId, userId }),
         },
@@ -192,7 +189,6 @@ export class ConversationService {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
           body: JSON.stringify({ conversationId, userIds, addedBy }),
         },

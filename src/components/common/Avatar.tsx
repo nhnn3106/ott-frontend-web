@@ -2,12 +2,12 @@ import React from 'react';
 import { User } from 'lucide-react';
 import type { AvatarProps } from '../../interfaces';
 
-const Avatar: React.FC<AvatarProps> = ({ 
-  src, 
-  name, 
-  size = 40, 
+const Avatar: React.FC<AvatarProps> = ({
+  src,
+  name,
+  size = 40,
   className = '',
-  onClick 
+  onClick
 }) => {
   const getInitials = (name: string = ""): string => {
     if (!name || name.trim().length === 0) {
@@ -30,11 +30,11 @@ const Avatar: React.FC<AvatarProps> = ({
       'from-primary-300 to-primary-200',
       'from-primary-200 to-primary-500',
     ];
-    
+
     if (!name || name.length === 0) {
       return colors[0]; // Default color
     }
-    
+
     const index = name.charCodeAt(0) % colors.length;
     return colors[index];
   };
@@ -52,7 +52,6 @@ const Avatar: React.FC<AvatarProps> = ({
     >
       {src ? (
         <img
-          // src={`https://riff-storage-iuh.s3.ap-southeast-1.amazonaws.com/${src}`}
           src={src}
           alt={name}
           className="w-full h-full object-cover"
@@ -62,7 +61,7 @@ const Avatar: React.FC<AvatarProps> = ({
           }}
         />
       ) : (
-        <div 
+        <div
           className={`w-full h-full flex items-center justify-center text-white font-semibold bg-gradient-to-br ${getGradientColor(name)}`}
         >
           {name ? (
