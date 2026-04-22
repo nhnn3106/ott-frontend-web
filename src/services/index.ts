@@ -16,8 +16,7 @@ export {
   deletePost,
 } from "./post.service";
 export type { ApiPost, ApiMedia } from "./post.service";
-export { fetchUsers, fetchUserByUsername } from "./social.service";
-export type { ApiUser } from "./social.service";
+export * from "./social.service";
 
 // Admin analytics service
 export { adminService } from "./adminService";

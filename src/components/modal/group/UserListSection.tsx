@@ -1,4 +1,5 @@
 import React from 'react';
+import { Loader2, Search } from 'lucide-react';
 import UserSelectCard from './UserSelectCard';
 import type { UserListSectionProps } from '../../../interfaces';
 
@@ -9,22 +10,52 @@ const UserListSection: React.FC<UserListSectionProps> = ({
   recentUsers,
   selectedUserIds,
   searchTerm,
-  onToggleUser
+  onToggleUser,
+  phoneSearchResult,
+  isSearchingPhone
 }) => {
   return (
     <div className="flex-1 overflow-y-auto px-6 py-4">
-      {/* Recent Conversations */}
+      {/* Phone Search Results Section */}
+      {searchTerm.trim().length >= 10 && (
+        <div className="mb-6">
+          <h3 className="text-xs font-semibold text-primary-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <Search size={14} />
+            Kết quả tìm kiếm số điện thoại
+          </h3>
+          {isSearchingPhone ? (
+            <div className="flex items-center gap-2 p-3 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Đang tìm kiếm...
+            </div>
+          ) : phoneSearchResult ? (
+            <UserSelectCard
+              key={phoneSearchResult.user_id}
+              user={phoneSearchResult}
+              isSelected={selectedUserIds.has(phoneSearchResult.user_id)}
+              onToggle={onToggleUser}
+              className="bg-primary-50 border border-primary-100"
+            />
+          ) : (
+            <div className="p-3 text-sm text-gray-500 italic bg-gray-50 rounded-xl border border-gray-100">
+              Không tìm thấy người dùng với số điện thoại này
+            </div>
+          )}
+          <div className="mt-6 border-b border-gray-100" />
+        </div>
+      )}
+      {/* Suggested Friends */}
       {!searchTerm && recentUsers.length > 0 && (
         <div className="mb-6">
           <h3 className="text-sm font-medium text-gray-500 mb-3">
-            Trò chuyện gần đây
+            Gợi ý
           </h3>
           <div className="space-y-1">
             {recentUsers.map((user) => (
               <UserSelectCard
-                key={user._id}
+                key={user.user_id}
                 user={user}
-                isSelected={selectedUserIds.has(user._id)}
+                isSelected={selectedUserIds.has(user.user_id)}
                 onToggle={onToggleUser}
               />
             ))}
@@ -46,9 +77,9 @@ const UserListSection: React.FC<UserListSectionProps> = ({
             <div className="space-y-1">
               {groupedUsers[letter].map((user) => (
                 <UserSelectCard
-                  key={user._id}
+                  key={user.user_id}
                   user={user}
-                  isSelected={selectedUserIds.has(user._id)}
+                  isSelected={selectedUserIds.has(user.user_id)}
                   onToggle={onToggleUser}
                 />
               ))}

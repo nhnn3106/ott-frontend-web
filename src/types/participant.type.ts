@@ -20,6 +20,7 @@ export interface Participant {
   nickname?: string;
   joined_at: string;
   roles: 'admin' | 'user';
+  status?: 'joined' | 'invited';
 }
 
 /**

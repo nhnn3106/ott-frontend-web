@@ -94,9 +94,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           {/* Sidebar Toggle Button */}
           <button
             onClick={onToggleSidebar}
-            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${
-              isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
-            }`}
+            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
+              }`}
             title={isSidebarOpen ? "Đóng thông tin" : "Mở thông tin"}
           >
             {isSidebarOpen ? (

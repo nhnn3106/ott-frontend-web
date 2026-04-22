@@ -109,21 +109,28 @@ export async function fetchUserById(id: string): Promise<ApiUser | null> {
 
 export async function fetchFriends(userId: string): Promise<FriendOption[]> {
     try {
-        const res = await authFetch(`${API_MEDIA_SERVER_URL}/relationships/friends/${userId}`, {
+        console.log(`fetchFriends called for userId: ${userId}`);
+        const url = `${API_CHAT_SERVER_URL}/relationships/${userId}/friends`;
+        console.log(`fetchFriends URL: ${url}`);
+        const res = await authFetch(url, {
             signal: AbortSignal.timeout(5_000),
         });
-        if (!res.ok) return [];
-        const raw = (await res.json()) as ApiRelationshipResponse[];
+        if (!res.ok) {
+            console.error(`fetchFriends failed with status: ${res.status}`);
+            return [];
+        }
+        const raw = (await res.json()) as any[];
+        console.log(`fetchFriends raw data:`, raw);
         if (!Array.isArray(raw)) return [];
-        return raw.map((rel) => {
-            const isRequester = rel.requesterId === userId;
-            return {
-                id: isRequester ? rel.receiverId : rel.requesterId,
-                name: isRequester ? rel.receiverUsername : rel.requesterUsername,
-                avatarUrl: isRequester ? rel.receiverAvatarUrl ?? undefined : rel.requesterAvatarUrl ?? undefined,
-            };
-        });
-    } catch {
+        const mapped = raw.map((user) => ({
+            id: user.user_id,
+            name: user.name,
+            avatarUrl: user.avatar || undefined,
+        }));
+        console.log(`fetchFriends mapped data:`, mapped);
+        return mapped;
+    } catch (error) {
+        console.error("fetchFriends catch error:", error);
         return [];
     }
 }
@@ -253,6 +260,23 @@ export async function rejectFriendRequestViaChat(
     }
 }
 
+/**
+ * Hủy lời mời kết bạn qua chat-service
+ */
+export async function cancelFriendRequestViaChat(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/cancel/${relationshipId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
 export async function blockRelationship(
     relationshipId: string,
     blockerId: string,
@@ -275,6 +299,29 @@ export async function unfriendRelationship(
         const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/unfriend`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Hủy kết bạn qua chat-service
+ */
+export async function unfriendViaChat(
+    userId: string,
+    friendId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/unfriend`,
+            { 
+                method: "POST", 
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, friendId }),
+                signal: AbortSignal.timeout(5_000) 
+            },
         );
         return res.ok;
     } catch {

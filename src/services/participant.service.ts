@@ -310,4 +310,42 @@ export class ParticipantService {
 
     return await response.json();
   }
+
+  /**
+   * Chấp nhận lời mời tham gia nhóm
+   */
+  static async acceptGroupInvitation(conversationId: string, userId: string): Promise<void> {
+    const response = await authFetch(
+      `${API_CHAT_SERVER_URL}/participants/accept-invitation`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, userId }),
+      },
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to accept invitation");
+    }
+  }
+
+  /**
+   * Từ chối lời mời tham gia nhóm
+   */
+  static async rejectGroupInvitation(conversationId: string, userId: string): Promise<void> {
+    const response = await authFetch(
+      `${API_CHAT_SERVER_URL}/participants/reject-invitation`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, userId }),
+      },
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to reject invitation");
+    }
+  }
 }

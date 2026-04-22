@@ -29,7 +29,16 @@ export class MessageService {
       if (!response.ok) throw new Error("Không thể lấy Presigned URL");
 
       // Trả về { uploadUrl, fileUrl }
-      return await response.json();
+      const data = await response.json();
+      
+      // Fallback: Nếu backend cũ chưa trả về fileUrl, tự build trên FE
+      if (!data.fileUrl && data.key) {
+        const { URL_S3 } = await import("../config/api.config");
+        data.fileUrl = `${URL_S3}${data.key}`;
+      }
+      
+      console.log("Presigned URL result (with FE fallback):", data);
+      return data;
     } catch (error) {
       console.error("Error getting presigned URL:", error);
       throw error;

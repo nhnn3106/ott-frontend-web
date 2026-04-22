@@ -51,12 +51,17 @@ const Avatar: React.FC<AvatarProps> = ({
   return (
     <div
       className={`
-        relative overflow-hidden rounded-full flex items-center justify-center
+        relative overflow-hidden rounded-full flex items-center justify-center shrink-0
         transition-transform duration-200 hover:scale-105 active:scale-95
         ${onClick ? 'cursor-pointer' : ''}
-        ${size === 40 ? 'w-10 h-10' : size === 48 ? 'w-12 h-12' : size === 32 ? 'w-8 h-8' : 'w-10 h-10'}
         ${className}
       `}
+      style={{ 
+        width: `${size}px`, 
+        height: `${size}px`,
+        minWidth: `${size}px`,
+        minHeight: `${size}px`
+      }}
       onClick={onClick}
     >
       <div
@@ -67,15 +72,15 @@ const Avatar: React.FC<AvatarProps> = ({
           name?.toLowerCase().includes("truyền file") ||
           name?.toLowerCase().includes("cloud của tôi")
           ? (
-            <span className={size === 48 ? 'text-2xl' : size === 40 ? 'text-xl' : 'text-lg'}>
+            <span style={{ fontSize: size * 0.5 }}>
               📁
             </span>
           ) : name ? (
-            <span className={size === 48 ? 'text-lg' : size === 40 ? 'text-base' : 'text-sm'}>
+            <span style={{ fontSize: size * 0.4 }}>
               {getInitials(name)}
             </span>
           ) : (
-            <User className={`text-white/70 ${size === 48 ? 'w-6 h-6' : size === 40 ? 'w-5 h-5' : 'w-4 h-4'}`} />
+            <User className="text-white/70" style={{ width: size * 0.5, height: size * 0.5 }} />
           )}
       </div>
 
