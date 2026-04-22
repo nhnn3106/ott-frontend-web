@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { Pencil } from "lucide-react";
-import { ConversationService } from "../../../../services";
+import React, { useEffect, useState, useRef } from "react";
+import { Pencil, Camera, Loader2 } from "lucide-react";
+import { ConversationService, MessageService } from "../../../../services";
 import Avatar from "../../../common/Avatar";
 import type { GroupInfoHeaderProps } from "../../../../interfaces";
-import { getConversationDisplayAvatar, getConversationDisplayName } from "../../../../utils";
+import { getConversationDisplayAvatar, getConversationDisplayName, getFullUrl } from "../../../../utils";
 
 const GroupInfoHeader: React.FC<GroupInfoHeaderProps> = ({
   conversation,
@@ -19,6 +19,8 @@ const GroupInfoHeader: React.FC<GroupInfoHeaderProps> = ({
   const [newName, setNewName] = useState(
     getConversationDisplayName(conversation, currentUserId),
   );
+  const [isUpdating, setIsUpdating] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const resolvedName = getConversationDisplayName(conversation, currentUserId);
@@ -30,49 +32,105 @@ const GroupInfoHeader: React.FC<GroupInfoHeaderProps> = ({
 
   const handleSave = async () => {
     const nextName = newName.trim();
+    if (!nextName) return;
 
-    if (nextName && nextName !== conversation.name) {
-      try {
-        await ConversationService.updateConversation(conversation._id, {
-          name: nextName,
-          requesterId: currentUserId,
-        });
+    setIsUpdating(true);
+    try {
+      await ConversationService.updateConversation(conversation._id, {
+        name: nextName,
+        requesterId: currentUserId,
+      });
 
-        // Cập nhật ngay tại chỗ để user thấy tức thì
-        setDisplayName(nextName);
-        onUpdate({ name: nextName });
-        setShowRenameModal(false);
-      } catch (error) {
-        console.error("Error updating conversation name:", error);
-      }
-    } else {
-      setNewName(displayName);
+      setDisplayName(nextName);
+      onUpdate({ name: nextName });
       setShowRenameModal(false);
+    } catch (error) {
+      console.error("Error updating conversation name:", error);
+      alert("Đổi tên nhóm thất bại.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUserId) return;
+
+    setIsUpdating(true);
+    try {
+      // 1. Get presigned URL
+      const { uploadUrl, fileUrl } = await MessageService.getPresignedUrl(file.name, file.type);
+      
+      // 2. Upload to S3
+      await MessageService.uploadFileToS3(uploadUrl, file);
+      
+      console.log("Updating group avatar with new URL:", fileUrl);
+      
+      // 3. Update conversation
+      await ConversationService.updateConversation(conversation._id, {
+        avatar: fileUrl,
+        requesterId: currentUserId
+      });
+      
+      console.log("Avatar update API call successful.");
+      onUpdate({ avatar: fileUrl });
+    } catch (error) {
+      console.error("Error updating group avatar:", error);
+      alert("Cập nhật ảnh nhóm thất bại.");
+    } finally {
+      setIsUpdating(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const isGroupChat = conversation.type === "group";
 
   return (
-    <div className="px-4 py-6 text-center border-b border-gray-100">
-      <Avatar
-        src={getConversationDisplayAvatar(conversation, currentUserId)}
-        name={displayName}
-        size={80}
-        className="mx-auto mb-3"
-      />
+    <div className="px-4 py-8 text-center border-b border-gray-100 bg-gray-50/20">
+      <div className="relative mx-auto mb-5 w-28 h-28">
+        <Avatar
+          src={getConversationDisplayAvatar(conversation, currentUserId)}
+          name={displayName}
+          size={112}
+          className="ring-4 ring-white shadow-md"
+        />
+        {isGroupChat && (
+          <button
+            onClick={handleAvatarClick}
+            disabled={isUpdating}
+            className="absolute bottom-1 right-1 p-2 bg-white rounded-full border border-gray-100 shadow-md hover:bg-gray-50 transition-all cursor-pointer hover:scale-110 active:scale-95"
+          >
+            {isUpdating ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary-600" />
+            ) : (
+              <Camera className="h-4 w-4 text-gray-600" />
+            )}
+          </button>
+        )}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          accept="image/*"
+          className="hidden"
+        />
+      </div>
 
       <div className="flex items-center justify-center gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">
+        <h3 className="text-lg font-semibold text-gray-900 truncate max-w-[200px]">
           {displayName}
         </h3>
-        {isGroupChat && isAdmin && (
+        {isGroupChat && (
           <button
             onClick={() => {
               setNewName(displayName || "");
               setShowRenameModal(true);
             }}
-            className="cursor-pointer p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+            className="cursor-pointer p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
           >
             <Pencil size={14} />
           </button>
@@ -85,50 +143,53 @@ const GroupInfoHeader: React.FC<GroupInfoHeaderProps> = ({
 
       {showRenameModal && (
         <div className="fixed inset-0 z-90 flex items-center justify-center bg-black/45 px-4">
-          <div className="w-full max-w-130 rounded-md bg-white shadow-2xl">
-            <div className="border-b border-gray-200 px-6 py-4 text-left">
-              <h4 className="text-[24px] font-semibold text-gray-800">Đổi tên nhóm</h4>
+          <div className="w-full max-w-130 rounded-xl bg-white shadow-2xl animate-scale-in">
+            <div className="border-b border-gray-100 px-6 py-4 text-left">
+              <h4 className="text-[20px] font-semibold text-gray-800">Đổi tên nhóm</h4>
             </div>
 
-            <div className="px-6 py-5">
-              <div className="mb-4 flex items-center justify-center">
-                <div className="relative h-28 w-28">
-                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-4 ring-amber-100">
-                    <Avatar src={conversation.avatar} name={displayName} size={72} />
-                  </div>
-                  <div className="absolute bottom-0 right-0 flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-amber-200 text-[16px] font-semibold text-amber-800">
-                    {memberCount}
+            <div className="px-6 py-6">
+              <div className="mb-6 flex items-center justify-center">
+                <div className="relative h-24 w-24">
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-4 ring-primary-50">
+                    <Avatar src={getConversationDisplayAvatar(conversation, currentUserId)} name={displayName} size={80} />
                   </div>
                 </div>
               </div>
 
-              <p className="mb-4 text-center text-[18px] text-gray-700">
-                Bạn có chắc chắn muốn đổi tên nhóm, khi xác nhận tên nhóm mới sẽ hiển thị với tất cả thành viên.
+              <p className="mb-6 text-center text-[16px] text-gray-600 leading-relaxed">
+                Tên nhóm mới sẽ hiển thị với tất cả thành viên trong cuộc trò chuyện.
               </p>
 
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="h-12 w-full rounded-md border border-primary-300 px-3 text-center text-[15px] text-gray-900 outline-none focus:border-primary-600"
-                autoFocus
-                onKeyDown={(e) => e.key === "Enter" && handleSave()}
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="h-12 w-full rounded-lg border border-gray-200 px-4 text-center text-[16px] text-gray-900 outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 transition-all"
+                  autoFocus
+                  placeholder="Nhập tên nhóm mới..."
+                  onKeyDown={(e) => e.key === "Enter" && !isUpdating && handleSave()}
+                />
+              </div>
 
-              <div className="mt-4 flex justify-end gap-3">
+              <div className="mt-8 flex justify-end gap-3">
                 <button
                   onClick={() => {
                     setNewName(displayName || "");
                     setShowRenameModal(false);
                   }}
-                  className="cursor-pointer rounded-md bg-gray-200 px-5 py-2 text-[16px] font-semibold text-gray-700 hover:bg-gray-300"
+                  disabled={isUpdating}
+                  className="cursor-pointer rounded-lg bg-gray-100 px-6 py-2.5 text-[15px] font-semibold text-gray-700 hover:bg-gray-200 transition-colors"
                 >
                   Hủy
                 </button>
                 <button
                   onClick={handleSave}
-                  className="cursor-pointer rounded-md bg-primary-700 px-5 py-2 text-[16px] font-semibold text-white hover:bg-primary-800"
+                  disabled={isUpdating || !newName.trim()}
+                  className="cursor-pointer flex items-center gap-2 rounded-lg bg-primary-600 px-6 py-2.5 text-[15px] font-semibold text-white hover:bg-primary-700 shadow-md shadow-primary-500/20 transition-all disabled:opacity-50"
                 >
+                  {isUpdating && <Loader2 size={16} className="animate-spin" />}
                   Xác nhận
                 </button>
               </div>

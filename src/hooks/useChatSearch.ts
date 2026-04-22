@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageService } from "../services";
+import { MessageService, UserService, ConversationService } from "../services";
+import type { SearchContactItem } from "../types/search.type";
 import {
   getConversationDisplayAvatar,
   getConversationDisplayName,
@@ -280,6 +281,26 @@ const useChatSearch = ({
           },
         );
 
+        // Phone search logic
+        if (/^[0-9]{10}$/.test(keyword)) {
+          const phoneUser = await UserService.getUserByPhone(keyword);
+          if (phoneUser && phoneUser.user_id !== normalizedUserId) {
+            // Check if already in contacts
+            const alreadyInContacts = data.contacts?.some((c: any) => c.user_id === phoneUser.user_id);
+            if (!alreadyInContacts) {
+              const newContact: SearchContactItem = {
+                user_id: phoneUser.user_id,
+                name: phoneUser.display_name || phoneUser.name || '',
+                avatar: phoneUser.avatar,
+                phone: phoneUser.phone,
+                conversation_ids: []
+              };
+              data.contacts = [newContact, ...(data.contacts || [])];
+              data.total = (data.total || 0) + 1;
+            }
+          }
+        }
+
         let mergedResults = data;
 
         if (keyword.length >= 2 && (data.messages?.length || 0) < 24) {
@@ -379,16 +400,39 @@ const useChatSearch = ({
   }, [searchTab]);
 
   const openConversationTarget = useCallback(
-    (conversationId: string, messageId?: string) => {
-      const matched = conversations.find(
-        (item) => item.conversation._id === conversationId,
-      );
+    async (conversationId: string, messageId?: string, contactId?: string) => {
+      let targetConvId = conversationId;
+      let targetConv: ConversationWithParticipant | undefined;
 
-      if (!matched) return;
+      if (!targetConvId && contactId && normalizedUserId) {
+        try {
+          const conv = await ConversationService.getOrCreatePrivateConversation(normalizedUserId, contactId);
+          if (conv) {
+            targetConv = conv;
+            targetConvId = conv.conversation._id;
+          }
+        } catch (error) {
+          console.error("Failed to get/create conversation", error);
+          return;
+        }
+      }
+
+      if (!targetConvId) return;
+
+      if (!targetConv) {
+        targetConv = conversations.find(
+          (item) => item.conversation._id === targetConvId,
+        );
+      }
+
+      if (!targetConv) {
+        // If still not found, we might need to refresh or just bail if it's an invalid ID
+        return;
+      }
 
       const nextHistory = [
-        conversationId,
-        ...searchHistoryConversationIds.filter((id) => id !== conversationId),
+        targetConvId,
+        ...searchHistoryConversationIds.filter((id) => id !== targetConvId),
       ].slice(0, 20);
       setSearchHistoryConversationIds(nextHistory);
       try {
@@ -397,9 +441,9 @@ const useChatSearch = ({
         // ignore localStorage write failures
       }
 
-      onConversationSelect?.(matched);
+      onConversationSelect?.(targetConv);
 
-      // Close search panel after user chooses any search result/history item.
+      // Close search panel
       setSearchTerm("");
       setSearchResults(null);
       setIsSearchFocused(false);

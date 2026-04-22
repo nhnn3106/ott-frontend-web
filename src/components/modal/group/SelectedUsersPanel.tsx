@@ -28,12 +28,12 @@ const SelectedUsersPanel: React.FC<SelectedUsersPanelProps> = ({
           <div className="space-y-2">
             {selectedUsers.map((user) => (
               <div
-                key={user._id}
-                className="flex items-center gap-3 p-2 bg-white rounded-lg"
+                key={user.user_id || user._id}
+                className="flex items-center gap-3 p-2 bg-white rounded-lg shadow-sm"
               >
                 <Avatar name={user.display_name || user.name} src={getFullUrl(user.avatar)} size={32} />
                 <span className="flex-1 text-sm font-medium text-gray-900 truncate">
-                  {user.display_name}
+                  {user.name}
                 </span>
                 <button
                   onClick={() => onRemove(user.user_id)}

@@ -26,7 +26,7 @@ export interface ConversationMeta {
 export interface RecentSearchListProps {
   historyConversations: ConversationWithParticipant[];
   normalizedUserId?: string;
-  onOpenConversation: (conversationId: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
   onRemoveHistoryItem: (conversationId: string) => void;
   onClearAllHistory: () => void;
 }
@@ -34,7 +34,7 @@ export interface RecentSearchListProps {
 export interface SearchMessageRowProps {
   msg: SearchMessageItem;
   conversationMetaMap: Map<string, ConversationMeta>;
-  onOpenConversation: (conversationId: string, messageId?: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
   highlightKeyword: (text: string) => ReactNode;
 }
 
@@ -53,13 +53,13 @@ export interface SenderFilterDropdownProps {
 export interface SearchContactsSectionProps {
   contacts: SearchContactItem[];
   searchTab: SearchTab;
-  onOpenConversation: (conversationId: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
 }
 
 export interface SearchConversationsSectionProps {
   conversations: SearchConversationItem[];
   searchTab: SearchTab;
-  onOpenConversation: (conversationId: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
   highlightKeyword: (text: string) => ReactNode;
 }
 
@@ -67,7 +67,7 @@ export interface SearchMessagesSectionProps {
   messages: SearchMessageItem[];
   searchTab: SearchTab;
   conversationMetaMap: Map<string, ConversationMeta>;
-  onOpenConversation: (conversationId: string, messageId?: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
   highlightKeyword: (text: string) => ReactNode;
 }
 
@@ -75,7 +75,7 @@ export interface SearchFilesSectionProps {
   files: SearchFileItem[];
   searchTab: SearchTab;
   conversationMetaMap: Map<string, ConversationMeta>;
-  onOpenConversation: (conversationId: string, messageId?: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
   highlightKeyword: (text: string) => ReactNode;
 }
 
@@ -100,7 +100,7 @@ export interface SearchResultsPanelProps {
   conversationResultsByName: SearchConversationItem[];
   conversationMetaMap: Map<string, ConversationMeta>;
   highlightKeyword: (text: string) => ReactNode;
-  onOpenConversation: (conversationId: string, messageId?: string) => void;
+  onOpenConversation: (conversationId: string, messageId?: string, contactId?: string) => void;
   historyConversations: ConversationWithParticipant[];
   normalizedUserId?: string;
   onRemoveHistoryItem: (conversationId: string) => void;

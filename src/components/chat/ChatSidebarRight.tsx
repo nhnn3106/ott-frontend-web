@@ -12,13 +12,17 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
+import { useToast } from "../../contexts/ToastContext";
 import {
   MessageService,
   ParticipantService,
   UserService,
   ConversationService,
+  fetchRelationshipStatusViaChat,
+  fetchFriends,
+  sendFriendRequestViaChat,
+  socketService,
 } from "../../services";
-import { socketService } from "../../services/socket.service";
 import type { Message, User } from "../../types";
 import type {
   ConversationMember,
@@ -28,6 +32,7 @@ import type {
   BulletinTab,
   ChatSidebarRightProps,
 } from "../../interfaces";
+import { getFullUrl } from "../../utils";
 
 // Import components
 import CollapsibleSection from "./ChatSidebarRight/components/CollapsibleSection";
@@ -47,10 +52,9 @@ import { MediaViewer } from "./ChatMessage/MediaViewer";
 
 // Import views
 import MembersFullView from "./ChatSidebarRight/MembersFullView";
-import StorageView from "./ChatSidebarRight/StorageView.tsx";
-import Avatar from "../common/Avatar.tsx";
-import { getConversationDisplayAvatar, getConversationDisplayName } from "../../utils/conversationDisplayUtils.ts";
-import { getFullUrl } from "../../utils/fileUtils.ts";
+import Avatar from "../common/Avatar";
+import { getConversationDisplayAvatar, getConversationDisplayName } from "../../utils/conversationDisplayUtils";
+import StorageView from "./ChatSidebarRight/StorageView";
 
 const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
   conversation,
@@ -65,6 +69,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     updateParticipant,
     refreshConversations,
   } = useConversations();
+  const { showToast } = useToast();
 
   // State
   const [members, setMembers] = useState<ConversationMember[]>([]);
@@ -98,6 +103,8 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     userId: string;
     displayName: string;
   } | null>(null);
+  const [relationship, setRelationship] = useState<any>(null);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
 
   // Helper to safely filter valid messages
   const filterValidMessages = (messages: any[]): Message[] => {
@@ -128,6 +135,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
         joined_at: member.joined_at || "",
         added_by: member.added_by,
         nickname: member.nickname,
+        status: member.status || "joined",
       }));
   };
 
@@ -216,6 +224,21 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
       setMediaMessagesPreview(validMedia.slice(0, 8));
       setFileMessagesPreview(validFiles.slice(0, 5));
       setLinkMessagesPreview(validLinks.slice(0, 5));
+
+      // Fetch friends list to show Add Friend buttons in members view
+      if (currentUser?.id) {
+        const friends = await fetchFriends(currentUser.id);
+        setFriendIds(new Set(friends.map(f => f.id)));
+      }
+
+      // Fetch relationship for private chats
+      if (conversation.type === "private") {
+        const otherMemberId = membersData.find((m: any) => String(m.user_id) !== String(currentUser?.id))?.user_id;
+        if (otherMemberId && currentUser?.id) {
+          const rel = await fetchRelationshipStatusViaChat(currentUser.id, otherMemberId);
+          setRelationship(rel);
+        }
+      }
     } catch (error) {
       console.error("Error loading sidebar data:", error);
       setError("Không thể tải thông tin sidebar");
@@ -346,13 +369,25 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     if (showCreateGroupModal) {
       const loadUsers = async () => {
         try {
-          const users = await UserService.getAllUsers();
-          const filtered = (users || []).filter(
-            (u) => u._id !== currentUser?.id && u.user_id !== currentUser?.id,
-          );
+          const userId = currentUser?.id;
+          if (!userId) return;
+
+          console.log("ChatSidebarRight: Loading friends for CreateGroupModal...");
+          const friends = await fetchFriends(userId);
+
+          const filtered = (friends || []).map(f => ({
+            user_id: f.id,
+            _id: f.id,
+            name: f.name,
+            display_name: f.name,
+            avatar: f.avatarUrl || ""
+          } as any));
+
           setAvailableUsers(filtered);
+          console.log("ChatSidebarRight: Friends loaded:", filtered.length);
         } catch (error) {
-          console.error("Error loading users:", error);
+          console.error("ChatSidebarRight: Error loading friends:", error);
+          setAvailableUsers([]);
         }
       };
       loadUsers();
@@ -535,6 +570,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     groupName: string,
     selectedUsers: User[],
     groupAvatar?: string,
+    memberNames?: string[],
   ) => {
     try {
       if (!currentUser?.id || !conversation?._id) return;
@@ -544,9 +580,21 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
         groupName,
         userIds,
         groupAvatar,
+        memberNames,
       );
-      if (newGroup) {
+      if (newGroup && newGroup._id) {
+        // Close modal and select the new group
         setShowCreateGroupModal(false);
+        // We need a way to tell the parent (ChatArea/ChatPage) to select this conversation
+        // Since ChatSidebarRight usually doesn't have onConversationSelect, 
+        // we might need to dispatch an event or use a context.
+        // Actually, many components listen to custom events.
+        window.dispatchEvent(new CustomEvent("chat:open-conversation", {
+          detail: {
+            conversationId: newGroup._id,
+            conversation: newGroup
+          }
+        }));
       }
     } catch (error) {
       console.error("Error creating group:", error);
@@ -572,6 +620,21 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
   const selfConversationId =
     conversations.find((item) => item.conversation.is_self_conversation)
       ?.conversation._id || "";
+
+  const handleAddFriend = async (userId: string) => {
+    try {
+      if (!currentUser?.id) return;
+      const ok = await sendFriendRequestViaChat(currentUser.id, userId);
+      if (ok) {
+        showToast("Đã gửi lời mời kết bạn", "success");
+      } else {
+        showToast("Không thể gửi lời mời kết bạn", "error");
+      }
+    } catch (error) {
+      console.error("Error sending friend request:", error);
+      showToast("Có lỗi xảy ra khi gửi lời mời kết bạn", "error");
+    }
+  };
 
   if (!isOpen || !conversation) return null;
 
@@ -752,6 +815,9 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
                     conversation={conversation}
                     currentUserId={currentUser?.id || ""}
                     isOwner={isOwner}
+                    isDissolved={isDissolved}
+                    relationship={relationship}
+                    onUnfriend={() => loadSidebarData()}
                     onLeaveSuccess={onClose}
                     onActionSuccess={async () => {
                       if (currentUser?.id) {
@@ -772,11 +838,13 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
               ownerId={conversation.created_by}
               currentUserId={currentUser?.id || ""}
               isManager={isManager}
+              friendIds={friendIds}
               onBack={handleBackToMain}
               onMemberRemoved={handleMemberRemoved}
               onMemberRoleUpdated={handleRoleUpdated}
               onTransferOwnership={handleTransferOwnership}
               onAddMember={() => setShowAddMemberModal(true)}
+              onAddFriend={handleAddFriend}
             />
           </div>
         )}

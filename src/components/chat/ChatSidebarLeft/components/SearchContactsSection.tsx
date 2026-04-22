@@ -24,7 +24,7 @@ const SearchContactsSection: React.FC<SearchContactsSectionProps> = ({
             return (
               <button
                 key={item.user_id}
-                onClick={() => targetConversationId && onOpenConversation(targetConversationId)}
+                onClick={() => onOpenConversation(targetConversationId || "", undefined, item.user_id)}
                 className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-gray-50"
               >
                 <Avatar src={getFullUrl(item.avatar || "")} name={item.name} size={40} />

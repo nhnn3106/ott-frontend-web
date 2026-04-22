@@ -24,8 +24,14 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
 import { useChat } from "../../hooks/useChat";
 import { primeMessageSenderCache } from "../../hooks/useMessageSender";
-import { MessageService, ParticipantService } from "../../services";
-import { socketService } from "../../services";
+import {
+  MessageService,
+  ParticipantService,
+  UserService,
+  ConversationService,
+  fetchRelationshipStatusViaChat,
+  socketService,
+} from "../../services";
 import type { ChatAreaProps } from "../../interfaces";
 import type {
   ImageSendError,
@@ -45,7 +51,7 @@ import { ConfirmModal } from "../modal/ConfirmModal";
 import { ReplacePinnedModal } from "../modal/ReplacePinnedModal";
 import { ForwardMessageModal } from "../modal/ForwardMessageModal";
 import { FriendRequestBar } from "./FriendRequestBar";
-import { fetchRelationshipStatusViaChat } from "../../services/social.service";
+import { GroupInvitationBar } from "./GroupInvitationBar";
 
 // Utils
 import {
@@ -83,6 +89,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     updateConversation,
     updateParticipant,
     updateConversationParticipant,
+    refreshConversations,
   } = useConversations();
 
   const normalizedUserId = currentUser?.id;
@@ -182,6 +189,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   });
 
   const [relationshipStatus, setRelationshipStatus] = useState<any>(null);
+  const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
@@ -191,8 +199,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       // Actually, private conversations should have user_id if we fetch correctly.
       
       if (otherParticipantId) {
+        setIsRelationshipLoading(true);
         const status = await fetchRelationshipStatusViaChat(normalizedUserId, otherParticipantId);
         setRelationshipStatus(status);
+        setIsRelationshipLoading(false);
       }
     } else {
       setRelationshipStatus(null);
@@ -203,18 +213,33 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     fetchStatus();
   }, [fetchStatus]);
 
+  const myParticipant = useMemo(() => {
+    return conversations.find(
+      (item) => item.conversation._id === activeConversation?._id,
+    )?.participant;
+  }, [conversations, activeConversation?._id]);
+
+  const isInvited = useMemo(() => {
+    return myParticipant?.status === 'invited' || (myParticipant as any)?.status === 'invited';
+  }, [myParticipant]);
+
   const isParticipant = useMemo(() => {
     if (!activeConversation || activeConversation.type === "private") return true;
     if (activeConversation.is_self_conversation) return true;
 
-    return (activeConversation.participants || []).some(
-      (p) => String(p.user_id) === String(normalizedUserId),
-    );
-  }, [activeConversation, normalizedUserId]);
+    return !!myParticipant;
+  }, [activeConversation, myParticipant]);
 
   const isDissolved = useMemo(() => {
-    return activeConversation?.status === "dissolved" || Boolean(activeConversation?.is_dissolved);
-  }, [activeConversation]);
+    if (activeConversation?.status === "dissolved" || Boolean(activeConversation?.is_dissolved)) return true;
+    
+    // Derived from messages
+    return messages.some(
+      (m) =>
+        m.type === "system_group_dissolved" ||
+        (m.type === "system" && m.action === "group_dissolved")
+    );
+  }, [activeConversation, messages]);
 
   const [optimisticImageMessages, setOptimisticImageMessages] = useState<
     Array<ChatMessageType>
@@ -2340,10 +2365,23 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           }
         />
 
-        {relationshipStatus?.status === "PENDING" && relationshipStatus?.receiver_id === normalizedUserId && (
+        {activeConversation?.type === "private" && !activeConversation.is_self_conversation && relationshipStatus?.status !== "ACCEPTED" && (
           <FriendRequestBar 
-            relationshipId={relationshipStatus._id} 
+            relationship={relationshipStatus}
+            currentUserId={normalizedUserId || ""}
+            otherUserId={activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id || ""}
             onStatusChange={fetchStatus} 
+            isFetching={isRelationshipLoading}
+          />
+        )}
+
+        {isInvited && activeConversation?._id && normalizedUserId && (
+          <GroupInvitationBar
+            conversationId={activeConversation._id}
+            userId={normalizedUserId}
+            onStatusChange={() => {
+              if (normalizedUserId) refreshConversations(normalizedUserId);
+            }}
           />
         )}
 
@@ -2524,6 +2562,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 </button>
               </div>
             </div>
+          ) : isInvited ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50/30">
+              <div className="bg-white/70 backdrop-blur-xl p-8 rounded-[2rem] shadow-sm border border-white flex flex-col items-center gap-4 max-w-sm text-center animate-in fade-in zoom-in duration-500">
+                <div className="w-16 h-16 rounded-2xl bg-primary-50 flex items-center justify-center text-primary-500 shadow-inner">
+                  <MessageCircle size={32} />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="font-bold text-slate-800 text-lg">Chào mừng bạn!</h3>
+                  <p className="text-slate-500 text-sm leading-relaxed">
+                    Bạn đã được mời tham gia cuộc trò chuyện này. Hãy chấp nhận lời mời để xem lịch sử tin nhắn và tham gia cùng mọi người.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : hydratedMessages.length === 0 ? (
             <ChatEmpty />
           ) : (
@@ -2670,7 +2722,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             })
           )}
 
-          {typingUsers.length > 0 && (
+          {typingUsers.length > 0 && !isInvited && (
             <div className="flex items-center  gap-2 mt-1 mb-1 pl-0.5">
               {/* Phần Avatar giữ nguyên */}
               <div className="w-8 h-8 rounded-full overflow-hidden border border-white/80 shadow-sm bg-slate-300 shrink-0">
@@ -2727,7 +2779,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           )}
         </div>
 
-        {isParticipant && !isDissolved ? (
+        {isParticipant && !isDissolved && !isInvited ? (
           <ChatInput
             key={activeConversation._id}
             conversationId={activeConversation._id}
@@ -2756,7 +2808,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               <p className="text-[14px] font-semibold">
                 {isDissolved
                   ? "Bạn không thể gửi tin nhắn vào nhóm được nữa"
-                  : "Bạn không còn là thành viên của nhóm này"}
+                  : isInvited
+                    ? "Bạn được mời tham gia nhóm. Chấp nhận lời mời để bắt đầu trò chuyện."
+                    : "Bạn không còn là thành viên của nhóm này"}
               </p>
             </div>
           </div>
