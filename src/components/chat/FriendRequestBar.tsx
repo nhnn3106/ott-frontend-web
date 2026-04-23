@@ -1,8 +1,8 @@
 import React from 'react';
 import { UserPlus, Check, X, Clock } from 'lucide-react';
-import { 
-  acceptFriendRequestViaChat, 
-  rejectFriendRequestViaChat, 
+import {
+  acceptFriendRequestViaChat,
+  rejectFriendRequestViaChat,
   sendFriendRequestViaChat,
   cancelFriendRequestViaChat
 } from '../../services/social.service';
@@ -15,7 +15,7 @@ interface FriendRequestBarProps {
   isFetching?: boolean;
 }
 
-export const FriendRequestBar: React.FC<FriendRequestBarProps> = ({ 
+export const FriendRequestBar: React.FC<FriendRequestBarProps> = ({
   relationship,
   currentUserId,
   otherUserId,
@@ -149,7 +149,7 @@ export const FriendRequestBar: React.FC<FriendRequestBarProps> = ({
           className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 shadow-sm shadow-primary-500/20 rounded-lg transition-all"
         >
           <UserPlus size={16} />
-          Thêm bạn bè
+          Gửi lời mời
         </button>
       </div>
     );
