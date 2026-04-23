@@ -314,16 +314,35 @@ const ChatContent: React.FC = () => {
       }
     };
 
+    const handleOpenConversation = (event: Event) => {
+      const custom = event as CustomEvent<{ conversationId?: string, conversation?: Conversation }>;
+      const { conversationId, conversation } = custom.detail;
+      
+      if (conversation) {
+        setSelectedConversation(conversation);
+        return;
+      }
+
+      if (!conversationId) return;
+
+      const targetConv = conversations.find(c => c.conversation._id === conversationId);
+      if (targetConv) {
+        setSelectedConversation(targetConv.conversation);
+      }
+    };
+
     window.addEventListener("chat:conversation-dissolved", handleConversationDissolved as EventListener);
     window.addEventListener("chat:kicked-from-group", handleKickedFromGroup as EventListener);
     window.addEventListener("chat:remove-conversation", handleRemoveConversation as EventListener);
+    window.addEventListener("chat:open-conversation", handleOpenConversation as EventListener);
 
     return () => {
       window.removeEventListener("chat:conversation-dissolved", handleConversationDissolved as EventListener);
       window.removeEventListener("chat:kicked-from-group", handleKickedFromGroup as EventListener);
       window.removeEventListener("chat:remove-conversation", handleRemoveConversation as EventListener);
+      window.removeEventListener("chat:open-conversation", handleOpenConversation as EventListener);
     };
-  }, [selectedConversation?._id]);
+  }, [selectedConversation?._id, conversations]);
 
   // Resolve caller info
   const incomingTargetConv = incomingCall

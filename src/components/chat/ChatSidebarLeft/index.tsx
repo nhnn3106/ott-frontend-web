@@ -2,12 +2,10 @@ import React, { useCallback, useEffect, useState } from "react";
 import ConversationList from "../../conversations/ConversationList";
 import CategoryManagementModal from "../../modal/category/CategoryManagementModal";
 import LoadingSkeleton from "../../common/LoadingSkeleton";
-import ErrorState from "../../common/ErrorState";
 import CreateGroupModal from "../../modal/group/CreateGroupModal";
 import AddFriendModal from "../../modal/friend/AddFriendModal";
-import { UserService } from "../../../services/user.service";
 import { ConversationService } from "../../../services/conversation.service";
-import { CategoryService, socketService } from "../../../services";
+import { CategoryService, socketService, fetchFriends } from "../../../services";
 import { useConversations } from "../../../contexts/ConversationsContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import type {
@@ -91,14 +89,17 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     (newConv: any) => {
       const convId = newConv._id?.toString();
       if (!convId || !normalizedUserId) return;
-      const exists = conversations.some(
-        (item) => item.conversation._id === convId,
-      );
-      if (!exists) {
-        refreshConversations(normalizedUserId);
-      }
+
+      console.log("Socket: New conversation received:", convId);
+
+      // Refresh list
+      refreshConversations(normalizedUserId);
+
+      // If this conversation is private and involves the current user, or if it's a group,
+      // we might want to auto-select it if the user just created it.
+      // For now, let's just ensure the list refreshes.
     },
-    [conversations, normalizedUserId, refreshConversations],
+    [normalizedUserId, refreshConversations],
   );
 
   useEffect(() => {
@@ -111,11 +112,17 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     if (!normalizedUserId) return;
     const loadUsers = async () => {
       try {
-        const users = await UserService.getAllUsers();
-        const otherUsers = users.filter(
-          (u) => (u._id || u.user_id) !== currentUser?.id,
-        );
-        setAvailableUsers(otherUsers);
+        const friends = await fetchFriends(normalizedUserId);
+        // Map FriendOption to User shape if needed, but here we just need name/id/avatar
+        const mappedUsers: User[] = friends.map(f => ({
+          user_id: f.id,
+          _id: f.id,
+          name: f.name,
+          display_name: f.name, // Ensure display_name is set
+          avatar: f.avatarUrl || ""
+        } as any));
+        console.log("ChatSidebarLeft: Loaded friends for group creation:", mappedUsers);
+        setAvailableUsers(mappedUsers);
       } catch (err) {
         console.error("Failed to load users:", err);
       }
@@ -173,6 +180,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     groupName: string,
     selectedUsers: User[],
     avatar?: string,
+    memberNames?: string[],
   ) => {
     if (!normalizedUserId) {
       alert("Vui lòng đăng nhập lại!");
@@ -184,17 +192,25 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
         .map((user) => user._id || user.user_id)
         .filter((id): id is string => !!id);
 
-      const newGroup = await ConversationService.createGroup(
+      const result = await ConversationService.createGroup(
         normalizedUserId,
         groupName,
         memberIds,
         avatar,
+        memberNames,
       );
 
-      addConversation(newGroup);
+      if (result && result._id) {
+        // Dispatch event to open the new conversation
+        window.dispatchEvent(new CustomEvent("chat:open-conversation", {
+          detail: {
+            conversationId: result._id,
+            conversation: result
+          }
+        }));
 
-      if (normalizedUserId) {
-        await refreshConversations(normalizedUserId);
+        // Also trigger a refresh to be sure it shows up in the sidebar
+        refreshConversations(normalizedUserId);
       }
     } catch (createError) {
       console.error("Failed to create group in database:", createError);

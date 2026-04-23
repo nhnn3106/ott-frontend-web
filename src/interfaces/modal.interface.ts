@@ -4,7 +4,7 @@ import type { User, Category } from '../types';
 export interface CreateGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateGroup: (name: string, selectedUsers: User[], avatar?: string) => void;
+  onCreateGroup: (name: string, selectedUsers: User[], avatar?: string, memberNames?: string[]) => void;
   availableUsers: User[];
   preSelectedUserIds?: string[];
   categories?: Category[];
@@ -60,6 +60,8 @@ export interface UserListSectionProps {
   selectedUserIds: Set<string>;
   searchTerm: string;
   onToggleUser: (userId: string) => void;
+  phoneSearchResult?: User | null;
+  isSearchingPhone?: boolean;
 }
 
 export interface SelectedUsersPanelProps {

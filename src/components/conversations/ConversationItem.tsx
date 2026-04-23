@@ -94,7 +94,9 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
     const isNotification = 
       msgType.startsWith("system") || 
       msgType === "poll" || 
-      msgType.startsWith("call_");
+      msgType.startsWith("call_") ||
+      // Fallback: Kiểm tra nội dung bằng regex để nhận diện thông báo hệ thống nếu type bị sai
+      /được thêm vào nhóm|đã rời nhóm|đã trở thành bạn bè|đã được bạn thêm vào nhóm|đã đổi tên nhóm|đã xóa nhóm|đã giải tán nhóm/i.test(normalizedContent);
 
     if (isNotification) {
       let displayContent = lastMsg.content || "";

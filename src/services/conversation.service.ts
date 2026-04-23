@@ -34,6 +34,7 @@ export class ConversationService {
     name: string,
     memberIds: string[],
     avatar?: string,
+    memberNames?: string[],
   ): Promise<Conversation> {
     try {
       const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations`, {
@@ -46,9 +47,11 @@ export class ConversationService {
           type: "group",
           name,
           memberIds,
+          memberNames,
           avatar: avatar || "",
         }),
       });
+      console.log("createGroup payload sent:", { name, memberCount: memberIds.length, avatar: avatar || "" });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -107,6 +110,7 @@ export class ConversationService {
           body: JSON.stringify(updateData),
         },
       );
+      console.log("updateConversation payload sent:", updateData);
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -202,6 +206,29 @@ export class ConversationService {
       return await response.json();
     } catch (error) {
       console.error("Error adding members:", error);
+      throw error;
+    }
+  }
+  static async getOrCreatePrivateConversation(
+    creatorId: string,
+    targetUserId: string,
+  ): Promise<ConversationWithParticipant> {
+    try {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations/private`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ creatorId, targetUserId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error get/create private conversation:", error);
       throw error;
     }
   }

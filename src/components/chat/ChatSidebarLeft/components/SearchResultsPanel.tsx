@@ -110,7 +110,7 @@ const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
           <SearchContactsSection
             contacts={searchResults.contacts}
             searchTab={searchTab}
-            onOpenConversation={(conversationId) => onOpenConversation(conversationId)}
+            onOpenConversation={(conversationId, messageId, contactId) => onOpenConversation(conversationId, messageId, contactId)}
           />
         )}
 
@@ -118,7 +118,7 @@ const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
           <SearchConversationsSection
             conversations={conversationResultsByName}
             searchTab={searchTab}
-            onOpenConversation={(conversationId) => onOpenConversation(conversationId)}
+            onOpenConversation={(conversationId, messageId, contactId) => onOpenConversation(conversationId, messageId, contactId)}
             highlightKeyword={highlightKeyword}
           />
         )}

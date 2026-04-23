@@ -22,6 +22,7 @@ export interface ConversationMember {
   joined_at: string;
   added_by?: string;
   nickname?: string;
+  status?: "joined" | "invited" | "rejected" | "left";
 }
 
 export interface LinkData {
@@ -69,11 +70,13 @@ export interface MembersFullViewProps {
   ownerId: string;
   currentUserId: string;
   isManager: boolean;
+  friendIds: Set<string>;
   onBack: () => void;
   onMemberRemoved: (userId: string) => void;
   onMemberRoleUpdated: (userId: string, newRole: "admin" | "user") => void;
   onTransferOwnership?: (userId: string) => void;
   onAddMember: () => void;
+  onAddFriend: (userId: string) => void;
 }
 
 export interface StorageViewProps {
@@ -108,6 +111,8 @@ export interface GroupActionsProps {
   currentUserId: string;
   isOwner?: boolean;
   isDissolved?: boolean;
+  relationship?: any;
+  onUnfriend?: () => void;
   onLeaveSuccess: () => void;
   onActionSuccess?: () => Promise<void> | void;
 }

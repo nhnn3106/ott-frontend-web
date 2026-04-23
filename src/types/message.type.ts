@@ -37,7 +37,9 @@ export interface Message {
     | "call_cancel"
     | "call_no_answer"
     | "poll"
-    | "system_poll";
+    | "system_poll"
+    | "system"
+    | "system_group_dissolved";
   created_at: string;
   createdAt?: string; // For backwards compatibility
   sender_id: String;
@@ -49,6 +51,7 @@ export interface Message {
   reply_to?: MessageReplyPreview | null;
   reactions?: MessageReaction[];
   attachments?: MessageAttachment[];
+  action?: string;
   is_deleted?: boolean;
   is_revoked?: boolean;
   // Pinned message fields
