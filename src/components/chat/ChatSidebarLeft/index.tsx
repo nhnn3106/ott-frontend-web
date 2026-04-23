@@ -86,27 +86,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     socketService.joinUserRoom(normalizedUserId);
   }, [normalizedUserId]);
 
-  const handleNewConversation = useCallback(
-    (newConv: any) => {
-      const convId = newConv._id?.toString();
-      if (!convId || !normalizedUserId) return;
-
-      console.log("Socket: New conversation received:", convId);
-
-      // Refresh list
-      refreshConversations(normalizedUserId);
-
-      // If this conversation is private and involves the current user, or if it's a group,
-      // we might want to auto-select it if the user just created it.
-      // For now, let's just ensure the list refreshes.
-    },
-    [normalizedUserId, refreshConversations],
-  );
-
-  useEffect(() => {
-    socketService.onNewConversation(handleNewConversation);
-    return () => socketService.offNewConversation(handleNewConversation);
-  }, [handleNewConversation]);
+  // Redundant socket listener removed - now handled in ConversationsContext
 
   // Load users for creation but NOT conversations (handled by context)
   useEffect(() => {
@@ -132,6 +112,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
   }, [normalizedUserId]);
 
   useEffect(() => {
+    console.log('🔍 ChatSidebarLeft: Filtering conversations. Raw count:', conversations.length);
     let filtered = conversations;
 
     const hasUnreadConversation = (item: ConversationWithParticipant) => {
@@ -174,6 +155,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
       return isPinnedA ? -1 : 1;
     });
 
+    console.log('🔍 ChatSidebarLeft: Filtered count:', filtered.length);
     setFilteredConversations(filtered);
   }, [conversations, selectedCategoryIds, filterMode]);
 
@@ -190,7 +172,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
 
     try {
       const memberIds = selectedUsers
-        .map((user) => user._id || user.user_id)
+        .map((user) => user.user_id || user._id)
         .filter((id): id is string => !!id);
 
       const result = await ConversationService.createGroup(
