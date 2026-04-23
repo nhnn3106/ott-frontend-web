@@ -95,6 +95,7 @@ const PostDetailModal: React.FC<Props> = ({
             <PostHeader
               author={post.author}
               time={post.time}
+              visibility={post.visibility}
               canEdit={post.relationship === "self"}
               showMenu={showMenu}
               menuRef={menuRef}

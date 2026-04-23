@@ -18,7 +18,7 @@ const PostMediaGrid: React.FC<Props> = ({ media }) => {
 
   return (
     <div
-      className={`grid gap-1 bg-gray-900 overflow-hidden ${
+      className={`grid gap-1 bg-gray-900 overflow-hidden max-h-125 ${
         isSingle ? "grid-cols-1" : "grid-cols-2"
       }`}>
       {visibleMedia.map((item, index) => {
@@ -27,7 +27,7 @@ const PostMediaGrid: React.FC<Props> = ({ media }) => {
           <div
             key={index}
             className={`relative overflow-hidden ${
-              isSingle ? "max-h-125" : "aspect-square"
+              isSingle ? "h-100%" : "aspect-square"
             } ${isSpanTwo ? "col-span-2" : ""}`}>
             {item.type === "image" ?
               <img

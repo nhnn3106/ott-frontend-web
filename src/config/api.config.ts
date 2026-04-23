@@ -11,8 +11,8 @@ const BASE_GATEWAY_URL = import.meta.env.VITE_API_URL || "http://192.168.5.124:8
 export const API_CHAT_SERVER_URL = `${BASE_GATEWAY_URL}/chat`;
 export const SOCKET_CHAT_SERVER_URL = BASE_GATEWAY_URL.replace("/riff/api", "");
 export const API_MEDIA_SERVER_URL = `${BASE_GATEWAY_URL}/media`;
-export const SOCKET_RELATIONSHIP_SERVER_URL = SOCKET_CHAT_SERVER_URL;
-export const SOCKET_MEDIA_SERVER_URL = SOCKET_CHAT_SERVER_URL;
+export const SOCKET_RELATIONSHIP_SERVER_URL = import.meta.env.VITE_RELATIONSHIP_SOCKET_URL;
+export const SOCKET_MEDIA_SERVER_URL = import.meta.env.VITE_MEDIA_SOCKET_URL;
 
 // export const API_CHAT_SERVER_URL =
 //   "https://abactinal-billy-sportily.ngrok-free.dev/api";
