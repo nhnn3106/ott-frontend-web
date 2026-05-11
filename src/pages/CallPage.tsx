@@ -229,6 +229,23 @@ const CallPage: React.FC = () => {
     participants.some((id) => String(id) !== String(normalizedUserId || "")) ||
     remoteStreams.length > 0;
 
+  // Premium: Lắng nghe yêu cầu focus từ tab chính để tránh mở nhiều cửa sổ hoặc tải lại trang gọi
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const channelName = `call_channel_${conversationId}`;
+    const bc = new BroadcastChannel(channelName);
+    
+    bc.onmessage = (ev) => {
+      if (ev.data.type === "PING_FOCUS") {
+        window.focus();
+        bc.postMessage({ type: "PONG_ALIVE" });
+      }
+    };
+    
+    return () => bc.close();
+  }, [conversationId]);
+
   useEffect(() => {
     socketService.connect();
     if (normalizedUserId) {
