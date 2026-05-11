@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { X, Copy, Check, RefreshCw, Link2, QrCode } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { ConversationService } from "../../../../services";
+import { ConversationService } from "../../../../services/conversation.service";
+import { MessageService } from "../../../../services/message.service";
 import { useToast } from "../../../../contexts/ToastContext";
+import { ForwardMessageModal } from "../../../modal/ForwardMessageModal";
+import type { ConversationWithParticipant, Message } from "../../../../types";
 
 interface GroupInviteLinkModalProps {
   isOpen: boolean;
@@ -24,6 +27,9 @@ const GroupInviteLinkModal: React.FC<GroupInviteLinkModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<"link" | "qr">("link");
+  const [showForward, setShowForward] = useState(false);
+  const [conversations, setConversations] = useState<ConversationWithParticipant[]>([]);
+  const [isForwarding, setIsForwarding] = useState(false);
 
   const fetchInviteLink = useCallback(async () => {
     if (!conversationId || !currentUserId) return;
@@ -60,21 +66,47 @@ const GroupInviteLinkModal: React.FC<GroupInviteLinkModalProps> = ({
   };
 
   const handleShare = async () => {
-    if (!inviteLink) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `Tham gia nhóm "${conversationName}"`,
-          text: `Bạn được mời tham gia nhóm "${conversationName}" trên ứng dụng chat.`,
-          url: inviteLink,
-        });
-      } catch {
-        // User cancelled share
-      }
-    } else {
-      handleCopyLink();
+    if (!inviteLink || !currentUserId) return;
+    try {
+      setLoading(true);
+      const convs = await ConversationService.getUserConversations(currentUserId);
+      setConversations(convs);
+      setShowForward(true);
+    } catch {
+      showToast("Lỗi khi tải danh sách hội thoại", "error");
+    } finally {
+      setLoading(false);
     }
   };
+
+  const handleConfirmForward = async (conversationIds: string[]) => {
+    if (!inviteLink || !currentUserId) return;
+    setIsForwarding(true);
+    try {
+      for (const cid of conversationIds) {
+        await MessageService.sendMessage(cid, currentUserId, inviteLink, "link");
+      }
+      showToast(`Đã chia sẻ link cho ${conversationIds.length} hội thoại!`, "success");
+      setShowForward(false);
+      onClose(); // Optional: close the main modal after sharing
+    } catch {
+      showToast("Lỗi khi chia sẻ link", "error");
+    } finally {
+      setIsForwarding(false);
+    }
+  };
+
+  const dummyMessage = useMemo(() => {
+    return {
+      _id: 'dummy',
+      conversation_id: '',
+      sender_id: currentUserId,
+      content: [inviteLink],
+      type: 'link',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as any;
+  }, [inviteLink, currentUserId]);
 
   if (!isOpen) return null;
 
@@ -210,6 +242,17 @@ const GroupInviteLinkModal: React.FC<GroupInviteLinkModalProps> = ({
 
 
       </div>
+
+      <ForwardMessageModal
+        isOpen={showForward}
+        message={dummyMessage}
+        conversations={conversations}
+        currentConversationId={conversationId}
+        currentUserId={currentUserId}
+        isSubmitting={isForwarding}
+        onClose={() => setShowForward(false)}
+        onConfirm={handleConfirmForward}
+      />
     </div>
   );
 };
