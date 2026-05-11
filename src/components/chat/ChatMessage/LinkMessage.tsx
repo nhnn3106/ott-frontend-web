@@ -101,10 +101,10 @@ export const LinkMessage = ({
       {(borderRadius) => (
         <div
           className={`group relative shadow-sm transition-all border overflow-hidden ${isMe
-              ? "bg-chat-me text-chat-me-text border-white/10"
-              : "bg-chat-other text-chat-other-text border-black/5"
+            ? "bg-chat-me text-chat-me-text border-white/10"
+            : "bg-chat-other text-chat-other-text border-chat-other-border"
             } ${borderRadius} ${isGroupInviteLink
-              ? "max-w-[320px] bg-white border-stone-200"
+              ? "max-w-[320px] bg-surface border-primary-200"
               : "max-w-[320px]"
             }`}
         >
@@ -116,19 +116,17 @@ export const LinkMessage = ({
                 rel="noopener noreferrer"
                 className="block no-underline group/link"
               >
-                <div className="px-3 pt-3 pb-2 break-all text-[13px] text-stone-600 underline">
+                {/* Dùng màu primary-700 cho text link trên nền trắng */}
+                <div className="px-3 pt-3 pb-2 break-all text-[13px] text-primary-700 underline opacity-80">
                   {safeLink}
                 </div>
-                <div className="mx-3 mb-3 border border-stone-100 rounded-xl overflow-hidden bg-white hover:shadow-md transition-shadow">
-                  {/* Header Gradient: Chuyển sang tông nâu đậm (Brown/Stone) */}
-                  <div className="bg-gradient-to-br from-[#78350f] to-[#451a03] px-4 py-6 flex items-center gap-4 text-white relative overflow-hidden">
-                    {/* Circle decorations */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3"></div>
-                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/3 -translate-x-1/4"></div>
 
+                <div className="mx-3 mb-3 border border-primary-100 rounded-xl overflow-hidden bg-white hover:shadow-md transition-shadow">
+                  {/* Header Card: Sử dụng gradient primary từ theme của bạn */}
+                  <div className="bg-primary-500 px-4 py-6 flex items-center gap-4 text-white relative overflow-hidden">
                     <div className="w-14 h-14 bg-white flex items-center justify-center shrink-0 rounded-full shadow-sm z-10">
-                      <div className="w-12 h-12 bg-stone-50 rounded-full flex items-center justify-center">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-stone-500">
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500">
                           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
                           <circle cx="9" cy="7" r="4"></circle>
                           <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
@@ -138,12 +136,14 @@ export const LinkMessage = ({
                     </div>
                     <div className="z-10">
                       <div className="text-white/80 text-[13px] font-medium mb-0.5">Nhóm</div>
-                      <div className="font-bold text-base leading-tight">Link tham gia nhóm</div>
+                      <div className="font-bold text-base leading-tight font-display">Link tham gia nhóm</div>
                     </div>
                   </div>
-                  <div className="px-3 py-2 bg-white">
-                    <div className="text-[14px] font-semibold text-stone-900 mb-0.5">Tham gia nhóm chat</div>
-                    <div className="text-[12px] text-stone-500">Bấm vào đây để tham gia nhóm</div>
+
+                  {/* Footer Card: Text dùng tone primary đậm */}
+                  <div className="px-3 py-2 bg-surface">
+                    <div className="text-[14px] font-semibold text-primary-900 mb-0.5 font-body">Tham gia nhóm chat</div>
+                    <div className="text-[12px] text-primary-600 opacity-70">Bấm vào đây để tham gia nhóm</div>
                   </div>
                 </div>
               </a>
@@ -178,7 +178,7 @@ export const LinkMessage = ({
                           style={{ display: favicon ? "none" : "block" }}
                         />
                       </div>
-                      <span className="text-[11px] font-bold uppercase tracking-wider opacity-60 truncate">
+                      <span className="text-[11px] font-bold uppercase tracking-wider opacity-60 truncate font-body">
                         {domain}
                       </span>
                     </div>
@@ -192,11 +192,11 @@ export const LinkMessage = ({
                   <div className="p-2">
                     <div
                       className={`rounded-lg p-3 transition-all ${isMe
-                          ? "bg-white/10 group-hover/link:bg-white/15"
-                          : "bg-black/5 group-hover/link:bg-black/10"
+                        ? "bg-white/20 group-hover/link:bg-white/30"
+                        : "bg-primary-50 group-hover/link:bg-primary-100"
                         }`}
                     >
-                      <div className="text-[14px] leading-relaxed wrap-break-word font-medium">
+                      <div className="text-[14px] leading-relaxed wrap-break-word font-medium font-body">
                         {text}
                       </div>
 
@@ -214,7 +214,7 @@ export const LinkMessage = ({
               </a>
             )
           ) : (
-            <div className="px-3 py-2">{text}</div>
+            <div className="px-3 py-2 font-body">{text}</div>
           )}
         </div>
       )}
