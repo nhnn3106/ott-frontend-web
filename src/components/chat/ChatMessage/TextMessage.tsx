@@ -1,0 +1,74 @@
+import type { Message } from "../../../types";
+import { EmojiText } from "../EmojiText";
+import { MessageLayout } from "./MessageLayout";
+
+export const TextMessage = ({
+  msg,
+  isMe,
+  currentUserId,
+  isFirstInSequence,
+  isLastInSequence,
+  isTopBoundary,
+  onReply,
+  onReact,
+  onRevoke,
+  onDelete,
+  onPin,
+  onForward,
+  participants,
+}: {
+  msg: Message;
+  isMe: boolean;
+  currentUserId?: string;
+  isFirstInSequence: boolean;
+  isLastInSequence: boolean;
+  isTopBoundary?: boolean;
+  onReply?: (msg: Message) => void;
+  onReact?: (msg: Message, reactionType: string) => void;
+  onRevoke?: (msg: Message) => void;
+  onDelete?: (msg: Message) => void;
+  onPin?: (msg: Message) => void;
+  onForward?: (msg: Message) => void;
+  participants?: any[];
+}) => {
+  const text = Array.isArray(msg.content)
+    ? msg.content.join("")
+    : String(msg.content || "");
+
+  return (
+    <MessageLayout
+      msg={msg}
+      isMe={isMe}
+      currentUserId={currentUserId}
+      isFirst={isFirstInSequence}
+      isLast={isLastInSequence}
+      isTopBoundary={isTopBoundary}
+      onReply={onReply}
+      onReact={onReact}
+      onRevoke={onRevoke}
+      onDelete={onDelete}
+      onPin={onPin}
+      onForward={onForward}
+      participants={participants}
+    >
+      {(borderRadius) => (
+        <div
+          className={`px-3 py-2 text-[15px] leading-relaxed shadow-sm wrap-break-word whitespace-pre-wrap transition-all border
+          ${
+            isMe
+              ? "bg-chat-me text-chat-me-text border-chat-me"
+              : "bg-chat-other text-chat-other-text border-chat-other-border"
+          }
+          ${borderRadius} 
+          `}
+        >
+          <EmojiText
+            text={text}
+            emojiSize={18}
+            emojiClassName="inline-block align-[-0.2em] me-1"
+          />
+        </div>
+      )}
+    </MessageLayout>
+  );
+};
