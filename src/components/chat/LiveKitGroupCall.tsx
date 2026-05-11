@@ -34,8 +34,8 @@ const LiveKitGroupCall: React.FC<LiveKitGroupCallProps> = ({
     <LiveKitRoom
       video={video}
       audio={true}
-      token={token?.trim()}
-      serverUrl={serverUrl?.trim()}
+      token={typeof token === "string" ? token.trim() : undefined}
+      serverUrl={typeof serverUrl === "string" ? serverUrl.trim() : undefined}
       onDisconnected={onLeave}
       onError={(e) => {
         console.error("LiveKit Room Error:", e);
