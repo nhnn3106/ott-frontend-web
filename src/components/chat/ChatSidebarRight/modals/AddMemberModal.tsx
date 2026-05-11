@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { X, Search, Loader2, Copy, Check, Link2 } from "lucide-react";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { ConversationService, fetchFriends } from "../../../../services";
+import { ConversationService, fetchFriends, MessageService } from "../../../../services";
 import Avatar from "../../../common/Avatar";
 import type { User } from "../../../../types";
+import { UserService } from "../../../../services/user.service";
 import type { AddMemberModalProps } from "../../../../interfaces";
 import { getFullUrl } from "../../../../utils";
 import { useToast } from "../../../../contexts/ToastContext";
@@ -27,60 +28,84 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [inviteLink, setInviteLink] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [phoneSearchUser, setPhoneSearchUser] = useState<User | null>(null);
+  const [phoneSearching, setPhoneSearching] = useState(false);
 
   useEffect(() => {
+    const loadFriends = async () => {
+      if (!currentUser?.id) return;
+      try {
+        setLoading(true);
+        const friends = await fetchFriends(currentUser.id);
+        const currentMemberIds = new Set(currentMembers.map((m) => m.user_id));
+        const mapped: User[] = (friends || [])
+          .filter((f) => !currentMemberIds.has(f.id))
+          .map((f) => ({
+            user_id: f.id,
+            _id: f.id,
+            name: f.name,
+            display_name: f.name,
+            avatar: f.avatarUrl || "",
+          } as User));
+        setAvailableUsers(mapped);
+      } catch (error) {
+        console.error("AddMemberModal: Error loading friends:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (isOpen && currentUser?.id) {
       loadFriends();
     }
   }, [isOpen, currentUser?.id, currentMembers]);
 
   useEffect(() => {
+    const fetchInviteLink = async () => {
+      if (!currentUser?.id || !conversationId) return;
+      setLinkLoading(true);
+      try {
+        const link = await ConversationService.getInviteLink(conversationId, currentUser.id);
+        setInviteLink(link);
+      } catch {
+        // Fallback demo link
+        setInviteLink(`${window.location.origin}/join?group=${conversationId}`);
+      } finally {
+        setLinkLoading(false);
+      }
+    };
+
     if (isOpen && activeTab === "link" && !inviteLink) {
       fetchInviteLink();
     }
-  }, [isOpen, activeTab]);
-
-  const loadFriends = async () => {
-    if (!currentUser?.id) return;
-    try {
-      setLoading(true);
-      const friends = await fetchFriends(currentUser.id);
-      const currentMemberIds = new Set(currentMembers.map((m) => m.user_id));
-      const mapped: User[] = (friends || [])
-        .filter((f) => !currentMemberIds.has(f.id))
-        .map((f) => ({
-          user_id: f.id,
-          _id: f.id,
-          name: f.name,
-          display_name: f.name,
-          avatar: f.avatarUrl || "",
-        } as any));
-      setAvailableUsers(mapped);
-    } catch (error) {
-      console.error("AddMemberModal: Error loading friends:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchInviteLink = async () => {
-    if (!currentUser?.id || !conversationId) return;
-    setLinkLoading(true);
-    try {
-      const link = await ConversationService.getInviteLink(conversationId, currentUser.id);
-      setInviteLink(link);
-    } catch {
-      // Fallback demo link
-      setInviteLink(`${window.location.origin}/join?group=${conversationId}`);
-    } finally {
-      setLinkLoading(false);
-    }
-  };
+  }, [isOpen, activeTab, inviteLink, conversationId, currentUser?.id]);
 
   const filteredFriends = availableUsers.filter((user) => {
     const name = user.display_name || user.name || "";
-    return name.toLowerCase().includes(searchTerm.toLowerCase());
+    return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.phone && user.phone.includes(searchTerm));
   });
+
+  const handleSearchPhone = async () => {
+    if (!searchTerm || searchTerm.length < 9) return;
+    setPhoneSearching(true);
+    setPhoneSearchUser(null);
+    try {
+      const user = await UserService.getUserByPhone(searchTerm);
+      if (user && !currentMembers.some((m) => m.user_id === user.user_id)) {
+        setPhoneSearchUser({
+          ...user,
+          user_id: user.user_id,
+          _id: user.user_id,
+          display_name: user.name,
+        } as User);
+      }
+    } catch {
+      // not found
+    } finally {
+      setPhoneSearching(false);
+    }
+  };
 
   const handleToggleUser = (userId: string) => {
     const next = new Set(selectedUsers);
@@ -93,15 +118,45 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
     if (selectedUsers.size === 0) return;
     setLoading(true);
     try {
-      const userIds = Array.from(selectedUsers);
-      const result = await ConversationService.addMembers(conversationId, userIds, currentUser?.id || "");
-      onMembersAdded(result.members || []);
+      const allSelectedIds = Array.from(selectedUsers);
+      const friendIds = allSelectedIds.filter(id => availableUsers.some(u => (u.user_id || u._id) === id));
+      const strangerIds = allSelectedIds.filter(id => !availableUsers.some(u => (u.user_id || u._id) === id));
+
+      if (friendIds.length > 0) {
+        const result = await ConversationService.addMembers(conversationId, friendIds, currentUser?.id || "");
+        onMembersAdded(result.members || []);
+      }
+
+      if (strangerIds.length > 0) {
+        let currentLink = inviteLink;
+        if (!currentLink) {
+          currentLink = await ConversationService.getInviteLink(conversationId, currentUser?.id || "");
+          setInviteLink(currentLink);
+        }
+        const linkToSend = currentLink || `${window.location.origin}/join?token=${conversationId}`;
+
+        for (const strangerId of strangerIds) {
+          const directConv = await ConversationService.getOrCreatePrivateConversation(currentUser!.id, strangerId);
+          await MessageService.sendMessage(
+            directConv.conversation._id,
+            currentUser!.id,
+            linkToSend,
+            "link"
+          );
+        }
+      }
+
       onClose();
       setSelectedUsers(new Set());
       setSearchTerm("");
-      showToast(`Đã thêm ${userIds.length} thành viên vào nhóm`, "success");
+      setPhoneSearchUser(null);
+      if (strangerIds.length > 0 && friendIds.length === 0) {
+        showToast(`Đã gửi link mời tham gia nhóm`, "success");
+      } else {
+        showToast(`Đã thêm thành viên thành công`, "success");
+      }
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Không thể thêm thành viên", "error");
+      showToast(error instanceof Error ? error.message : "Có lỗi xảy ra", "error");
     } finally {
       setLoading(false);
     }
@@ -123,6 +178,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
     onClose();
     setSelectedUsers(new Set());
     setSearchTerm("");
+    setPhoneSearchUser(null);
     setActiveTab("friends");
   };
 
@@ -143,21 +199,19 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
         <div className="flex border-b border-gray-100">
           <button
             onClick={() => setActiveTab("friends")}
-            className={`flex-1 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === "friends"
-                ? "text-primary-600 border-b-2 border-primary-500"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
+            className={`flex-1 py-2.5 text-sm font-medium transition-colors cursor-pointer ${activeTab === "friends"
+              ? "text-primary-600 border-b-2 border-primary-500"
+              : "text-gray-500 hover:text-gray-700"
+              }`}
           >
             Từ danh sách bạn bè
           </button>
           <button
             onClick={() => setActiveTab("link")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === "link"
-                ? "text-primary-600 border-b-2 border-primary-500"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors cursor-pointer ${activeTab === "link"
+              ? "text-primary-600 border-b-2 border-primary-500"
+              : "text-gray-500 hover:text-gray-700"
+              }`}
           >
             <Link2 size={14} />
             Gửi link mời
@@ -187,9 +241,36 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 </div>
               ) : filteredFriends.length === 0 ? (
                 <div className="py-10 text-center">
-                  <p className="text-sm text-gray-400">
+                  <p className="text-sm text-gray-400 mb-4">
                     {searchTerm ? "Không tìm thấy bạn bè phù hợp" : "Tất cả bạn bè đã là thành viên nhóm"}
                   </p>
+                  {searchTerm && searchTerm.length >= 9 && (
+                    <button
+                      onClick={handleSearchPhone}
+                      disabled={phoneSearching}
+                      className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                    >
+                      {phoneSearching ? "Đang tìm kiếm..." : `Tìm kiếm số ${searchTerm}`}
+                    </button>
+                  )}
+                  {phoneSearchUser && (
+                    <div
+                      onClick={() => handleToggleUser(phoneSearchUser.user_id as string)}
+                      className="flex items-center gap-3 p-3 mt-4 hover:bg-gray-50 rounded-xl cursor-pointer transition-colors border border-gray-100 text-left"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUsers.has(phoneSearchUser.user_id as string)}
+                        readOnly
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <Avatar src={getFullUrl(phoneSearchUser.avatar || "")} name={phoneSearchUser.name} size={38} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-900 truncate">{phoneSearchUser.display_name || phoneSearchUser.name}</p>
+                        <p className="text-xs text-gray-500">Người lạ</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -215,6 +296,35 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
                       </div>
                     );
                   })}
+                  {searchTerm && searchTerm.length >= 9 && !phoneSearchUser && (
+                    <div className="pt-2 mt-2 border-t border-gray-100 text-center">
+                      <button
+                        onClick={handleSearchPhone}
+                        disabled={phoneSearching}
+                        className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                      >
+                        {phoneSearching ? "Đang tìm kiếm..." : `Tìm kiếm số ${searchTerm}`}
+                      </button>
+                    </div>
+                  )}
+                  {phoneSearchUser && (
+                    <div
+                      onClick={() => handleToggleUser(phoneSearchUser.user_id as string)}
+                      className="flex items-center gap-3 p-2.5 mt-2 hover:bg-gray-50 rounded-xl cursor-pointer transition-colors border border-gray-100"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUsers.has(phoneSearchUser.user_id as string)}
+                        readOnly
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <Avatar src={getFullUrl(phoneSearchUser.avatar || "")} name={phoneSearchUser.name} size={38} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-900 truncate">{phoneSearchUser.display_name || phoneSearchUser.name}</p>
+                        <p className="text-xs text-gray-500">Người lạ</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -233,7 +343,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
                   className="cursor-pointer flex items-center gap-2 px-6 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 shadow-md shadow-primary-500/20 disabled:bg-gray-300 disabled:shadow-none disabled:cursor-not-allowed transition-all"
                 >
                   {loading && <Loader2 size={16} className="animate-spin" />}
-                  {loading ? "Đang xử lý..." : "Thêm vào nhóm"}
+                  {loading ? "Đang xử lý..." : (Array.from(selectedUsers).some(id => !availableUsers.some(u => (u.user_id || u._id) === id)) ? "Gửi link mời" : "Thêm vào nhóm")}
                 </button>
               </div>
             </div>
