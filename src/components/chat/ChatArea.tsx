@@ -1069,34 +1069,59 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     displayAvatar: string,
     invitedUserIds?: string[]
   ) => {
-    const params = new URLSearchParams({
-      conversationId: activeConversation!._id,
-      type,
-      action,
-      name: displayName,
-      // Tránh truyền base64 quá dài gây lỗi HTTP 431 (Request Header Fields Too Large)
-      avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
-    });
+    const conversationId = activeConversation!._id;
+    const windowName = `call_${conversationId}`;
+    const channelName = `call_channel_${conversationId}`;
+    
+    // Premium: Kiểm tra xem cửa sổ gọi cho cuộc hội thoại này đã mở chưa
+    // Nếu đã mở thì chỉ focus, không tải lại (để không ngắt kết nối LiveKit)
+    const bc = new BroadcastChannel(channelName);
+    let isHandled = false;
 
-    if (activeConversation?.type === "group") {
-      params.append("isGroup", "true");
-    }
+    // Lắng nghe phản hồi từ cửa sổ đang mở
+    bc.onmessage = (ev) => {
+      if (ev.data.type === "PONG_ALIVE") {
+        isHandled = true;
+        bc.close();
+      }
+    };
 
-    if (invitedUserIds && invitedUserIds.length > 0) {
-      params.append("invitedUserIds", invitedUserIds.join(","));
-    }
+    // Gửi tín hiệu yêu cầu focus
+    bc.postMessage({ type: "PING_FOCUS" });
 
-    setIsOpeningCall(true);
-    const callWindow = window.open(
-      `/call?${params.toString()}`,
-      "riff-call-window",
-      "width=1180,height=760,menubar=no,toolbar=no,location=no,status=no",
-    );
+    // Sau một khoảng thời gian ngắn, nếu không có ai phản hồi thì mới mở cửa sổ mới
+    setTimeout(() => {
+      if (!isHandled) {
+        const params = new URLSearchParams({
+          conversationId,
+          type,
+          action,
+          name: displayName,
+          avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
+        });
 
-    if (!callWindow) {
-      window.location.href = `/call?${params.toString()}`;
-    }
-    setTimeout(() => setIsOpeningCall(false), 500);
+        if (activeConversation?.type === "group") {
+          params.append("isGroup", "true");
+        }
+
+        if (invitedUserIds && invitedUserIds.length > 0) {
+          params.append("invitedUserIds", invitedUserIds.join(","));
+        }
+
+        setIsOpeningCall(true);
+        const callWindow = window.open(
+          `/call?${params.toString()}`,
+          windowName,
+          "width=1180,height=760,menubar=no,toolbar=no,location=no,status=no",
+        );
+
+        if (!callWindow) {
+          window.location.href = `/call?${params.toString()}`;
+        }
+        setTimeout(() => setIsOpeningCall(false), 500);
+      }
+      bc.close();
+    }, 250);
   };
 
   const handleGroupCallStart = (selectedUserIds: string[], callType: "voice" | "video") => {
