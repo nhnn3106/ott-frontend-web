@@ -24,7 +24,7 @@ const GroupMembersList: React.FC<GroupMembersListProps> = ({
 }) => {
   // Only show joined members (not invited)
   const validMembers = (members || []).filter(member => 
-    member && member.user_id && member.status !== "invited"
+    member && member.user_id
   );
   const displayedMembers = validMembers.slice(0, 6);
   const hasMoreMembers = validMembers.length > 6;

@@ -25,7 +25,7 @@ const MembersFullView: React.FC<MembersFullViewProps> = ({
 }) => {
   // Only show members who have joined (not invited)
   const validMembers = (members || []).filter(member =>
-    member && member.user_id && member.status !== "invited"
+    member && member.user_id
   );
   const [menuOpenForUserId, setMenuOpenForUserId] = useState<string | null>(null);
   const [transferConfirmOpen, setTransferConfirmOpen] = useState(false);
@@ -118,17 +118,11 @@ const MembersFullView: React.FC<MembersFullViewProps> = ({
                   <div className="flex items-center gap-2">
                     <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${member.user_id === ownerId ? "bg-amber-100 text-amber-700" :
                       member.role === "admin" ? "bg-blue-100 text-blue-700" :
-                        member.status === "invited" ? "bg-orange-100 text-orange-600 border border-orange-200" :
-                          "bg-gray-100 text-gray-600"
+                        "bg-gray-100 text-gray-600"
                       }`}>
-                      {member.status === "invited" ? "Lời mời" : getRoleLabel(member)}
+                      {getRoleLabel(member)}
                     </span>
-                    {member.status === "invited" && (
-                      <span className="text-[10px] text-orange-500 font-medium italic">
-                        • Đang chờ...
-                      </span>
-                    )}
-                    {member.joined_at && member.status !== "invited" && (
+                    {member.joined_at && (
                       <span className="text-[11px] text-gray-400">
                         • {new Date(member.joined_at).toLocaleDateString("vi-VN")}
                       </span>

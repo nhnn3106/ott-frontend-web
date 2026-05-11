@@ -216,7 +216,7 @@ const GroupInviteLinkModal: React.FC<GroupInviteLinkModalProps> = ({
                   <QRCodeSVG
                     value={inviteLink}
                     size={192}
-                    fgColor="#1e40af"
+                    fgColor="#000"
                     bgColor="#ffffff"
                     level="M"
                     style={{ borderRadius: "8px" }}
