@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { X } from 'lucide-react';
+import { X, Search, Loader2 } from 'lucide-react';
+import { UserService } from '../../../services/user.service';
+import type { User } from '../../../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import FilterButtons from './FilterButtons';
 import GroupInfoSection from './GroupInfoSection';
@@ -12,6 +14,8 @@ interface Category {
   name: string;
 }
 
+import { useAuth } from '../../../contexts/AuthContext';
+
 const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   isOpen,
   onClose,
@@ -20,11 +24,15 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   preSelectedUserIds,
   categories = []
 }) => {
+  const { user: currentUser } = useAuth();
   const [groupName, setGroupName] = useState('');
   const [groupAvatar, setGroupAvatar] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [phoneSearchResult, setPhoneSearchResult] = useState<User | null>(null);
+  const [foundStrangers, setFoundStrangers] = useState<User[]>([]);
+  const [isSearchingPhone, setIsSearchingPhone] = useState(false);
 
   // Initialize selectedUsers with preSelectedUserIds when modal opens
   React.useEffect(() => {
@@ -32,6 +40,42 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       setSelectedUsers(new Set(preSelectedUserIds));
     }
   }, [isOpen, preSelectedUserIds]);
+
+  // Phone search logic
+  React.useEffect(() => {
+    if (!searchTerm.trim() || searchTerm.trim().length < 10 || !/^[0-9]+$/.test(searchTerm.trim())) {
+      setPhoneSearchResult(null);
+      setIsSearchingPhone(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingPhone(true);
+      try {
+        const user = await UserService.getUserByPhone(searchTerm.trim());
+        if (user && user.user_id === currentUser?.id) {
+          setPhoneSearchResult(null);
+        } else if (user) {
+          setPhoneSearchResult(user);
+          setFoundStrangers(prev => {
+            if (!prev.some(u => u.user_id === user.user_id)) {
+              return [...prev, user];
+            }
+            return prev;
+          });
+        } else {
+          setPhoneSearchResult(null);
+        }
+      } catch (error) {
+        console.error('Phone search failed', error);
+        setPhoneSearchResult(null);
+      } finally {
+        setIsSearchingPhone(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Build filters from user categories
   const filters = useMemo(() => {
@@ -63,11 +107,23 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     }
   }, []);
 
-  const filteredUsers = availableUsers.filter(user => {
-    const name = user.display_name || user.name || '';
-    const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
-  });
+  const allPotentialUsers = useMemo(() => {
+    const list = [...availableUsers];
+    foundStrangers.forEach(stranger => {
+      if (!list.some(u => u.user_id === stranger.user_id)) {
+        list.push(stranger);
+      }
+    });
+    return list;
+  }, [availableUsers, foundStrangers]);
+
+  const filteredUsers = useMemo(() => {
+    return availableUsers.filter(user => {
+      const name = user.display_name || user.name || '';
+      const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesSearch;
+    });
+  }, [availableUsers, searchTerm]);
 
   // Group users by first letter
   const groupedUsers = useMemo(() => 
@@ -81,13 +137,16 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     [filteredUsers]
   );
 
-  const sortedGroups = Object.keys(groupedUsers).sort((a, b) => {
-    if (a === '0-9') return 1;
-    if (b === '0-9') return -1;
-    return a.localeCompare(b);
-  });
+  const sortedGroups = useMemo(() => 
+    Object.keys(groupedUsers).sort((a, b) => {
+      if (a === '0-9') return 1;
+      if (b === '0-9') return -1;
+      return a.localeCompare(b);
+    }),
+    [groupedUsers]
+  );
 
-  const recentUsers = filteredUsers.slice(0, 6);
+
 
   const handleToggleUser = useCallback((userId: string) => {
     setSelectedUsers((prev) => {
@@ -113,9 +172,22 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     });
   }, []);
 
-  const selectedUsersList = availableUsers.filter(u => selectedUsers.has(u.user_id));
+  const selectedUsersList = allPotentialUsers.filter(u => selectedUsers.has(u.user_id));
 
-  const handleCreate = useCallback(() => {
+  const dataURLtoFile = (dataurl: string, filename: string) => {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1];
+    if (!mime) return null;
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  };
+
+  const handleCreate = useCallback(async () => {
     if (!groupName.trim()) {
       alert('Vui lòng nhập tên nhóm');
       return;
@@ -123,8 +195,36 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     if (selectedUsers.size < 2) {
       return;
     }
-    const selected = availableUsers.filter(user => selectedUsers.has(user.user_id));
-    onCreateGroup(groupName, selected, groupAvatar);
+
+    let finalAvatarUrl = groupAvatar;
+
+    // If avatar is base64, upload to S3 first
+    if (groupAvatar && groupAvatar.startsWith('data:')) {
+      try {
+        const file = dataURLtoFile(groupAvatar, `group_avatar_${Date.now()}.png`);
+        if (file) {
+          const { MessageService } = await import('../../../services');
+          const presignedData = await MessageService.getPresignedUrl(file.name, file.type);
+          console.log("Presigned data in modal:", presignedData);
+          const { uploadUrl, fileUrl } = presignedData;
+          await MessageService.uploadFileToS3(uploadUrl, file);
+          finalAvatarUrl = fileUrl;
+        }
+      } catch (err) {
+        console.error('Failed to upload group avatar:', err);
+        // Continue without avatar or alert user? Let's alert.
+        alert('Tải ảnh nhóm thất bại. Đang tiếp tục tạo nhóm không có ảnh.');
+        finalAvatarUrl = '';
+      }
+    }
+
+    const selected = allPotentialUsers.filter(user => selectedUsers.has(user.user_id));
+    const memberIds = selected.map(u => u.user_id);
+    const memberNames = selected.map(u => u.display_name || u.name || "Người dùng");
+
+    console.log("Creating group in modal with avatar URL:", finalAvatarUrl);
+    onCreateGroup(groupName, selected, finalAvatarUrl, memberNames);
+    
     // Reset state and close
     setGroupName('');
     setGroupAvatar('');
@@ -132,7 +232,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     setSelectedUsers(new Set());
     setActiveFilter('all');
     onClose();
-  }, [groupName, selectedUsers, groupAvatar, availableUsers, onCreateGroup, onClose]);
+  }, [groupName, selectedUsers, groupAvatar, allPotentialUsers, onCreateGroup, onClose]);
 
   const handleClose = useCallback(() => {
     setGroupName('');
@@ -199,10 +299,11 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   filteredUsers={filteredUsers}
                   groupedUsers={groupedUsers}
                   sortedGroups={sortedGroups}
-                  recentUsers={recentUsers}
                   selectedUserIds={selectedUsers}
                   searchTerm={searchTerm}
                   onToggleUser={handleToggleUser}
+                  phoneSearchResult={phoneSearchResult}
+                  isSearchingPhone={isSearchingPhone}
                 />
               </div>
 

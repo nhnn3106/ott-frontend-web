@@ -15,6 +15,7 @@ export const TextMessage = ({
   onDelete,
   onPin,
   onForward,
+  participants,
 }: {
   msg: Message;
   isMe: boolean;
@@ -28,6 +29,7 @@ export const TextMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
+  participants?: any[];
 }) => {
   const text = Array.isArray(msg.content)
     ? msg.content.join("")
@@ -47,6 +49,7 @@ export const TextMessage = ({
       onDelete={onDelete}
       onPin={onPin}
       onForward={onForward}
+      participants={participants}
     >
       {(borderRadius) => (
         <div

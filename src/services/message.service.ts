@@ -1,14 +1,19 @@
 import { API_CHAT_SERVER_URL } from "../config/api.config";
 import type { SearchEverythingResponse } from "../types";
+import { authFetch } from "./api/fetchClient";
 
 export class MessageService {
+  static getChatApiUrl() {
+    return API_CHAT_SERVER_URL;
+  }
+
   static async getPresignedUrl(
     fileName: string,
     fileType: string,
     signal?: AbortSignal,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/presigned-url`,
         {
           method: "POST",
@@ -24,7 +29,16 @@ export class MessageService {
       if (!response.ok) throw new Error("Không thể lấy Presigned URL");
 
       // Trả về { uploadUrl, fileUrl }
-      return await response.json();
+      const data = await response.json();
+      
+      // Fallback: Nếu backend cũ chưa trả về fileUrl, tự build trên FE
+      if (!data.fileUrl && data.key) {
+        const { URL_S3 } = await import("../config/api.config");
+        data.fileUrl = `${URL_S3}${data.key}`;
+      }
+      
+      console.log("Presigned URL result (with FE fallback):", data);
+      return data;
     } catch (error) {
       console.error("Error getting presigned URL:", error);
       throw error;
@@ -67,10 +81,13 @@ export class MessageService {
     size: number = 0,
     fileName?: string,
     replyToMsgId?: string,
+    pollQuestion?: string,
+    pollMultipleChoice?: boolean,
+    pollOptions?: { id: string; name: string; voters: string[] }[],
     signal?: AbortSignal,
   ) {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/messages`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/messages`, {
         method: "POST",
         signal,
         headers: {
@@ -85,6 +102,9 @@ export class MessageService {
           size,
           fileName,
           replyToMsgId,
+          pollQuestion,
+          pollMultipleChoice,
+          pollOptions,
         }),
       });
 
@@ -107,7 +127,7 @@ export class MessageService {
     signal?: AbortSignal,
   ) {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/messages/forward`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/messages/forward`, {
         method: "POST",
         signal,
         headers: {
@@ -144,7 +164,7 @@ export class MessageService {
       const url = userId
         ? `${API_CHAT_SERVER_URL}/messages/${conversationId}?userId=${encodeURIComponent(userId)}`
         : `${API_CHAT_SERVER_URL}/messages/${conversationId}`;
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -177,7 +197,7 @@ export class MessageService {
         params.set("userId", userId);
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/${conversationId}/messages/around?${params.toString()}`,
         {
           method: "GET",
@@ -213,7 +233,7 @@ export class MessageService {
         params.set("userId", userId);
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/conversations/${conversationId}/messages/older?${params.toString()}`,
         {
           method: "GET",
@@ -242,7 +262,7 @@ export class MessageService {
     reactionType: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/reaction`,
         {
           method: "PUT",
@@ -265,13 +285,48 @@ export class MessageService {
     }
   }
 
+  static async votePoll(
+    conversationId: string,
+    msgId: string,
+    userId: string,
+    optionIds: string[],
+  ) {
+    try {
+      const response = await authFetch(
+        `${API_CHAT_SERVER_URL}/messages/${msgId}/vote`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+          },
+          body: JSON.stringify({ conversationId, userId, optionIds }),
+        },
+      );
+
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) errorMessage = errorData.error;
+        } catch {}
+        throw new Error(errorMessage);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error voting poll:", error);
+      throw error;
+    }
+  }
+
   static async revokeMessage(
     conversationId: string,
     msgId: string,
     userId: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/revoke`,
         {
           method: "PUT",
@@ -300,7 +355,7 @@ export class MessageService {
     userId: string,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/delete`,
         {
           method: "PUT",
@@ -331,7 +386,7 @@ export class MessageService {
     isPinned: boolean,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/pin`,
         {
           method: "PUT",
@@ -366,7 +421,7 @@ export class MessageService {
   // Toggle pin message (unpin if already pinned)
   static async togglePinMessage(msgId: string) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${msgId}/toggle-pin`,
         {
           method: "PUT",
@@ -397,7 +452,7 @@ export class MessageService {
       }
 
       const query = params.toString();
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/pinned${query ? `?${query}` : ""}`,
         {
           method: "GET",
@@ -419,10 +474,21 @@ export class MessageService {
     }
   }
 
+  // Get poll messages (filtered from latest messages)
+  static async getPollMessages(conversationId: string, userId?: string) {
+    try {
+      const messages = await this.getMessages(conversationId, userId);
+      return messages.filter((msg: any) => msg.type === "poll");
+    } catch (error) {
+      console.error("Error fetching poll messages:", error);
+      throw error;
+    }
+  }
+
   // Get media messages (images/videos)
   static async getMediaMessages(conversationId: string, limit = 20, skip = 0) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/media?limit=${limit}&skip=${skip}`,
         {
           method: "GET",
@@ -452,7 +518,7 @@ export class MessageService {
     after = 10,
   ) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/media-around?messageId=${encodeURIComponent(messageId)}&before=${before}&after=${after}`,
         {
           method: "GET",
@@ -477,7 +543,7 @@ export class MessageService {
   // Get file messages
   static async getFileMessages(conversationId: string, limit = 20, skip = 0) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/files?limit=${limit}&skip=${skip}`,
         {
           method: "GET",
@@ -502,7 +568,7 @@ export class MessageService {
   // Get link messages
   static async getLinkMessages(conversationId: string, limit = 20, skip = 0) {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/messages/${conversationId}/links?limit=${limit}&skip=${skip}`,
         {
           method: "GET",
@@ -536,7 +602,7 @@ export class MessageService {
       if (options?.limit) params.set("limit", String(options.limit));
       if (options?.senderId) params.set("senderId", options.senderId);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/search/${encodeURIComponent(userId)}?${params.toString()}`,
         {
           method: "GET",

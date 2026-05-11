@@ -12,7 +12,7 @@ interface AuthContextType {
   userRole: AdminRole | null;
   isLoading: boolean;
   login: (
-    phone: string,
+    identifier: string,
     password: string,
     otpCode?: string,
   ) => Promise<{
@@ -26,7 +26,7 @@ interface AuthContextType {
     otpCode: string,
     isBackupCode: boolean,
   ) => Promise<{ authenticated: boolean }>;
-  request2FAOtp: (phone: string) => Promise<void>;
+  request2FAOtp: (identifier: string) => Promise<void>;
   loginWithToken: (token: string, refreshToken: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (
@@ -71,9 +71,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     } catch (error) {
       console.error("AuthContext: Failed to fetch user:", error);
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-      setUser(null);
+      clearLocalSession();
       throw error;
     } finally {
       setIsLoading(false);
@@ -93,9 +91,115 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const login = async (phone: string, password: string, otpCode?: string) => {
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+
+    let socketServiceRef: any = null;
+
+    const handleUserInfoUpdated = (payload: {
+      userId: string;
+      fullName?: string;
+      avatarUrl?: string;
+      coverUrl?: string;
+      bio?: string;
+      work?: string;
+      location?: string;
+      relationshipStatus?: string;
+      email?: string;
+      phone?: string;
+    }) => {
+      setUser((prevUser) => {
+        if (prevUser && prevUser.id === payload.userId) {
+          return {
+            ...prevUser,
+            fullName: payload.fullName ?? prevUser.fullName,
+            avatarUrl: payload.avatarUrl ?? prevUser.avatarUrl,
+            coverUrl: payload.coverUrl ?? prevUser.coverUrl,
+            bio: payload.bio ?? prevUser.bio,
+            work: payload.work ?? prevUser.work,
+            location: payload.location ?? prevUser.location,
+            relationshipStatus:
+              payload.relationshipStatus ?? prevUser.relationshipStatus,
+            email: payload.email ?? prevUser.email,
+            phone: payload.phone ?? prevUser.phone,
+          };
+        }
+        return prevUser;
+      });
+    };
+
+    const handleForceLogout = (payload: {
+      action: string;
+      deviceId?: string;
+      revokedDeviceIds?: string[];
+    }) => {
+      console.log("AuthContext: Received buoc_dang_xuat event", payload);
+      const { action } = payload;
+      const myDeviceId = localStorage.getItem("deviceId");
+
+      if (action === "ALL") {
+        clearLocalSession();
+        window.dispatchEvent(new Event("auth:logout"));
+        window.location.href = "/login";
+      } else if (
+        action === "SPECIFIC" &&
+        payload.deviceId &&
+        myDeviceId === payload.deviceId
+      ) {
+        clearLocalSession();
+        window.dispatchEvent(new Event("auth:logout"));
+        window.location.href = "/login";
+      } else if (
+        action === "OTHERS" &&
+        myDeviceId &&
+        payload.revokedDeviceIds?.includes(myDeviceId)
+      ) {
+        clearLocalSession();
+        window.dispatchEvent(new Event("auth:logout"));
+        window.location.href = "/login";
+      } else if (action === "SPECIFIC" || action === "OTHERS") {
+        fetchUser().catch(() => {
+          window.dispatchEvent(new Event("auth:logout"));
+          window.location.href = "/login";
+        });
+      }
+    };
+
+    import("../services/socket.service").then(({ socketService }) => {
+      socketServiceRef = socketService;
+
+      socketService.connect();
+      socketService.joinUserRoom(user.id);
+
+      socketService.onUserInfoUpdated(handleUserInfoUpdated);
+      socketService.onForceLogout(handleForceLogout);
+    });
+
+    return () => {
+      if (socketServiceRef) {
+        socketServiceRef.offUserInfoUpdated(handleUserInfoUpdated);
+        socketServiceRef.offForceLogout(handleForceLogout);
+      }
+    };
+  }, [isAuthenticated, user?.id]);
+
+  const clearLocalSession = () => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    setUser(null);
+  };
+
+  const login = async (
+    identifier: string,
+    password: string,
+    otpCode?: string,
+  ) => {
     try {
-      const response = await authApi.localLogin({ phone, password, otpCode });
+      const response = await authApi.localLogin({
+        identifier,
+        password,
+        otpCode,
+      });
       if (response.result) {
         if (response.result.requires2FA && response.result.tempToken) {
           return {
@@ -122,7 +226,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     otpCode: string,
     isBackupCode = false,
   ) => {
-    // eslint-disable-next-line no-useless-catch
     try {
       const response = await authApi.verify2FAOtp({
         tempToken,
@@ -141,11 +244,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const request2FAOtp = async (phone: string) => {
+  const request2FAOtp = async (identifier: string) => {
     console.log("AuthContext: Requesting 2FA OTP resend");
 
     const response = await authApi.request2FAOtp({
-      phone,
+      identifier,
     });
 
     if (!response.result) {
@@ -161,8 +264,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem("refreshToken", refreshToken);
       await fetchUser();
     } catch (error) {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
+      clearLocalSession();
       throw error;
     }
   };
@@ -186,7 +288,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     if (response.result) {
       console.log("AuthContext: Registration successful, auto-logging in");
-      await login(phone, password);
+      await login(phone, password); // Dùng phone khi đăng ký vì đăng ký yêu cầu phone
     }
   };
 
@@ -202,9 +304,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error("AuthContext: Logout error:", error);
     } finally {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-      setUser(null);
+      clearLocalSession();
       console.log("AuthContext: Logout completed, tokens cleared");
     }
   };

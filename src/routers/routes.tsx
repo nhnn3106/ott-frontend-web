@@ -1,4 +1,5 @@
 import type { RouteObject } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import ChatPage from "../pages/ChatPage";
 import ContactsPage from "../pages/ContactsPage";
 import SearchPage from "../pages/SearchPage";
@@ -7,7 +8,6 @@ import VideoPage from "../pages/VideoPage";
 import NotificationsPage from "../pages/NotificationsPage";
 import SettingsPage from "../pages/SettingsPage";
 import SocialPage from "../pages/SocialPage";
-import UserSelectionPage from "../pages/UserSelectionPage";
 import CallPage from "../pages/CallPage";
 import { SocialProfile } from "../pages/social";
 import Dashboard from "../pages/admin/Dashboard";
@@ -15,16 +15,27 @@ import ContentModeration from "../pages/admin/ContentModeration";
 import UserManagement from "../pages/admin/UserManagement";
 import AuditLogs from "../pages/admin/AuditLogs";
 import AdminLayout from "../components/admin/AdminLayout";
+import { useAuth } from "../contexts/AuthContext";
+
+const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-12 h-12 border-b-2 border-blue-600 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+};
 
 /**
  * Application route configuration
  * Centralized route definitions for better maintainability
  */
 export const routes: RouteObject[] = [
-  {
-    path: "/select-user",
-    element: <UserSelectionPage />,
-  },
   {
     path: "/chat",
     element: <ChatPage />,
@@ -55,15 +66,27 @@ export const routes: RouteObject[] = [
   },
   {
     path: "/social",
-    element: <SocialPage />,
+    element: (
+      <RequireAuth>
+        <SocialPage />
+      </RequireAuth>
+    ),
   },
   {
     path: "/social/*",
-    element: <SocialPage />,
+    element: (
+      <RequireAuth>
+        <SocialPage />
+      </RequireAuth>
+    ),
   },
   {
     path: "/social/profile/:userId",
-    element: <SocialProfile />,
+    element: (
+      <RequireAuth>
+        <SocialProfile />
+      </RequireAuth>
+    ),
   },
   {
     path: "/admin",
@@ -107,7 +130,6 @@ export const routes: RouteObject[] = [
  * Route paths constants for type-safe navigation
  */
 export const ROUTE_PATHS = {
-  SELECT_USER: "/select-user",
   CHAT: "/chat",
   CONTACTS: "/contacts",
   SEARCH: "/search",

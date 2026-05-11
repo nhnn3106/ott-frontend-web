@@ -16,12 +16,31 @@ export interface Conversation {
     sender_id: string;
     sender_name: string;
     content: string;
-    type: "text" | "link" | "image" | "video" | "file" | "audio";
+    type:
+      | "text"
+      | "link"
+      | "image"
+      | "video"
+      | "file"
+      | "audio"
+      | "system_add"
+      | "system_block"
+      | "system_leave"
+      | "system_pin"
+      | "system_unpin"
+      | "call_start"
+      | "call_join"
+      | "call_end"
+      | "call_missed"
+      | "call_cancel"
+      | "call_no_answer";
     createdAt: string;
   };
   is_deleted: boolean;
   is_self_conversation?: boolean;
   self_owner_id?: string | null;
+  status?: string;
+  is_dissolved?: boolean;
   background: string;
   createdAt: string;
   updatedAt: string;

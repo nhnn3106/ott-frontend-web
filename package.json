@@ -10,11 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.10",
+    "@livekit/components-react": "^2.9.21",
+    "@livekit/components-styles": "^1.2.0",
     "axios": "^1.13.2",
     "browser-image-compression": "^2.0.2",
-    "expo-auth-session": "^7.0.10",
+    "expo-auth-session": "^55.0.15",
     "expo-web-browser": "^15.0.10",
     "framer-motion": "^12.26.2",
+    "livekit-client": "^2.18.9",
     "lucide-react": "^0.562.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
@@ -24,7 +28,8 @@
     "react-native-qrcode-svg": "^6.3.21",
     "react-router-dom": "^7.12.0",
     "recharts": "^3.8.1",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

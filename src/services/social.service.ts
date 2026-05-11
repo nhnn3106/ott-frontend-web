@@ -4,7 +4,8 @@
  * Bài post → xem post.service.ts
  */
 
-import { API_MEDIA_SERVER_URL } from "../config/api.config";
+import { API_MEDIA_SERVER_URL, API_CHAT_SERVER_URL, API_BASE_URL } from "../config/api.config";
+import { authFetch } from "./api/fetchClient";
 
 /* ─── Raw shape trả về từ backend ────────────────────── */
 export interface ApiUser {
@@ -18,7 +19,32 @@ export interface ApiUser {
     work: string | null;
     location: string | null;
     relationshipStatus: string | null;
+    phoneNumber: string | null;
 }
+
+type ApiEnvelope<T> = { result?: T; message?: string };
+
+type UserServiceProfile = {
+    bio?: string | null;
+    work?: string | null;
+    location?: string | null;
+    relationshipStatus?: string | null;
+    avatarUrl?: string | null;
+    coverUrl?: string | null;
+};
+
+type PresignedUrlResponse = {
+    uploadUrl: string;
+    fileUrl: string;
+    s3Key: string;
+    contentType?: string | null;
+};
+
+const unwrapApiResult = <T,>(payload: unknown): T | null => {
+    if (!payload || typeof payload !== "object") return null;
+    if ("result" in payload) return (payload as ApiEnvelope<T>).result ?? null;
+    return payload as T;
+};
 export interface RelationshipResponse {
     id: string;
     requesterId: string;
@@ -36,9 +62,11 @@ export interface ApiRelationshipResponse {
     id: string;
     requesterId: string;
     requesterUsername: string;
+    requesterDisplayName: string | null;
     requesterAvatarUrl: string | null;
     receiverId: string;
     receiverUsername: string;
+    receiverDisplayName: string | null;
     receiverAvatarUrl: string | null;
 }
 
@@ -50,6 +78,7 @@ export interface FriendOption {
 
 export interface FriendRequestOption {
     id: string;
+    userId: string;
     name: string;
     avatarUrl?: string;
 }
@@ -62,7 +91,7 @@ export interface FriendRequestOption {
  */
 export async function fetchUsers(): Promise<ApiUser[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/users`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
@@ -79,7 +108,7 @@ export async function fetchUsers(): Promise<ApiUser[]> {
  */
 export async function fetchUserByUsername(username: string): Promise<ApiUser | null> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/users/username/${username}`,
             { signal: AbortSignal.timeout(5_000) },
         );
@@ -95,7 +124,7 @@ export async function fetchUserByUsername(username: string): Promise<ApiUser | n
  */
 export async function fetchUserById(id: string): Promise<ApiUser | null> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${id}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/users/${id}`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return null;
@@ -107,21 +136,28 @@ export async function fetchUserById(id: string): Promise<ApiUser | null> {
 
 export async function fetchFriends(userId: string): Promise<FriendOption[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/relationships/friends/${userId}`, {
+        console.log(`fetchFriends called for userId: ${userId}`);
+        const url = `${API_CHAT_SERVER_URL}/relationships/${userId}/friends`;
+        console.log(`fetchFriends URL: ${url}`);
+        const res = await authFetch(url, {
             signal: AbortSignal.timeout(5_000),
         });
-        if (!res.ok) return [];
-        const raw = (await res.json()) as ApiRelationshipResponse[];
+        if (!res.ok) {
+            console.error(`fetchFriends failed with status: ${res.status}`);
+            return [];
+        }
+        const raw = (await res.json()) as any[];
+        console.log(`fetchFriends raw data:`, raw);
         if (!Array.isArray(raw)) return [];
-        return raw.map((rel) => {
-            const isRequester = rel.requesterId === userId;
-            return {
-                id: isRequester ? rel.receiverId : rel.requesterId,
-                name: isRequester ? rel.receiverUsername : rel.requesterUsername,
-                avatarUrl: isRequester ? rel.receiverAvatarUrl ?? undefined : rel.requesterAvatarUrl ?? undefined,
-            };
-        });
-    } catch {
+        const mapped = raw.map((user) => ({
+            id: user.user_id || user.userId || user.id,
+            name: user.displayName || user.name || user.username || "Người dùng",
+            avatarUrl: user.avatar || user.avatarUrl || user.user_avatar || undefined,
+        }));
+        console.log(`fetchFriends mapped data:`, mapped);
+        return mapped;
+    } catch (error) {
+        console.error("fetchFriends catch error:", error);
         return [];
     }
 }
@@ -134,7 +170,7 @@ export async function fetchRelationshipOf(
         const params = new URLSearchParams({ user1 });
         if (user2) params.set("user2", user2);
 
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships?${params.toString()}`,
             { signal: AbortSignal.timeout(5_000) },
         );
@@ -147,10 +183,30 @@ export async function fetchRelationshipOf(
     }
 }
 
+/**
+ * Lấy trạng thái quan hệ từ chat-service
+ */
+export async function fetchRelationshipStatusViaChat(
+    userId1: string,
+    userId2: string,
+): Promise<any | null> {
+    try {
+        const params = new URLSearchParams({ userId1, userId2 });
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/status?${params.toString()}`,
+            { signal: AbortSignal.timeout(5_000) },
+        );
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    }
+}
+
 export async function cancelRelationship(id: string | null): Promise<boolean> {
     if (!id) return false;
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${id}/cancel`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
         );
@@ -166,7 +222,7 @@ export async function fetchPendingRequests(
     userId: string,
 ): Promise<FriendRequestOption[]> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/relationships/pending/${userId}`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/relationships/pending/${userId}`, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
@@ -174,7 +230,8 @@ export async function fetchPendingRequests(
         if (!Array.isArray(raw)) return [];
         return raw.map((rel) => ({
             id: rel.id,
-            name: rel.requesterUsername,
+            userId: rel.requesterId,
+            name: rel.requesterDisplayName || rel.requesterUsername,
             avatarUrl: rel.requesterAvatarUrl ?? undefined,
         }));
     } catch {
@@ -186,9 +243,60 @@ export async function acceptFriendRequest(
     relationshipId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/accept`,
             { method: "PATCH", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Chấp nhận kết bạn qua chat-service
+ */
+export async function acceptFriendRequestViaChat(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/accept/${relationshipId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Từ chối kết bạn qua chat-service
+ */
+export async function rejectFriendRequestViaChat(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/reject/${relationshipId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Hủy lời mời kết bạn qua chat-service
+ */
+export async function cancelFriendRequestViaChat(
+    relationshipId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/cancel/${relationshipId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
         );
         return res.ok;
     } catch {
@@ -201,7 +309,7 @@ export async function blockRelationship(
     blockerId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/block?blockerId=${blockerId}`,
             { method: "PATCH", signal: AbortSignal.timeout(5_000) },
         );
@@ -215,9 +323,32 @@ export async function unfriendRelationship(
     relationshipId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/unfriend`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Hủy kết bạn qua chat-service
+ */
+export async function unfriendViaChat(
+    userId: string,
+    friendId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/unfriend`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, friendId }),
+                signal: AbortSignal.timeout(5_000)
+            },
         );
         return res.ok;
     } catch {
@@ -229,7 +360,7 @@ export async function rejectFriendRequest(
     relationshipId: string,
 ): Promise<boolean> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/reject`,
             { method: "DELETE", signal: AbortSignal.timeout(5_000) },
         );
@@ -244,11 +375,36 @@ export async function sendFriendRequest(
     receiverId?: string,
 ): Promise<any> {
     try {
-        const res = await fetch(
+        const res = await authFetch(
             `${API_MEDIA_SERVER_URL}/relationships/send?requesterId=${requesterId}&receiverId=${receiverId}`,
             { method: "POST", signal: AbortSignal.timeout(5_000) },
         );
         if (!res.ok) throw new Error("Gửi kết bạn thất bại.")
+        return await res.json();
+    } catch (error) {
+        console.error(error)
+        return null;
+    }
+}
+
+/**
+ * Gửi lời mời kết bạn qua chat-service (sẽ sync qua media-service qua RabbitMQ)
+ */
+export async function sendFriendRequestViaChat(
+    requesterId: string,
+    receiverId: string,
+): Promise<any> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/send`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requesterId, receiverId }),
+                signal: AbortSignal.timeout(5_000)
+            },
+        );
+        if (!res.ok) throw new Error("Gửi kết bạn qua Chat thất bại.")
         return await res.json();
     } catch (error) {
         console.error(error)
@@ -262,7 +418,66 @@ export interface UserProfile {
     work: string;
     location: string;
     relationship: string;
+    phone: string;
 }
+
+export interface UserProfileUpdateResult {
+    bio: string | null;
+    work: string | null;
+    location: string | null;
+    relationshipStatus: string | null;
+}
+
+const requestPresignedUrl = async (
+    filename: string,
+    type: "AVATAR" | "COVER",
+): Promise<PresignedUrlResponse | null> => {
+    const res = await authFetch(
+        `${API_BASE_URL}/users/photos/presigned-url?filename=${encodeURIComponent(filename)}&type=${type}`,
+        { signal: AbortSignal.timeout(15_000) },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    return unwrapApiResult<PresignedUrlResponse>(json);
+};
+
+const uploadToS3 = async (uploadUrl: string, file: File, contentType?: string | null) => {
+    const resolvedType = contentType || file.type || "application/octet-stream";
+    const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": resolvedType },
+        body: file,
+    });
+    if (!putRes.ok) {
+        throw new Error(`Upload failed (${putRes.status})`);
+    }
+};
+
+const updateUserPhoto = async (
+    type: "AVATAR" | "COVER",
+    file: File,
+): Promise<UserServiceProfile | null> => {
+    const presigned = await requestPresignedUrl(file.name, type);
+    if (!presigned) return null;
+
+    await uploadToS3(presigned.uploadUrl, file, presigned.contentType);
+
+    const endpoint = type === "AVATAR" ? "avatar" : "cover";
+    const res = await authFetch(`${API_BASE_URL}/users/photos/${endpoint}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            fileUrl: presigned.fileUrl,
+            s3Key: presigned.s3Key,
+            photoType: type,
+        }),
+        signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    return unwrapApiResult<UserServiceProfile>(json);
+};
 
 /**
  * Upload avatar via multipart PATCH /users/{id}/avatar.
@@ -273,17 +488,10 @@ export async function uploadUserAvatar(
     userId: string,
     file: File,
 ): Promise<string | null> {
+    if (!userId) return null;
     try {
-        const form = new FormData();
-        form.append("avatar", file);
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${userId}/avatar`, {
-            method: "PATCH",
-            body: form,
-            signal: AbortSignal.timeout(30_000),
-        });
-        if (!res.ok) return null;
-        const json = await res.json();
-        return (json as { avatarUrl?: string }).avatarUrl ?? null;
+        const profile = await updateUserPhoto("AVATAR", file);
+        return profile?.avatarUrl ?? null;
     } catch {
         return null;
     }
@@ -298,17 +506,10 @@ export async function uploadUserCover(
     userId: string,
     file: File,
 ): Promise<string | null> {
+    if (!userId) return null;
     try {
-        const form = new FormData();
-        form.append("cover", file);
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${userId}/cover`, {
-            method: "PATCH",
-            body: form,
-            signal: AbortSignal.timeout(30_000),
-        });
-        if (!res.ok) return null;
-        const json = await res.json();
-        return (json as { coverUrl?: string }).coverUrl ?? null;
+        const profile = await updateUserPhoto("COVER", file);
+        return profile?.coverUrl ?? null;
     } catch {
         return null;
     }
@@ -322,22 +523,38 @@ export async function uploadUserCover(
 export async function updateUserProfile(
     userId: string,
     fields: UserProfile,
-): Promise<ApiUser> {
+): Promise<UserProfileUpdateResult> {
+    if (!userId) {
+        throw new Error("Thiếu userId");
+    }
+
     const body = {
         bio: fields.bio,
         work: fields.work,
         location: fields.location,
         relationshipStatus: fields.relationship,
+        phoneNumber: fields.phone,
     };
-    const res = await fetch(`${API_MEDIA_SERVER_URL}/users/${userId}`, {
-        method: "PATCH",
+
+    const res = await authFetch(`${API_BASE_URL}/users/profile/me`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10_000),
     });
+
     if (!res.ok) {
         const text = await res.text().catch(() => res.statusText);
         throw new Error(`Lưu thất bại (${res.status}): ${text}`);
     }
-    return (await res.json()) as ApiUser;
+
+    const json = await res.json();
+    const result = unwrapApiResult<UserServiceProfile>(json);
+
+    return {
+        bio: result?.bio ?? null,
+        work: result?.work ?? null,
+        location: result?.location ?? null,
+        relationshipStatus: result?.relationshipStatus ?? null,
+    };
 }

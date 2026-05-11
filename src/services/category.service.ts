@@ -1,5 +1,6 @@
 import type { Category } from "../types";
 import { API_CHAT_SERVER_URL } from "../config/api.config";
+import { authFetch } from "./api/fetchClient";
 
 export class CategoryService {
   /**
@@ -7,13 +8,12 @@ export class CategoryService {
    */
   static async getUserCategories(userId: string): Promise<Category[]> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/categories/${userId}`,
         {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true", // <--- Quan trọng: Thêm dòng này để Ngrok không chặn
           },
         },
       );
@@ -37,11 +37,10 @@ export class CategoryService {
     order: number;
   }): Promise<Category> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/categories`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/categories`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify(data),
       });
@@ -67,13 +66,12 @@ export class CategoryService {
     },
   ): Promise<Category> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/categories/${categoryId}`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
           body: JSON.stringify(data),
         },
@@ -93,13 +91,12 @@ export class CategoryService {
    */
   static async deleteCategory(categoryId: string): Promise<void> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/categories/${categoryId}`,
         {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
         },
       );

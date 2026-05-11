@@ -27,6 +27,7 @@ import {
   convertEmojiImageMarkupToText,
 } from "../../../constants/emoji.constants";
 import { EmojiGlyph } from "../EmojiGlyph";
+import MessageContextMenu from "./MessageContextMenu";
 
 type MessageLayoutProps = {
   msg: any;
@@ -41,6 +42,12 @@ type MessageLayoutProps = {
   onDelete?: (msg: any) => void;
   onPin?: (msg: any) => void;
   onForward?: (msg: any) => void;
+  onVote?: (msg: any) => void;
+  onViewDetails?: (msg: any) => void;
+  isCentered?: boolean;
+  hideAvatar?: boolean;
+  showActionsOnHover?: boolean;
+  participants?: any[];
   children: (borderRadius: string) => React.ReactNode;
 };
 
@@ -147,6 +154,12 @@ export const MessageLayout = ({
   onDelete,
   onPin,
   onForward,
+  onVote,
+  onViewDetails,
+  isCentered = false,
+  hideAvatar = false,
+  showActionsOnHover = true,
+  participants,
   children,
 }: MessageLayoutProps) => {
   // --- STATE & REF CHO ACTION MENU (MoreVertical) ---
@@ -155,6 +168,12 @@ export const MessageLayout = ({
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
   const actionDropdownRef = useRef<HTMLDivElement>(null);
+
+  // --- STATE CHO CONTEXT MENU (Right-Click) ---
+  const [contextMenuPosition, setContextMenuPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // --- STATE & REF CHO REACTION PICKER ---
   const [showReactionPicker, setShowReactionPicker] = useState(false);
@@ -190,8 +209,8 @@ export const MessageLayout = ({
   const replyTo = msg.reply_to;
   const replySenderName =
     replyTo?.sender_id &&
-    currentUserId &&
-    String(replyTo.sender_id) === String(currentUserId)
+      currentUserId &&
+      String(replyTo.sender_id) === String(currentUserId)
       ? "Bạn"
       : replyTo?.sender_name || "Tin nhắn gốc";
   const replyType = replyTo?.type;
@@ -205,11 +224,11 @@ export const MessageLayout = ({
   const replyImageUrls =
     replyType === "image"
       ? (
-          replyTo?.media_urls ||
-          (rawReplyContent ? [String(rawReplyContent)] : [])
-        )
-          .filter(Boolean)
-          .map((item: string) => String(item))
+        replyTo?.media_urls ||
+        (rawReplyContent ? [String(rawReplyContent)] : [])
+      )
+        .filter(Boolean)
+        .map((item: string) => String(item))
       : [];
   const replyImageCount =
     replyType === "image"
@@ -227,9 +246,9 @@ export const MessageLayout = ({
     replyTo?.file_name ||
     (replyType === "file" || replyType === "video" || replyType === "audio"
       ? getFileNameFromUrl(
-          String(replyTo?.url || rawReplyContent || ""),
-          "File",
-        )
+        String(replyTo?.url || rawReplyContent || ""),
+        "File",
+      )
       : "");
   const replyPreviewContent = replyTo?.is_deleted
     ? "Tin nhắn đã bị xóa ở phía bạn"
@@ -293,11 +312,11 @@ export const MessageLayout = ({
           reaction?.account?.full_name;
         const userId = String(
           reaction?.user_id ||
-            reaction?.account_id ||
-            reaction?.user?.user_id ||
-            reaction?.user?.id ||
-            reaction?.account?.id ||
-            "",
+          reaction?.account_id ||
+          reaction?.user?.user_id ||
+          reaction?.user?.id ||
+          reaction?.account?.id ||
+          "",
         );
         const userNickname = String(rawNickname || "").trim();
         const userName = String(rawName || userId || "Người dùng").trim();
@@ -320,12 +339,12 @@ export const MessageLayout = ({
         };
       })
       .filter(Boolean) as Array<{
-      type: string;
-      userId: string;
-      userName: string;
-      userNickname: string;
-      userAvatar: string;
-    }>;
+        type: string;
+        userId: string;
+        userName: string;
+        userNickname: string;
+        userAvatar: string;
+      }>;
 
     const dedupedByUser = new Map<string, (typeof parsedReactions)[number]>();
     const anonymousReactions: typeof parsedReactions = [];
@@ -631,14 +650,48 @@ export const MessageLayout = ({
     };
   }, [showReactionPicker]);
 
+  // ==========================================
+  // EFFECT 5: GLOBAL CLOSE CONTEXT MENU
+  // ==========================================
+  useEffect(() => {
+    const handleGlobalClose = () => {
+      setContextMenuPosition(null);
+    };
+    window.addEventListener("chat:close-context-menu", handleGlobalClose);
+    return () => {
+      window.removeEventListener("chat:close-context-menu", handleGlobalClose);
+    };
+  }, []);
+
   return (
     <div
       className={`flex w-full ${containerMargin} ${
-        isMe ? "justify-end" : "justify-start gap-2.5"
+        isCentered 
+          ? "justify-center" 
+          : isMe ? "justify-end" : "justify-start gap-2.5"
       }`}
+      onContextMenu={(e) => {
+        // Chỉ hiện menu nếu có ít nhất 1 action khả dụng
+        if (
+          onReply ||
+          onForward ||
+          canPinMessage ||
+          canRevokeForAll ||
+          canDeleteForMe
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          window.dispatchEvent(new Event("chat:close-context-menu"));
+          
+          setTimeout(() => {
+            setContextMenuPosition({ x: e.clientX, y: e.clientY });
+          }, 0);
+        }
+      }}
     >
       {/* CỘT AVATAR */}
-      {!isMe && (
+      {!isMe && !hideAvatar && (
         <div className="shrink-0 flex flex-col w-8">
           {isFirst || isTopBoundary ? (
             <div
@@ -649,7 +702,7 @@ export const MessageLayout = ({
             >
               {senderAvatarUrl ? (
                 <img
-                  src={senderAvatarUrl}
+                  src={getFullUrl(senderAvatarUrl)}
                   alt={senderName}
                   className="w-full h-full object-cover"
                 />
@@ -665,11 +718,13 @@ export const MessageLayout = ({
 
       {/* CỘT CONTENT */}
       <div
-        className={`group flex flex-col max-w-[75%] sm:max-w-[70%] ${
-          isMe ? "items-end" : "items-start"
+        className={`group flex flex-col ${
+          isCentered 
+            ? "items-center max-w-[90%]" 
+            : isMe ? "items-end max-w-[75%] sm:max-w-[70%]" : "items-start max-w-[75%] sm:max-w-[70%]"
         } relative ${showActionMenu || showReactionPicker ? "z-20" : ""}`}
       >
-        {!isMe && (isFirst || isTopBoundary) && (
+        {!isMe && !isCentered && (isFirst || isTopBoundary) && (
           <span className="text-[12px] font-medium text-slate-500 mb-1 ml-1 select-none">
             {senderName}
           </span>
@@ -679,11 +734,10 @@ export const MessageLayout = ({
         {replyTo && (
           <div
             onClick={handleJumpToReplyMessage}
-            className={`relative z-0 w-fit max-w-full rounded-t-xl rounded-b-lg px-2.5 pt-2 pb-5 -mb-3.5 cursor-pointer transition-colors border-l-[3px] flex items-center gap-2.5 ${
-              isMe
+            className={`relative z-0 w-fit max-w-full rounded-t-xl rounded-b-lg px-2.5 pt-2 pb-5 -mb-3.5 cursor-pointer transition-colors border-l-[3px] flex items-center gap-2.5 ${isMe
                 ? "bg-black/4 hover:bg-black/8 border-[#C1A882]"
                 : "bg-black/4 hover:bg-black/8 border-slate-400"
-            }`}
+              }`}
             title={replyTo?.msg_id ? "Đi tới tin nhắn gốc" : undefined}
           >
             {/* KHOẢNG MEDIA THUMBNAIL */}
@@ -730,17 +784,15 @@ export const MessageLayout = ({
             {/* KHOẢNG TEXT NỘI DUNG */}
             <div className="flex flex-col min-w-0 justify-center">
               <span
-                className={`text-[11px] font-bold truncate ${
-                  isMe ? "text-[#a3845c]" : "text-slate-500"
-                }`}
+                className={`text-[11px] font-bold truncate ${isMe ? "text-[#a3845c]" : "text-slate-500"
+                  }`}
               >
                 {normalizePreviewText(replySenderName)}
               </span>
 
               <div
-                className={`text-[12px] truncate mt-px leading-tight flex items-center gap-1.5 ${
-                  isMe ? "text-[#4a361c]/80" : "text-slate-700/80"
-                }`}
+                className={`text-[12px] truncate mt-px leading-tight flex items-center gap-1.5 ${isMe ? "text-[#4a361c]/80" : "text-slate-700/80"
+                  }`}
               >
                 {replyTo?.is_deleted || replyTo?.is_revoked ? (
                   <span className="italic opacity-70">
@@ -798,224 +850,263 @@ export const MessageLayout = ({
             </div>
           </div>
         )}
-
         <div className="relative w-fit max-w-full">
           {/* NỘI DUNG TIN NHẮN CHÍNH */}
           {children(borderRadius)}
 
+          {/* HIỂN THỊ TRẠNG THÁI TIN NHẮN (CHỈ CHO BẢN THÂN) */}
+          {isMe && !isCentered && isLast && msg.msg_id && (
+            <div className="flex justify-end mt-0.5">
+              <span className={`text-[10px] font-medium px-1 rounded transition-colors ${
+                (() => {
+                  const others = (participants || []).filter(p => String(p.user_id) !== String(currentUserId));
+                  if (others.length === 0) return false;
+                  
+                  try {
+                    const currentMsgId = BigInt(msg.msg_id);
+                    return others.every(p => {
+                      if (!p.last_read_message_id) return false;
+                      try {
+                        return BigInt(p.last_read_message_id) >= currentMsgId;
+                      } catch {
+                        return false;
+                      }
+                    });
+                  } catch {
+                    return false;
+                  }
+                })() ? "text-blue-500" : "text-slate-400"
+              }`}>
+                {(() => {
+                  const others = (participants || []).filter(p => String(p.user_id) !== String(currentUserId));
+                  if (others.length === 0) return "Đã gửi";
+                  
+                  try {
+                    const currentMsgId = BigInt(msg.msg_id);
+                    const allRead = others.every(p => {
+                      if (!p.last_read_message_id) return false;
+                      try {
+                        return BigInt(p.last_read_message_id) >= currentMsgId;
+                      } catch {
+                        return false;
+                      }
+                    });
+                    if (allRead) return "Đã xem";
+                  } catch {
+                    // fall through
+                  }
+                  
+                  return "Đã gửi";
+                })()}
+              </span>
+            </div>
+          )}
+
           {/* THANH ICON THAO TÁC (REPLY, REACT, MORE) */}
-          {(onReply ||
+          {showActionsOnHover && (onReply ||
             onReact ||
             canDeleteForMe ||
             canRevokeForAll ||
             canPinMessage ||
             canForwardMessage) && (
-            <div
-              className={`absolute top-1/2 -translate-y-1/2  flex items-center gap-0.5 ${
-                isMe ? "right-full mr-2" : "left-full ml-2"
-              } ${
-                showReactionPicker || showActionMenu
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100"
-              } transition-all duration-200`}
-            >
-              {(canDeleteForMe ||
-                canRevokeForAll ||
-                canPinMessage ||
-                canForwardMessage) && (
-                <div className="relative" ref={actionMenuRef}>
-                  <button
-                    ref={actionButtonRef}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setShowActionMenu((prev) => !prev);
-                    }}
-                    className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors z-20 ${
-                      showActionMenu
-                        ? "text-slate-600 bg-slate-100"
-                        : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                    }`}
-                    title="Tùy chọn"
-                  >
-                    <MoreVertical size={16} strokeWidth={2} />
-                  </button>
+              <div
+                className={`absolute top-1/2 -translate-y-1/2  flex items-center gap-0.5 ${isMe ? "right-full mr-2" : "left-full ml-2"
+                  } ${showReactionPicker || showActionMenu
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100"
+                  } transition-all duration-200`}
+              >
+                {(canDeleteForMe ||
+                  canRevokeForAll ||
+                  canPinMessage ||
+                  canForwardMessage) && (
+                    <div className="relative" ref={actionMenuRef}>
+                      <button
+                        ref={actionButtonRef}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setShowActionMenu((prev) => !prev);
+                        }}
+                        className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors z-20 ${showActionMenu
+                            ? "text-slate-600 bg-slate-100"
+                            : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                          }`}
+                        title="Tùy chọn"
+                      >
+                        <MoreVertical size={16} strokeWidth={2} />
+                      </button>
 
-                  {showActionMenu && (
-                    <div
-                      ref={actionDropdownRef}
-                      className={`absolute min-w-42.5 bg-white border border-slate-200 rounded-lg shadow-lg p-1.5  ${
-                        showActionMenuUpward
-                          ? "bottom-full mb-1"
-                          : "top-full mt-1"
-                      } ${isMe ? "right-0" : "left-0"}`}
-                    >
-                      {canPinMessage && onPin && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setShowActionMenu(false);
-                            onPin(msg);
-                          }}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-slate-700 hover:bg-slate-100 transition-colors "
+                      {showActionMenu && (
+                        <div
+                          ref={actionDropdownRef}
+                          className={`absolute min-w-42.5 bg-white border border-slate-200 rounded-lg shadow-lg p-1.5  ${showActionMenuUpward
+                              ? "bottom-full mb-1"
+                              : "top-full mt-1"
+                            } ${isMe ? "right-0" : "left-0"}`}
                         >
-                          <Pin size={14} />
-                          {msg.is_pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
-                        </button>
-                      )}
-                      {canForwardMessage && onForward && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setShowActionMenu(false);
-                            onForward(msg);
-                          }}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-slate-700 hover:bg-slate-100 transition-colors"
-                        >
-                          <Share2 size={14} />
-                          Chuyển tiếp
-                        </button>
-                      )}
-                      {canRevokeForAll && onRevoke && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setShowActionMenu(false);
-                            onRevoke(msg);
-                          }}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-slate-700 hover:bg-slate-100 transition-colors"
-                        >
-                          <RotateCcw size={14} />
-                          Thu hồi tin nhắn
-                        </button>
-                      )}
+                          {canPinMessage && onPin && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setShowActionMenu(false);
+                                onPin(msg);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-slate-700 hover:bg-slate-100 transition-colors "
+                            >
+                              <Pin size={14} />
+                              {msg.is_pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
+                            </button>
+                          )}
+                          {canForwardMessage && onForward && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setShowActionMenu(false);
+                                onForward(msg);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-slate-700 hover:bg-slate-100 transition-colors"
+                            >
+                              <Share2 size={14} />
+                              Chuyển tiếp
+                            </button>
+                          )}
+                          {canRevokeForAll && onRevoke && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setShowActionMenu(false);
+                                onRevoke(msg);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-red-600 hover:bg-slate-100 transition-colors"
+                            >
+                              <RotateCcw size={14} />
+                              Thu hồi tin nhắn
+                            </button>
+                          )}
 
-                      {canDeleteForMe && onDelete && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setShowActionMenu(false);
-                            onDelete(msg);
-                          }}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          <Trash2 size={14} />
-                          Xóa ở phía bạn
-                        </button>
+                          {canDeleteForMe && onDelete && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setShowActionMenu(false);
+                                onDelete(msg);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                              Xóa ở phía bạn
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
-                </div>
-              )}
 
-              {onReply &&
-                !msg.is_deleted &&
-                !msg.is_revoked &&
-                !isUploadInFlight && (
-                  <button
-                    type="button"
-                    onClick={() => onReply(msg)}
-                    className="inline-flex items-center justify-center w-8 h-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                    title="Trả lời"
-                  >
-                    <Reply size={16} strokeWidth={2} />
-                  </button>
-                )}
-
-              {onReact &&
-                !msg.is_deleted &&
-                !msg.is_revoked &&
-                !isUploadInFlight && (
-                  <div
-                    className="relative"
-                    onMouseEnter={openReactionPickerOnHover}
-                    onMouseLeave={closeReactionPickerOnLeave}
-                  >
+                {onReply &&
+                  !msg.is_deleted &&
+                  !msg.is_revoked &&
+                  !isUploadInFlight && (
                     <button
-                      ref={reactionTriggerRef}
                       type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setShowReactionPicker((prev) => !prev);
-                      }}
-                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-                        showReactionPicker
-                          ? "text-slate-600 bg-slate-100"
-                          : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                      }`}
-                      title="Thả reaction"
+                      onClick={() => onReply(msg)}
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                      title="Trả lời"
                     >
-                      <SmilePlus size={16} strokeWidth={2} />
+                      <Reply size={16} strokeWidth={2} />
                     </button>
+                  )}
 
-                    {showReactionPicker && (
-                      <div
-                        ref={reactionDropdownRef}
-                        className={`absolute ${
-                          showReactionPickerUpward
-                            ? "bottom-[calc(100%+6px)] slide-in-from-bottom-2"
-                            : "top-[calc(100%+6px)] slide-in-from-top-2"
-                        } rounded-md bg-white/95 backdrop-blur-md border border-slate-200/80 shadow-xl px-2 py-1.5 flex items-center gap-0.5 animate-in fade-in zoom-in-95 duration-200 ${
-                          showReactionPickerLeftward
-                            ? `right-0 ${showReactionPickerUpward ? "origin-bottom-right" : "origin-top-right"}`
-                            : `left-0 ${showReactionPickerUpward ? "origin-bottom-left" : "origin-top-left"}`
-                        }`}
+                {onReact &&
+                  !msg.is_deleted &&
+                  !msg.is_revoked &&
+                  !isUploadInFlight && (
+                    <div
+                      className="relative"
+                      onMouseEnter={openReactionPickerOnHover}
+                      onMouseLeave={closeReactionPickerOnLeave}
+                    >
+                      <button
+                        ref={reactionTriggerRef}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setShowReactionPicker((prev) => !prev);
+                        }}
+                        className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${showReactionPicker
+                            ? "text-slate-600 bg-slate-100"
+                            : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                          }`}
+                        title="Thả reaction"
                       >
-                        {QUICK_REACTIONS.map((reaction) => (
-                          <button
-                            key={reaction}
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleSelectReaction(reaction);
-                            }}
-                            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-100/80 hover:scale-110 transition-all duration-150"
-                          >
-                            <EmojiGlyph
-                              emoji={normalizeReactionType(reaction)}
-                              size={18}
-                            />
-                          </button>
-                        ))}
+                        <SmilePlus size={16} strokeWidth={2} />
+                      </button>
 
-                        {myReactionTypes.length > 0 && (
-                          <>
-                            <div className="mx-1 h-5 w-px bg-slate-200" />
+                      {showReactionPicker && (
+                        <div
+                          ref={reactionDropdownRef}
+                          className={`absolute ${showReactionPickerUpward
+                              ? "bottom-[calc(100%+6px)] slide-in-from-bottom-2"
+                              : "top-[calc(100%+6px)] slide-in-from-top-2"
+                            } rounded-md bg-white/95 backdrop-blur-md border border-slate-200/80 shadow-xl px-2 py-1.5 flex items-center gap-0.5 animate-in fade-in zoom-in-95 duration-200 ${showReactionPickerLeftward
+                              ? `right-0 ${showReactionPickerUpward ? "origin-bottom-right" : "origin-top-right"}`
+                              : `left-0 ${showReactionPickerUpward ? "origin-bottom-left" : "origin-top-left"}`
+                            }`}
+                        >
+                          {QUICK_REACTIONS.map((reaction) => (
                             <button
+                              key={reaction}
                               type="button"
-                              onClick={async (event) => {
+                              onClick={(event) => {
                                 event.stopPropagation();
-                                for (const type of myReactionTypes) {
-                                  await Promise.resolve(onReact(msg, type));
-                                }
-                                setShowReactionPicker(false);
+                                void handleSelectReaction(reaction);
                               }}
-                              className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100/80 hover:text-slate-700 transition-all duration-150"
-                              title="Gỡ reaction"
+                              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-100/80 hover:scale-110 transition-all duration-150"
                             >
-                              <X size={16} />
+                              <EmojiGlyph
+                                emoji={normalizeReactionType(reaction)}
+                                size={18}
+                              />
                             </button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-            </div>
-          )}
+                          ))}
+
+                          {myReactionTypes.length > 0 && (
+                            <>
+                              <div className="mx-1 h-5 w-px bg-slate-200" />
+                              <button
+                                type="button"
+                                onClick={async (event) => {
+                                  event.stopPropagation();
+                                  for (const type of myReactionTypes) {
+                                    await Promise.resolve(onReact(msg, type));
+                                  }
+                                  setShowReactionPicker(false);
+                                }}
+                                className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100/80 hover:text-slate-700 transition-all duration-150"
+                                title="Gỡ reaction"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+              </div>
+            )}
 
           {/* HIỂN THỊ REACTION ĐÃ THẢ */}
           {hasReactions && (
             <div
-              className={`absolute ${
-                msg.type === "video" || msg.type === "image"
+              className={`absolute ${msg.type === "video" || msg.type === "image"
                   ? "-bottom-0.5"
                   : "-bottom-2.5"
-              } ${isMe ? "right-0" : "left-0"} z-20 flex items-center gap-0.5 rounded-full bg-white py-px shadow-sm ring-1 ring-slate-100/50 select-none`}
+                } ${isMe ? "right-0" : "left-0"} z-20 flex items-center gap-0.5 rounded-full bg-white py-px shadow-sm ring-1 ring-slate-100/50 select-none`}
             >
               <button
                 type="button"
@@ -1073,11 +1164,10 @@ export const MessageLayout = ({
                     key={tab.key}
                     type="button"
                     onClick={() => setActiveReactionFilter(tab.key)}
-                    className={`mb-1 flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors ${
-                      activeReactionFilter === tab.key
+                    className={`mb-1 flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors ${activeReactionFilter === tab.key
                         ? "bg-slate-200 text-slate-900"
                         : "text-slate-600 hover:bg-slate-200/80"
-                    }`}
+                      }`}
                   >
                     <span className="flex items-center gap-1.5">
                       {tab.key === "all" ? (
@@ -1113,6 +1203,20 @@ export const MessageLayout = ({
           </div>
         </div>
       )}
+
+      <MessageContextMenu
+        isOpen={contextMenuPosition !== null}
+        position={contextMenuPosition || { x: 0, y: 0 }}
+        onClose={() => setContextMenuPosition(null)}
+        onReply={onReply && !msg.is_deleted && !msg.is_revoked && !isUploadInFlight ? () => onReply(msg) : undefined}
+        onForward={canForwardMessage && onForward ? () => onForward(msg) : undefined}
+        onPin={canPinMessage && onPin ? () => onPin(msg) : undefined}
+        onRevoke={canRevokeForAll && onRevoke ? () => onRevoke(msg) : undefined}
+        onDelete={canDeleteForMe && onDelete ? () => onDelete(msg) : undefined}
+        onVote={onVote ? () => onVote(msg) : undefined}
+        onViewDetails={onViewDetails ? () => onViewDetails(msg) : undefined}
+        isPinned={msg.is_pinned}
+      />
     </div>
   );
 };

@@ -14,7 +14,6 @@ import ForgotPasswordPage from "../pages/ForgotPasswordPage";
 // Main pages
 import SocialPage from "../pages/SocialPage";
 import CallPage from "../pages/CallPage";
-import UserSelectionPage from "../pages/UserSelectionPage";
 import ProfilePage from "../pages/ProfilePage";
 
 // Account settings pages
@@ -33,6 +32,7 @@ import AdminLayout from "../components/admin/AdminLayout";
 // Layout
 import MainLayout from "../layouts/MainLayout";
 import { ChatPage } from "../pages";
+import JoinGroupPage from "../pages/JoinGroupPage";
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -41,8 +41,8 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({
 
   if (isLoading)
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-12 h-12 border-b-2 border-blue-600 rounded-full animate-spin"></div>
       </div>
     );
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
@@ -53,8 +53,8 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (isLoading)
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-12 h-12 border-b-2 border-blue-600 rounded-full animate-spin"></div>
       </div>
     );
   return !isAuthenticated ? <>{children}</> : <Navigate to="/chat" replace />;
@@ -102,7 +102,6 @@ export const AppRouter: React.FC = () => {
           </PrivateRoute>
         }
       >
-        <Route path="/select-user" element={<UserSelectionPage />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/social/*" element={<SocialPage />} />
       </Route>
@@ -227,6 +226,9 @@ export const AppRouter: React.FC = () => {
           </AdminRoute>
         }
       />
+
+      {/* Join group by invite link – accessible when logged in OR not */}
+      <Route path="/join" element={<JoinGroupPage />} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useUser } from "../contexts/UserContext";
+import { useAuth } from "../contexts/AuthContext";
 import { useCall, type CallType } from "../hooks/useCall";
 import { socketService } from "../services";
 import { clearActiveCallLock, getFullUrl, setActiveCallLock } from "../utils";
@@ -14,7 +14,10 @@ import {
   Eye,
   EyeOff,
   Settings,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import LiveKitGroupCall from "../components/chat/LiveKitGroupCall";
 
 interface StreamVideoProps {
   stream: MediaStream;
@@ -144,7 +147,7 @@ const isUsableAvatar = (value?: string | null): boolean => {
 const CallPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { currentUser } = useUser();
+  const { user: currentUser } = useAuth();
 
   const conversationId = searchParams.get("conversationId") || "";
   const callType = normalizeCallType(searchParams.get("type"));
@@ -153,16 +156,18 @@ const CallPage: React.FC = () => {
   const remoteDisplayName = String(conversationName || "Cuoc goi").trim();
   const remoteAvatar = String(searchParams.get("avatar") || "").trim();
   const myDisplayName = String(
-    currentUser?.display_name || currentUser?.name || "Me",
+    currentUser?.fullName || "Me",
   ).trim();
-  const myAvatar = String(currentUser?.avatar || "").trim();
+  const myAvatar = String(currentUser?.avatarUrl || "").trim();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isLocalPreviewVisible, setIsLocalPreviewVisible] = useState(true);
+  const [isLocalVideoCollapsed, setIsLocalVideoCollapsed] = useState(false);
   const [isRemoteVideoActive, setIsRemoteVideoActive] = useState(false);
   const [isRemoteAvatarBroken, setIsRemoteAvatarBroken] = useState(false);
   const [isMyAvatarBroken, setIsMyAvatarBroken] = useState(false);
 
-  const normalizedUserId = currentUser?.user_id || currentUser?._id || "";
+  const rawUser = currentUser as { id?: string; user_id?: string; _id?: string } | null;
+  const normalizedUserId = rawUser?.id || rawUser?.user_id || rawUser?._id || "";
   const startedRef = useRef(false);
   const callConnectedAtRef = useRef<number | null>(null);
   const hasEverConnectedRef = useRef(false);
@@ -180,6 +185,9 @@ const CallPage: React.FC = () => {
     isCameraOff,
     isScreenSharing,
     remoteCameraStates,
+    busyUserIds,
+    isGroup,
+    livekitToken,
     startCall,
     joinExistingCall,
     endCall,
@@ -190,6 +198,23 @@ const CallPage: React.FC = () => {
     conversationId,
     userId: normalizedUserId,
   });
+
+  // Khi người nhận đang bận: thông báo về parent window rồi đóng tab này
+  useEffect(() => {
+    if (busyUserIds && busyUserIds.length > 0) {
+      // Gửi tên người nhận về ChatPage để hiện modal
+      const opener = window.opener;
+      if (opener) {
+        opener.postMessage({ type: "call-target-busy", name: remoteDisplayName }, "*");
+      }
+      // Đóng cửa sổ gọi
+      endCall();
+      setTimeout(() => {
+        window.close();
+        window.location.href = "about:blank";
+      }, 200);
+    }
+  }, [busyUserIds, endCall, remoteDisplayName]);
 
   const hasRemoteAnswered =
     participants.some((id) => String(id) !== String(normalizedUserId || "")) ||
@@ -214,7 +239,10 @@ const CallPage: React.FC = () => {
       return;
     }
 
-    startCall(callType).catch((error) => {
+    const invitedUserIdsStr = searchParams.get("invitedUserIds");
+    const invitedUserIds = invitedUserIdsStr ? invitedUserIdsStr.split(",") : undefined;
+
+    startCall(callType, invitedUserIds).catch((error) => {
       console.error("Khong the bat dau cuoc goi:", error);
     });
   }, [
@@ -295,6 +323,7 @@ const CallPage: React.FC = () => {
 
   const handleExit = () => {
     endCall();
+    // window.opener chỉ tồn tại khi window được mở bằng window.open — an toàn để close
     if (window.opener) {
       window.close();
       return;
@@ -309,6 +338,8 @@ const CallPage: React.FC = () => {
         isClosingByNoAnswerRef.current ||
         isClosingByCancelRef.current
       ) {
+        // Chỉ tự đóng khi có opener (mở bằng window.open), không dùng window.name
+        // vì window.name tồn tại qua F5 và sẽ gây đóng trang khi reload
         if (window.opener) {
           window.close();
           return;
@@ -386,6 +417,17 @@ const CallPage: React.FC = () => {
       videoTrack.removeEventListener("ended", syncRemoteVideoState);
     };
   }, [callType, primaryRemote, remoteCameraStates]);
+
+  if (isGroup && livekitToken) {
+    return (
+      <LiveKitGroupCall
+        token={livekitToken}
+        serverUrl={import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880"}
+        onLeave={handleExit}
+        video={callType === "video"}
+      />
+    );
+  }
 
   if (!conversationId) {
     return (
@@ -503,31 +545,49 @@ const CallPage: React.FC = () => {
           )}
         </div>
 
-        {/* 3. Local Video (PiP) - Đã thu nhỏ nhẹ */}
+        {/* 3. Local Video (PiP) - Collapsible logic */}
         {callType === "video" && isLocalPreviewVisible && (
-          <div className="w-32 md:w-48 aspect-video rounded-xl border border-white/10 overflow-hidden bg-primary-800 shadow-2xl">
-            {localStream && !isCameraOff ? (
-              <StreamVideo
-                stream={localStream}
-                muted
-                className="w-full h-full object-cover transform scale-x-[-1]"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-primary-900">
-                <div className="h-10 w-10 rounded-full bg-primary-700 flex items-center justify-center text-xs font-bold text-white border border-white/10 overflow-hidden">
-                  {myAvatarSrc && !isMyAvatarBroken ? (
-                    <img
-                      src={myAvatarSrc}
-                      alt={myDisplayName}
-                      className="h-full w-full object-cover"
-                      onError={() => setIsMyAvatarBroken(true)}
-                    />
-                  ) : (
-                    getAvatarInitial(myDisplayName)
-                  )}
+          <div
+            className={`transition-all duration-500 ease-in-out relative ${isLocalVideoCollapsed ? "translate-x-[calc(100%-12px)]" : "translate-x-0"
+              }`}
+          >
+            <div className="w-32 md:w-48 aspect-video rounded-xl border border-white/10 overflow-hidden bg-primary-800 shadow-2xl relative group">
+              {/* Toggle Collapse Button (Chevron only) */}
+              <button
+                onClick={() => setIsLocalVideoCollapsed((prev) => !prev)}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-8 h-full bg-transparent flex items-center justify-center text-white transition-all hover:scale-110"
+                title={isLocalVideoCollapsed ? "Hiện khung hình" : "Ẩn khung hình"}
+              >
+                {isLocalVideoCollapsed ? (
+                  <ChevronLeft size={24} strokeWidth={2.5} />
+                ) : (
+                  <ChevronRight size={24} strokeWidth={2.5} />
+                )}
+              </button>
+
+              {localStream && !isCameraOff ? (
+                <StreamVideo
+                  stream={localStream}
+                  muted
+                  className="w-full h-full object-cover transform scale-x-[-1]"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-primary-900">
+                  <div className="h-10 w-10 rounded-full bg-primary-700 flex items-center justify-center text-xs font-bold text-white border border-white/10 overflow-hidden">
+                    {myAvatarSrc && !isMyAvatarBroken ? (
+                      <img
+                        src={myAvatarSrc}
+                        alt={myDisplayName}
+                        className="h-full w-full object-cover"
+                        onError={() => setIsMyAvatarBroken(true)}
+                      />
+                    ) : (
+                      getAvatarInitial(myDisplayName)
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -537,11 +597,10 @@ const CallPage: React.FC = () => {
         {/* Mic toggle */}
         <button
           onClick={toggleMic}
-          className={`w-10 h-10 flex items-center justify-center rounded-full transition-all duration-300 ${
-            isMuted
-              ? "bg-red-500 text-white shadow-lg shadow-red-500/20"
-              : "bg-white/10 hover:bg-white/20 text-white"
-          }`}
+          className={`w-10 h-10 flex items-center justify-center rounded-full transition-all duration-300 ${isMuted
+            ? "bg-red-500 text-white shadow-lg shadow-red-500/20"
+            : "bg-white/10 hover:bg-white/20 text-white"
+            }`}
         >
           {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
         </button>
@@ -551,11 +610,10 @@ const CallPage: React.FC = () => {
           <button
             onClick={toggleCamera}
             disabled={isScreenSharing}
-            className={`w-10 h-10 flex items-center justify-center rounded-full transition-all duration-300 ${
-              isCameraOff
-                ? "bg-red-500 text-white shadow-lg shadow-red-500/20"
-                : "bg-white/10 hover:bg-white/20 text-white"
-            } ${isScreenSharing ? "opacity-20" : ""}`}
+            className={`w-10 h-10 flex items-center justify-center rounded-full transition-all duration-300 ${isCameraOff
+              ? "bg-red-500 text-white shadow-lg shadow-red-500/20"
+              : "bg-white/10 hover:bg-white/20 text-white"
+              } ${isScreenSharing ? "opacity-20" : ""}`}
           >
             {isCameraOff ? <VideoOff size={18} /> : <Video size={18} />}
           </button>
@@ -574,28 +632,16 @@ const CallPage: React.FC = () => {
           <button
             onClick={toggleScreenShare}
             disabled={!hasRemoteAnswered}
-            className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${
-              isScreenSharing
-                ? "bg-primary-400 text-black"
-                : "bg-white/10 hover:bg-white/20 text-white"
-            } ${!hasRemoteAnswered ? "opacity-20" : ""}`}
+            className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isScreenSharing
+              ? "bg-primary-400 text-black"
+              : "bg-white/10 hover:bg-white/20 text-white"
+              } ${!hasRemoteAnswered ? "opacity-20" : ""}`}
           >
             <MonitorUp size={18} />
           </button>
         )}
 
         {/* Toggle local preview */}
-        {callType === "video" && (
-          <button
-            onClick={() => setIsLocalPreviewVisible((prev) => !prev)}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all"
-            title={
-              isLocalPreviewVisible ? "Ẩn khung của tôi" : "Hiện khung của tôi"
-            }
-          >
-            {isLocalPreviewVisible ? <EyeOff size={18} /> : <Eye size={18} />}
-          </button>
-        )}
 
         {/* Settings */}
         <button className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all">

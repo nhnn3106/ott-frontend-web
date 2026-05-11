@@ -2,12 +2,12 @@ import React from 'react';
 import { User } from 'lucide-react';
 import type { AvatarProps } from '../../interfaces';
 
-const Avatar: React.FC<AvatarProps> = ({ 
-  src, 
-  name, 
-  size = 40, 
+const Avatar: React.FC<AvatarProps> = ({
+  src,
+  name,
+  size = 40,
   className = '',
-  onClick 
+  onClick
 }) => {
   const getInitials = (name: string = ""): string => {
     if (!name || name.trim().length === 0) {
@@ -30,48 +30,67 @@ const Avatar: React.FC<AvatarProps> = ({
       'from-primary-300 to-primary-200',
       'from-primary-200 to-primary-500',
     ];
-    
+
     if (!name || name.length === 0) {
       return colors[0]; // Default color
     }
-    
+
     const index = name.charCodeAt(0) % colors.length;
     return colors[index];
   };
 
+  const [imgError, setImgError] = React.useState(false);
+
+  // Reset error when src changes
+  React.useEffect(() => {
+    setImgError(false);
+  }, [src]);
+
+  const showFallback = !src || src === "SPECIAL_AVATAR_SELF" || imgError;
+
   return (
     <div
       className={`
-        relative overflow-hidden rounded-full flex items-center justify-center
+        relative overflow-hidden rounded-full flex items-center justify-center shrink-0
         transition-transform duration-200 hover:scale-105 active:scale-95
         ${onClick ? 'cursor-pointer' : ''}
-        ${size === 40 ? 'w-10 h-10' : size === 48 ? 'w-12 h-12' : size === 32 ? 'w-8 h-8' : 'w-10 h-10'}
         ${className}
       `}
+      style={{ 
+        width: `${size}px`, 
+        height: `${size}px`,
+        minWidth: `${size}px`,
+        minHeight: `${size}px`
+      }}
       onClick={onClick}
     >
-      {src ? (
-        <img
-          src={src}
-          alt={name}
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            // If image fails to load, hide it and show initials
-            (e.target as HTMLImageElement).style.display = 'none';
-          }}
-        />
-      ) : (
-        <div 
-          className={`w-full h-full flex items-center justify-center text-white font-semibold bg-gradient-to-br ${getGradientColor(name)}`}
-        >
-          {name ? (
-            <span className={size === 48 ? 'text-lg' : size === 40 ? 'text-base' : 'text-sm'}>
+      <div
+        className={`absolute inset-0 flex items-center justify-center text-white font-semibold bg-gradient-to-br ${getGradientColor(name)}`}
+      >
+        {src === "SPECIAL_AVATAR_SELF" ||
+          name?.toLowerCase().includes("my documents") ||
+          name?.toLowerCase().includes("truyền file") ||
+          name?.toLowerCase().includes("cloud của tôi")
+          ? (
+            <span style={{ fontSize: size * 0.5 }}>
+              📁
+            </span>
+          ) : name ? (
+            <span style={{ fontSize: size * 0.4 }}>
               {getInitials(name)}
             </span>
           ) : (
-            <User className={`text-white/70 ${size === 48 ? 'w-6 h-6' : size === 40 ? 'w-5 h-5' : 'w-4 h-4'}`} />
+            <User className="text-white/70" style={{ width: size * 0.5, height: size * 0.5 }} />
           )}
-        </div>
+      </div>
+
+      {!showFallback && (
+        <img
+          src={src}
+          alt={name}
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
       )}
 
       {/* Subtle border overlay */}

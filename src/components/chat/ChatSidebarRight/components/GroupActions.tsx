@@ -1,6 +1,7 @@
 import React from "react";
-import { Trash2, LogOut, AlertTriangle } from "lucide-react";
+import { Trash2, LogOut, AlertTriangle, UserRoundX } from "lucide-react";
 import { ConversationService, ParticipantService } from "../../../../services";
+import { unfriendViaChat } from "../../../../services/social.service";
 import type { GroupActionsProps } from "../../../../interfaces";
 import { ConfirmModal } from "../../../modal/ConfirmModal";
 
@@ -8,12 +9,15 @@ const GroupActions: React.FC<GroupActionsProps> = ({
   conversation,
   currentUserId,
   isOwner = false,
+  isDissolved = false,
+  relationship,
+  onUnfriend,
   onLeaveSuccess,
   onActionSuccess,
 }) => {
   const [confirmState, setConfirmState] = React.useState<{
     isOpen: boolean;
-    action: "delete-history" | "leave-group" | "dissolve-group" | null;
+    action: "delete-history" | "leave-group" | "dissolve-group" | "unfriend" | null;
   }>({
     isOpen: false,
     action: null,
@@ -22,7 +26,12 @@ const GroupActions: React.FC<GroupActionsProps> = ({
   const handleDeleteHistory = async () => {
     try {
       await ParticipantService.deleteConversation(conversation._id, currentUserId);
-      await onActionSuccess?.();
+      
+      // Dispatch event to remove from local session list immediately
+      window.dispatchEvent(new CustomEvent("chat:remove-conversation", {
+        detail: { conversationId: conversation._id }
+      }));
+      
       onLeaveSuccess();
     } catch (error) {
       console.error("Error deleting history:", error);
@@ -30,9 +39,13 @@ const GroupActions: React.FC<GroupActionsProps> = ({
   };
 
   const handleLeaveGroup = async () => {
+    if (isOwner) {
+      alert("Bạn phải chuyển quyền trưởng nhóm trước khi rời nhóm.");
+      return;
+    }
+
     try {
       await ParticipantService.leaveGroup(conversation._id, currentUserId);
-      await onActionSuccess?.();
       onLeaveSuccess();
     } catch (error) {
       console.error("Error leaving group:", error);
@@ -42,10 +55,30 @@ const GroupActions: React.FC<GroupActionsProps> = ({
   const handleDissolveGroup = async () => {
     try {
       await ConversationService.dissolveGroup(conversation._id, currentUserId);
-      await onActionSuccess?.();
+      // For owner, remove immediately from local state
+      if (isOwner) {
+        window.dispatchEvent(new CustomEvent("chat:remove-conversation", {
+          detail: { conversationId: conversation._id }
+        }));
+      }
       onLeaveSuccess();
     } catch (error) {
       console.error("Error dissolving group:", error);
+    }
+  };
+
+  const handleUnfriend = async () => {
+    try {
+      const otherId = conversation.participants?.find(p => String(p.user_id) !== String(currentUserId))?.user_id;
+      if (!otherId) return;
+      
+      const success = await unfriendViaChat(currentUserId, otherId);
+      if (success) {
+        if (onUnfriend) onUnfriend();
+        if (onActionSuccess) await onActionSuccess();
+      }
+    } catch (error) {
+      console.error("Error unfriending:", error);
     }
   };
 
@@ -65,13 +98,19 @@ const GroupActions: React.FC<GroupActionsProps> = ({
 
     if (action === "dissolve-group") {
       await handleDissolveGroup();
+      return;
+    }
+
+    if (action === "unfriend") {
+      await handleUnfriend();
     }
   };
 
   const isGroupChat = conversation.type === "group";
 
   return (
-    <div className="border-t border-gray-100 px-4 py-4 space-y-2">
+    <div className="px-4 py-4 space-y-2">
+      <div className="h-[1px] bg-slate-100 mx-1 mb-4" />
       <button
         onClick={() =>
           setConfirmState({ isOpen: true, action: "delete-history" })
@@ -82,7 +121,7 @@ const GroupActions: React.FC<GroupActionsProps> = ({
         <span>Xoá lịch sử trò chuyện</span>
       </button>
 
-      {isGroupChat && (
+      {!isDissolved && isGroupChat && (
         <button
           onClick={() =>
             setConfirmState({ isOpen: true, action: "leave-group" })
@@ -94,7 +133,7 @@ const GroupActions: React.FC<GroupActionsProps> = ({
         </button>
       )}
 
-      {isGroupChat && isOwner && (
+      {!isDissolved && isGroupChat && isOwner && (
         <button
           onClick={() =>
             setConfirmState({ isOpen: true, action: "dissolve-group" })
@@ -106,6 +145,18 @@ const GroupActions: React.FC<GroupActionsProps> = ({
         </button>
       )}
 
+      {!isGroupChat && (relationship as any)?.status === "ACCEPTED" && (
+        <button
+          onClick={() =>
+            setConfirmState({ isOpen: true, action: "unfriend" })
+          }
+          className="w-full cursor-pointer flex items-center gap-3 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+        >
+          <UserRoundX size={18} />
+          <span>Hủy kết bạn</span>
+        </button>
+      )}
+
       <ConfirmModal
         isOpen={confirmState.isOpen}
         title={
@@ -113,21 +164,27 @@ const GroupActions: React.FC<GroupActionsProps> = ({
             ? "Giải tán nhóm"
             : confirmState.action === "leave-group"
               ? "Rời nhóm"
-              : "Xóa lịch sử trò chuyện"
+              : confirmState.action === "unfriend"
+                ? "Hủy kết bạn"
+                : "Xóa lịch sử trò chuyện"
         }
         message={
           confirmState.action === "dissolve-group"
             ? "Nhóm sẽ bị xóa vĩnh viễn, toàn bộ tin nhắn và dữ liệu không thể khôi phục."
             : confirmState.action === "leave-group"
               ? "Bạn có chắc muốn rời khỏi nhóm này?"
-              : "Bạn có chắc muốn xóa toàn bộ lịch sử trò chuyện phía bạn?"
+              : confirmState.action === "unfriend"
+                ? "Bạn có chắc chắn muốn hủy kết bạn với người này?"
+                : "Bạn có chắc muốn xóa toàn bộ lịch sử trò chuyện phía bạn?"
         }
         confirmText={
           confirmState.action === "dissolve-group"
             ? "Giải tán nhóm"
             : confirmState.action === "leave-group"
               ? "Rời nhóm"
-              : "Xóa"
+              : confirmState.action === "unfriend"
+                ? "Hủy kết bạn"
+                : "Xóa"
         }
         cancelText="Hủy"
         isDangerous={true}

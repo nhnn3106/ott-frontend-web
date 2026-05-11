@@ -21,6 +21,7 @@ import {
   FileText,
   Link2,
   Music,
+  ListChecks,
 } from "lucide-react";
 import { MessageService } from "../../../services";
 import type { ChatInputProps } from "../../../types/message.type";
@@ -38,6 +39,7 @@ import { StagingArea } from "./StagingArea";
 import { TextInput, type TextInputHandle } from "./TextInput";
 import type { Message } from "../../../types/message.type";
 import { ConfirmModal } from "../../modal/ConfirmModal";
+import CreatePollModal from "../Modal/CreatePollModal";
 
 const FILE_ACCEPT_TYPES =
   "image/*,video/*,audio/*,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,.txt,.json,.csv,.zip,.rar,.7z,.tar,.gz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/x-7z-compressed,application/gzip,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,.env,.ini,.conf,.config,.yaml,.yml,.toml,.md,.xml,.log,.js,.ts,.tsx,.jsx,.mjs,.cjs,.py,.java,.cpp,.c,.h,.hpp,.cs,.go,.rs,.php,.rb,.sh,.bat,.ps1,.sql";
@@ -193,6 +195,7 @@ export const ChatInput = ({
   onUploadError,
   replyToMessage,
   onCancelReply,
+  conversationType,
 }: ChatInputProps): ReactElement => {
   const [text, setText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -210,6 +213,7 @@ export const ChatInput = ({
     title: "Không tải được file lên",
     message: "",
   });
+  const [showCreatePollModal, setShowCreatePollModal] = useState(false);
   const textInputRef = useRef<TextInputHandle>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -744,6 +748,9 @@ export const ChatInput = ({
         0,
         undefined,
         replyToMsgId,
+        undefined,
+        undefined,
+        undefined,
         abortController.signal,
       );
 
@@ -841,6 +848,9 @@ export const ChatInput = ({
         file.size,
         file.name,
         replyToMsgId,
+        undefined,
+        undefined,
+        undefined,
         abortController.signal,
       );
       onUploadProgress?.(clientMessageId, 100);
@@ -1141,18 +1151,104 @@ export const ChatInput = ({
     if (!items) return;
 
     const files: File[] = [];
+    let hasFolder = false;
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.kind === "file") {
+        if (typeof item.webkitGetAsEntry === "function") {
+          const entry = item.webkitGetAsEntry();
+          if (entry && entry.isDirectory) {
+            hasFolder = true;
+            continue;
+          }
+        }
         const file = item.getAsFile();
         if (file) files.push(file);
       }
+    }
+
+    if (hasFolder) {
+      e.preventDefault();
+      setUploadLimitModal({
+        isOpen: true,
+        title: "Không hỗ trợ gửi thư mục",
+        message: "Vui lòng nén thư mục hoặc gửi từng tệp tin riêng lẻ.",
+      });
+      return;
     }
 
     if (files.length > 0) {
       e.preventDefault();
       addToPending(files);
     }
+  };
+
+  // Kéo thả (Drag & Drop): chặn folder và đưa file vào staging
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const items = e.dataTransfer?.items;
+    if (!items) return;
+
+    const files: File[] = [];
+    let hasFolder = false;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file") {
+        if (typeof item.webkitGetAsEntry === "function") {
+          const entry = item.webkitGetAsEntry();
+          if (entry && entry.isDirectory) {
+            hasFolder = true;
+            continue;
+          }
+        }
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+
+    if (hasFolder) {
+      setUploadLimitModal({
+        isOpen: true,
+        title: "Không hỗ trợ gửi thư mục",
+        message: "Vui lòng nén thư mục hoặc gửi từng tệp tin riêng lẻ.",
+      });
+      return;
+    }
+
+    if (files.length > 0) {
+      addToPending(files);
+    }
+  };
+
+  const handleCreatePoll = async (data: { question: string; options: { id: string; name: string; voters: string[] }[]; multipleChoice: boolean }) => {
+    try {
+      setIsUploading(true);
+      await MessageService.sendMessage(
+        conversationId,
+        senderId,
+        "Khảo sát",
+        "poll",
+        0,
+        undefined,
+        replyToMessage?.msg_id,
+        data.question,
+        data.multipleChoice,
+        data.options,
+      );
+      if (replyToMessage) onCancelReply?.();
+      onSendSuccess?.();
+    } catch (error: unknown) {
+      console.error("Lỗi tạo khảo sát:", error);
+      alert(error instanceof Error ? error.message : "Đã xảy ra lỗi khi tạo khảo sát. Vui lòng thử lại.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); // bắt buộc để cho phép drop
   };
 
   const canSend =
@@ -1187,6 +1283,8 @@ export const ChatInput = ({
     <div
       className="p-4 bg-white border-t border-gray-100 relative "
       onPaste={handlePaste}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
     >
       {showEmojiPicker && (
         <EmojiPicker
@@ -1194,6 +1292,12 @@ export const ChatInput = ({
           onClose={() => setShowEmojiPicker(false)}
         />
       )}
+
+      <CreatePollModal
+        isOpen={showCreatePollModal}
+        onClose={() => setShowCreatePollModal(false)}
+        onSubmit={handleCreatePoll}
+      />
 
       <ConfirmModal
         isOpen={uploadLimitModal.isOpen}
@@ -1335,6 +1439,17 @@ export const ChatInput = ({
           >
             <Mic size={20} />
           </button>
+
+          {conversationType !== "private" && (
+            <button
+              onClick={() => setShowCreatePollModal(true)}
+              disabled={isUploading}
+              className="p-2 text-slate-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
+              title="Tạo khảo sát"
+            >
+              <ListChecks size={20} />
+            </button>
+          )}
 
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}

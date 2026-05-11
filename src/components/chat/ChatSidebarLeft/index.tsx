@@ -2,13 +2,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import ConversationList from "../../conversations/ConversationList";
 import CategoryManagementModal from "../../modal/category/CategoryManagementModal";
 import LoadingSkeleton from "../../common/LoadingSkeleton";
-import ErrorState from "../../common/ErrorState";
 import CreateGroupModal from "../../modal/group/CreateGroupModal";
-import { UserService } from "../../../services/user.service";
+import AddFriendModal from "../../modal/friend/AddFriendModal";
 import { ConversationService } from "../../../services/conversation.service";
-import { CategoryService, socketService } from "../../../services";
+import { CategoryService, socketService, fetchFriends } from "../../../services";
 import { useConversations } from "../../../contexts/ConversationsContext";
-import { useUser } from "../../../contexts/UserContext";
+import { useAuth } from "../../../contexts/AuthContext";
 import type {
   ConversationWithParticipant,
   FilterMode,
@@ -22,8 +21,9 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
   onConversationSelect,
   selectedConversationId,
 }) => {
-  const { currentUser } = useUser();
-  const normalizedUserId = currentUser?.user_id || currentUser?._id;
+  const { user: currentUser } = useAuth();
+  const rawUser = currentUser as { id?: string; user_id?: string; _id?: string } | null;
+  const normalizedUserId = rawUser?.id || rawUser?.user_id || rawUser?._id;
   const {
     conversations,
     categories,
@@ -43,6 +43,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
+  const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
@@ -85,79 +86,33 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     socketService.joinUserRoom(normalizedUserId);
   }, [normalizedUserId]);
 
-  const handleNewConversation = useCallback(
-    (newConv: any) => {
-      const convId = newConv._id?.toString();
-      if (!convId || !normalizedUserId) return;
-      const exists = conversations.some(
-        (item) => item.conversation._id === convId,
-      );
-      if (!exists) {
-        refreshConversations(normalizedUserId);
-      }
-    },
-    [conversations, normalizedUserId, refreshConversations],
-  );
+  // Redundant socket listener removed - now handled in ConversationsContext
 
+  // Load users for creation but NOT conversations (handled by context)
   useEffect(() => {
-    socketService.onNewConversation(handleNewConversation);
-    return () => socketService.offNewConversation(handleNewConversation);
-  }, [handleNewConversation]);
-
-  const loadConversations = useCallback(async () => {
     if (!normalizedUserId) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const users = await UserService.getAllUsers();
-      const otherUsers = users.filter(
-        (user) => (user._id || user.user_id) !== currentUser._id,
-      );
-      setAvailableUsers(otherUsers);
-
-      const loadedConversations =
-        await ConversationService.getUserConversations(normalizedUserId);
-
-      const userId = normalizedUserId;
-      const reconciledConversations = loadedConversations.map((newItem) => {
-        const convId = newItem.conversation._id;
-        const dbId = newItem.participant.last_read_message_id || "0";
-        const lsId = localStorage.getItem(`read_${convId}_${userId}`) || "0";
-        if (lsId !== "0" && BigInt(lsId) > BigInt(dbId)) {
-          return {
-            ...newItem,
-            participant: { ...newItem.participant, last_read_message_id: lsId },
-          };
-        }
-        return newItem;
-      });
-      setConversations(reconciledConversations);
-
-      const loadedCategories =
-        await CategoryService.getUserCategories(normalizedUserId);
-      setCategories(loadedCategories);
-    } catch (loadError) {
-      console.error("Failed to load data from database:", loadError);
-      setError("Không thể tải dữ liệu từ server");
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    normalizedUserId,
-    setLoading,
-    setError,
-    currentUser?._id,
-    setConversations,
-    setCategories,
-  ]);
+    const loadUsers = async () => {
+      try {
+        const friends = await fetchFriends(normalizedUserId);
+        // Map FriendOption to User shape if needed, but here we just need name/id/avatar
+        const mappedUsers: User[] = friends.map(f => ({
+          user_id: f.id,
+          _id: f.id,
+          name: f.name,
+          display_name: f.name, // Ensure display_name is set
+          avatar: f.avatarUrl || ""
+        } as any));
+        console.log("ChatSidebarLeft: Loaded friends for group creation:", mappedUsers);
+        setAvailableUsers(mappedUsers);
+      } catch (err) {
+        console.error("Failed to load users:", err);
+      }
+    };
+    loadUsers();
+  }, [normalizedUserId]);
 
   useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
-
-  useEffect(() => {
+    console.log('🔍 ChatSidebarLeft: Filtering conversations. Raw count:', conversations.length);
     let filtered = conversations;
 
     const hasUnreadConversation = (item: ConversationWithParticipant) => {
@@ -200,6 +155,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
       return isPinnedA ? -1 : 1;
     });
 
+    console.log('🔍 ChatSidebarLeft: Filtered count:', filtered.length);
     setFilteredConversations(filtered);
   }, [conversations, selectedCategoryIds, filterMode]);
 
@@ -207,6 +163,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     groupName: string,
     selectedUsers: User[],
     avatar?: string,
+    memberNames?: string[],
   ) => {
     if (!normalizedUserId) {
       alert("Vui lòng đăng nhập lại!");
@@ -215,20 +172,28 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
 
     try {
       const memberIds = selectedUsers
-        .map((user) => user._id || user.user_id)
+        .map((user) => user.user_id || user._id)
         .filter((id): id is string => !!id);
 
-      const newGroup = await ConversationService.createGroup(
+      const result = await ConversationService.createGroup(
         normalizedUserId,
         groupName,
         memberIds,
         avatar,
+        memberNames,
       );
 
-      addConversation(newGroup);
+      if (result && result._id) {
+        // Dispatch event to open the new conversation
+        window.dispatchEvent(new CustomEvent("chat:open-conversation", {
+          detail: {
+            conversationId: result._id,
+            conversation: result
+          }
+        }));
 
-      if (normalizedUserId) {
-        await refreshConversations(normalizedUserId);
+        // Also trigger a refresh to be sure it shows up in the sidebar
+        refreshConversations(normalizedUserId);
       }
     } catch (createError) {
       console.error("Failed to create group in database:", createError);
@@ -242,7 +207,17 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     }
 
     if (error) {
-      return <ErrorState message={error} onRetry={loadConversations} />;
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+          <p className="text-sm text-red-500 mb-2">{error}</p>
+          <button
+            onClick={() => refreshConversations(normalizedUserId || "")}
+            className="text-xs text-primary-600 font-semibold hover:underline"
+          >
+            Thử lại
+          </button>
+        </div>
+      );
     }
 
     return (
@@ -280,6 +255,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
           filterMode={filterMode}
           onFilterModeChange={setFilterMode}
           onManageCategories={() => setIsCategoryModalOpen(true)}
+          onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
         />
 
         <div className="flex-1 overflow-hidden">
@@ -336,7 +312,11 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
       <CategoryManagementModal
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
-        userId={currentUser?._id || ""}
+        userId={currentUser?.id || ""}
+      />
+      <AddFriendModal
+        isOpen={isAddFriendModalOpen}
+        onClose={() => setIsAddFriendModalOpen(false)}
       />
     </>
   );

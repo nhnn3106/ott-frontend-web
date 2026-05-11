@@ -1,15 +1,15 @@
 import type { User } from "../types";
 import { API_CHAT_SERVER_URL } from "../config/api.config";
+import { authFetch } from "./api/fetchClient";
 
 export class UserService {
   // 1. Get all users (Cũ)
   static async getAllUsers(): Promise<User[]> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/users`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/users`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
       });
       if (!response.ok) {
@@ -38,11 +38,10 @@ export class UserService {
   // 2. Get Single User by ID (Mới thêm) 👇
   static async getUserById(userId: string): Promise<User | null> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/users/${userId}`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/users/${userId}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true", // Quan trọng cho ngrok
         },
       });
 
@@ -68,4 +67,35 @@ export class UserService {
       throw error;
     }
   }
-}
+
+  static async getUserByPhone(phone: string): Promise<User | null> {
+    try {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/users/phone/${phone}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) return null;
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const user = await response.json();
+
+      return {
+        _id: user._id,
+        user_id: user.user_id,
+        name: user.name,
+        avatar: user.avatar || "",
+        phone: user.phone,
+        is_online: user.is_online,
+        last_active_at: user.last_active_at,
+      };
+    } catch (error) {
+      console.error(`Error fetching user by phone ${phone}:`, error);
+      return null;
+    }
+  }
+}

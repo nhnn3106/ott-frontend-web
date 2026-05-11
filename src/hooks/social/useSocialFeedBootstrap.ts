@@ -6,6 +6,7 @@ import {
     findPostsWithAuthorized,
 } from "../../services/post.service";
 import { fetchUserById } from "../../services/social.service";
+import { useAuth } from "../../contexts/AuthContext";
 import { AVATAR_COLORS } from "../../constants/social.constants";
 import type { Post, User } from "../../components/social/types";
 
@@ -36,16 +37,18 @@ export const useSocialFeedBootstrap = ({
     pageRef,
     currentUserRef,
 }: Params) => {
+    const { user, isAuthenticated } = useAuth();
+
     useEffect(() => {
         (async () => {
             try {
-                const demoUserId = localStorage.getItem("socialDemoUserId")?.trim();
-                if (!demoUserId) {
+                const authUserId = user?.id?.trim();
+                if (!isAuthenticated || !authUserId) {
                     setHasMore(false);
                     return;
                 }
 
-                const me = await fetchUserById(demoUserId);
+                const me = await fetchUserById(authUserId);
                 const dbCurrentUser: User | undefined =
                     me ?
                         {
@@ -60,6 +63,11 @@ export const useSocialFeedBootstrap = ({
                 if (dbCurrentUser) {
                     setCurrentUser(dbCurrentUser);
                     currentUserRef.current = dbCurrentUser;
+                }
+
+                if (!dbCurrentUser) {
+                    setHasMore(false);
+                    return;
                 }
 
                 const result = await findPostsWithAuthorized(
@@ -101,6 +109,8 @@ export const useSocialFeedBootstrap = ({
             }
         })();
     }, [
+        isAuthenticated,
+        user?.id,
         currentUserRef,
         pageRef,
         setCurrentUser,

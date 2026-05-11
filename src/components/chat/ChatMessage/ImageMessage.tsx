@@ -74,6 +74,7 @@ export const ImageMessage = ({
   onDelete,
   onPin,
   onForward,
+  participants,
 }: {
   msg: Message;
   urls: string[];
@@ -89,6 +90,7 @@ export const ImageMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
+  participants?: any[];
 }) => {
   const GRID_WIDTH = 260;
   const GRID_LARGE_HEIGHT = 130;
@@ -548,6 +550,7 @@ export const ImageMessage = ({
       onDelete={onDelete}
       onPin={onPin}
       onForward={onForward}
+      participants={participants}
     >
       {(borderRadius: string) => (
         <div className="relative inline-block">

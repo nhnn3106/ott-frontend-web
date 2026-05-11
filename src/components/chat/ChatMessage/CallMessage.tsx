@@ -56,28 +56,27 @@ export const CallMessage = ({
   const callTimeLabel = Number.isNaN(messageTime.getTime())
     ? ""
     : messageTime.toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   const { label, Icon } = getCallMeta(normalizedType);
 
   const handleRecall = () => {
     const conversationId = String(msg.conversation_id || "");
     if (!conversationId) return;
 
+    const avatar = conversation && currentUserId
+      ? getConversationDisplayAvatar(conversation, currentUserId) || ""
+      : "";
+
     const queryParams: Record<string, string> = {
       conversationId,
       type: isVideoCall ? "video" : "voice",
       action: "start",
+      name: (conversation && currentUserId ? getConversationDisplayName(conversation, currentUserId) : "") || "Cuộc gọi",
+      // Tránh truyền base64 quá dài gây lỗi HTTP 431
+      avatar: avatar.startsWith("data:") ? "" : avatar,
     };
-
-    if (conversation && currentUserId) {
-      queryParams.name = getConversationDisplayName(conversation, currentUserId) || "Cuộc gọi";
-      queryParams.avatar = getConversationDisplayAvatar(conversation, currentUserId) || "";
-    } else {
-      queryParams.name = "Cuộc gọi";
-      queryParams.avatar = "";
-    }
 
     const params = new URLSearchParams(queryParams);
 
@@ -104,21 +103,19 @@ export const CallMessage = ({
     >
       {(borderRadius) => (
         <div
-          className={`min-w-56 max-w-[320px] p-3 text-[14px] shadow-sm  transition-all ${
-            isMe
+          className={`min-w-56 max-w-[320px] p-3 text-[13px] shadow-sm  transition-all ${isMe
               ? "bg-[var(--color-chat-me)] text-[var(--color-chat-me-text)] ]"
               : "bg-[var(--color-chat-other)] text-[var(--color-chat-other-text)] shadow-lg border-[var(--color-chat-other-border)]"
-          } ${borderRadius}`}
+            } ${borderRadius}`}
         >
           <div className="flex items-center gap-3">
             <div
-              className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${
-                isMissedCall
+              className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${isMissedCall
                   ? "bg-[var(--color-error-bg)] text-[var(--color-error-text)]"
                   : isMe
                     ? "bg-white/20 text-[var(--color-chat-me-text)]"
                     : "bg-[var(--color-primary-100)] text-[var(--color-primary-600)]"
-              }`}
+                }`}
             >
               {isVideoCall ? <Video size={18} /> : <Icon size={18} />}
             </div>
@@ -129,12 +126,9 @@ export const CallMessage = ({
                   ? `Đã bỏ lỡ cuộc gọi ${isVideoCall ? "video" : "thoại"}`
                   : `Cuộc gọi ${isVideoCall ? "video" : "thoại"}`}
               </div>
-              <div className="mt-0.5 text-[12px] opacity-80 truncate font-body">
-                {rawText || label}
+              <div className="mt-1 text-[12px] opacity-70 font-medium">
+                {isMissedCall ? callTimeLabel : (rawText.split(" - ")[1] || rawText || label)}
               </div>
-              {callTimeLabel && (
-                <div className="text-[12px] opacity-60 ">{callTimeLabel}</div>
-              )}
             </div>
           </div>
 
@@ -142,11 +136,10 @@ export const CallMessage = ({
             type="button"
             onClick={handleRecall}
             disabled={!msg.conversation_id}
-            className={`mt-3 w-full rounded-lg disabled:opacity-50 disabled:cursor-not-allowed py-2 text-[15px] font-semibold transition-all ${
-              isMe
+            className={`mt-3 w-full rounded-lg disabled:opacity-50 disabled:cursor-not-allowed py-2 text-[15px] font-semibold transition-all ${isMe
                 ? "bg-[var(--color-primary-400)] text-white hover:bg-[var(--color-primary-500)]"
                 : "bg-[var(--color-primary-100)] text-[var(--color-primary-700)] hover:bg-[var(--color-primary-200)]"
-            }`}
+              }`}
             title="Gọi lại"
           >
             Gọi lại

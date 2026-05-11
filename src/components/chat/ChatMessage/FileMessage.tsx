@@ -33,6 +33,7 @@ export const FileMessage = ({
   onDelete,
   onPin,
   onForward,
+  participants,
 }: {
   msg: Message;
   url: string;
@@ -49,6 +50,7 @@ export const FileMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
+  participants?: any[];
 }) => {
   const isUploading = msg.local_status === "uploading";
   const isUploadSuccess = msg.local_status === "success";
@@ -114,6 +116,7 @@ export const FileMessage = ({
       onDelete={onDelete}
       onPin={onPin}
       onForward={onForward}
+      participants={participants}
     >
       {(borderRadius) => (
         <div

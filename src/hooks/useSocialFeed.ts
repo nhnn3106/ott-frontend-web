@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 
 import { DEFAULT_USER } from "../constants/social.constants";
 import type { Post, User } from "../components/social/types";
@@ -6,6 +6,9 @@ import { useSocialFeedModal } from "./social/useSocialFeedModal";
 import { useSocialFeedBootstrap } from "./social/useSocialFeedBootstrap";
 import { useSocialFeedPagination } from "./social/useSocialFeedPagination";
 import { useSocialFeedActions } from "./social/useSocialFeedActions";
+import { mediaSocketService } from "../services";
+import { fetchPostById } from "../services/post.service";
+import type { MediaRealtimePayload } from "../services/mediaSocket.service";
 
 export const useSocialFeed = () => {
     const [posts, setPosts] = useState<Post[]>([]);
@@ -56,6 +59,39 @@ export const useSocialFeed = () => {
             setPosts,
             setUserReactionMap,
         });
+
+    useEffect(() => {
+        if (!currentUser.id) {
+            mediaSocketService.disconnect();
+            return;
+        }
+
+        mediaSocketService.connect();
+
+        const handleMediaUpdate = async (payload: MediaRealtimePayload) => {
+            if (!payload?.contentId || payload.contentTargetType !== "POST") {
+                return;
+            }
+
+            if (payload.operation === "DELETE") {
+                setPosts((prev) => prev.filter((p) => p.id !== payload.contentId));
+                return;
+            }
+
+            const post = await fetchPostById(payload.contentId, currentUser.id);
+            if (!post) return;
+            setPosts((prev) => {
+                const exists = prev.some((p) => p.id === post.id);
+                if (exists) {
+                    return prev.map((p) => (p.id === post.id ? post : p));
+                }
+                return [post, ...prev];
+            });
+        };
+
+        mediaSocketService.onMediaUpdate(handleMediaUpdate);
+        return () => mediaSocketService.offMediaUpdate(handleMediaUpdate);
+    }, [currentUser.id, setPosts]);
 
     return {
         posts,

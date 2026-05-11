@@ -15,13 +15,23 @@ import {
   PinOff,
   Play,
   Volume2,
+  X,
+  AlertTriangle,
+  Info,
+  Trash2,
 } from "lucide-react";
-import { useUser } from "../../contexts/UserContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
 import { useChat } from "../../hooks/useChat";
 import { primeMessageSenderCache } from "../../hooks/useMessageSender";
-import { MessageService, ParticipantService } from "../../services";
-import { socketService } from "../../services";
+import {
+  MessageService,
+  ParticipantService,
+  UserService,
+  ConversationService,
+  fetchRelationshipStatusViaChat,
+  socketService,
+} from "../../services";
 import type { ChatAreaProps } from "../../interfaces";
 import type {
   ImageSendError,
@@ -40,6 +50,9 @@ import ChatSidebarRight from "./ChatSidebarRight";
 import { ConfirmModal } from "../modal/ConfirmModal";
 import { ReplacePinnedModal } from "../modal/ReplacePinnedModal";
 import { ForwardMessageModal } from "../modal/ForwardMessageModal";
+import { FriendRequestBar } from "./FriendRequestBar";
+import { GroupInvitationBar } from "./GroupInvitationBar";
+import GroupCallModal from "./Modal/GroupCallModal";
 
 // Utils
 import {
@@ -71,11 +84,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   isSidebarOpen = false,
   onToggleSidebar,
 }) => {
-  const { currentUser } = useUser();
-  const { conversations, updateConversation, updateParticipant } =
-    useConversations();
+  const { user: currentUser } = useAuth();
+  const {
+    conversations,
+    updateConversation,
+    updateParticipant,
+    updateConversationParticipant,
+    refreshConversations,
+  } = useConversations();
 
-  const normalizedUserId = currentUser?.user_id || currentUser?._id;
+  const normalizedUserId = currentUser?.id;
 
   const activeConversation = useMemo(() => {
     const matched = conversations.find(
@@ -98,9 +116,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const isInitialLoading = loading && messages.length === 0;
 
   const [isOpeningCall, setIsOpeningCall] = useState(false);
+  const [callBlockModal, setCallBlockModal] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
-    action: "revoke" | "delete" | null;
+    action: "revoke" | "delete" | "delete-history" | null;
     message: Message | null;
   }>({
     isOpen: false,
@@ -124,6 +146,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const prevMessageCountRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
   const autoFillOlderRef = useRef(false);
+  const pendingCallParamsRef = useRef<{
+    type: "voice" | "video";
+    action: "start" | "join";
+    displayName: string;
+    displayAvatar: string;
+  } | null>(null);
 
   // State quản lý Media Viewer & Tin nhắn
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -160,6 +188,86 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     title: "",
     message: "",
   });
+
+  const [isGroupCallModalOpen, setIsGroupCallModalOpen] = useState(false);
+  const [initialCallTypeForGroup, setInitialCallTypeForGroup] = useState<"voice" | "video">("voice");
+
+  const [relationshipStatus, setRelationshipStatus] = useState<any>(null);
+  const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
+
+  const fetchStatus = useCallback(async () => {
+    if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
+      const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
+      
+      // If participants list is not in activeConversation, try to find from members if it's a private chat
+      // Actually, private conversations should have user_id if we fetch correctly.
+      
+      if (otherParticipantId) {
+        setIsRelationshipLoading(true);
+        const status = await fetchRelationshipStatusViaChat(normalizedUserId, otherParticipantId);
+        setRelationshipStatus(status);
+        setIsRelationshipLoading(false);
+      }
+    } else {
+      setRelationshipStatus(null);
+    }
+  }, [activeConversation, normalizedUserId]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  // Socket listener for relationship updates (Real-time)
+  useEffect(() => {
+    if (!normalizedUserId) return;
+
+    const handleRelationshipUpdate = (payload: any) => {
+      // If the update involves the current user and the other participant in this private chat
+      if (activeConversation?.type === "private") {
+        const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
+        if (otherParticipantId && 
+            (String(payload.requester_id) === String(otherParticipantId) || 
+             String(payload.receiver_id) === String(otherParticipantId))) {
+          console.log("ChatArea: Relationship status updated via socket:", payload.status);
+          setRelationshipStatus(payload);
+        }
+      }
+    };
+
+    socketService.onRelationshipUpdate(handleRelationshipUpdate);
+    return () => {
+      socketService.offRelationshipUpdate(handleRelationshipUpdate);
+    };
+  }, [activeConversation, normalizedUserId]);
+
+  const myParticipant = useMemo(() => {
+    return conversations.find(
+      (item) => item.conversation._id === activeConversation?._id,
+    )?.participant;
+  }, [conversations, activeConversation?._id]);
+
+  const isInvited = useMemo(() => {
+    return myParticipant?.status === 'invited' || (myParticipant as any)?.status === 'invited';
+  }, [myParticipant]);
+
+  const isParticipant = useMemo(() => {
+    if (!activeConversation || activeConversation.type === "private") return true;
+    if (activeConversation.is_self_conversation) return true;
+
+    return !!myParticipant;
+  }, [activeConversation, myParticipant]);
+
+  const isDissolved = useMemo(() => {
+    if (activeConversation?.status === "dissolved" || Boolean(activeConversation?.is_dissolved)) return true;
+    
+    // Derived from messages
+    return messages.some(
+      (m) =>
+        m.type === "system_group_dissolved" ||
+        (m.type === "system" && m.action === "group_dissolved")
+    );
+  }, [activeConversation, messages]);
+
   const [optimisticImageMessages, setOptimisticImageMessages] = useState<
     Array<ChatMessageType>
   >([]);
@@ -287,8 +395,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           createdAt: draft.createdAt || new Date().toISOString(),
           sender_name:
             draft.sender_name ||
-            currentUser?.name ||
-            currentUser?.display_name ||
+            currentUser?.fullName ||
             "Bạn",
           reactions: Array.isArray(draft.reactions) ? draft.reactions : [],
           local_status: draft.local_status || "uploading",
@@ -301,7 +408,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         if (existing) {
           return prev.map((item) =>
             String(item.local_client_id || item.msg_id || item._id || "") ===
-            clientMessageId
+              clientMessageId
               ? optimisticMessage
               : item,
           );
@@ -487,14 +594,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         ? firstContent
         : typeof firstContent === "object" && firstContent
           ? String(
-              (firstContent as { text?: string; url?: string; name?: string })
-                .text ||
-                (firstContent as { text?: string; url?: string; name?: string })
-                  .url ||
-                (firstContent as { text?: string; url?: string; name?: string })
-                  .name ||
-                "",
-            )
+            (firstContent as { text?: string; url?: string; name?: string })
+              .text ||
+            (firstContent as { text?: string; url?: string; name?: string })
+              .url ||
+            (firstContent as { text?: string; url?: string; name?: string })
+              .name ||
+            "",
+          )
           : String(firstContent || "");
 
     if (
@@ -508,24 +615,24 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           ? firstContent
           : typeof firstContent === "object" && firstContent
             ? String(
-                (firstContent as { url?: string; text?: string; name?: string })
-                  .url ||
-                  (
-                    firstContent as {
-                      url?: string;
-                      text?: string;
-                      name?: string;
-                    }
-                  ).text ||
-                  (
-                    firstContent as {
-                      url?: string;
-                      text?: string;
-                      name?: string;
-                    }
-                  ).name ||
-                  "",
-              )
+              (firstContent as { url?: string; text?: string; name?: string })
+                .url ||
+              (
+                firstContent as {
+                  url?: string;
+                  text?: string;
+                  name?: string;
+                }
+              ).text ||
+              (
+                firstContent as {
+                  url?: string;
+                  text?: string;
+                  name?: string;
+                }
+              ).name ||
+              "",
+            )
             : "";
 
       const fallbackLabel =
@@ -575,11 +682,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (typeof firstContent === "object" && firstContent) {
       return String(
         (firstContent as { url?: string; text?: string; name?: string }).url ||
-          (firstContent as { url?: string; text?: string; name?: string })
-            .text ||
-          (firstContent as { url?: string; text?: string; name?: string })
-            .name ||
-          "",
+        (firstContent as { url?: string; text?: string; name?: string })
+          .text ||
+        (firstContent as { url?: string; text?: string; name?: string })
+          .name ||
+        "",
       );
     }
     return "";
@@ -627,10 +734,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         );
         const participantAny = participant as
           | {
-              avatar?: string;
-              avatar_url?: string;
-              profile_picture?: string;
-            }
+            avatar?: string;
+            avatar_url?: string;
+            profile_picture?: string;
+          }
           | undefined;
 
         return {
@@ -806,20 +913,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const timelineItems = useMemo(() => {
     const items: Array<
       | {
-          kind: "system-group";
-          key: string;
-          messages: Message[];
-          showTime: boolean;
-          time: string;
-        }
+        kind: "system-group";
+        key: string;
+        messages: Message[];
+        showTime: boolean;
+        time: string;
+      }
       | {
-          kind: "message";
-          key: string;
-          message: Message;
-          showTime: boolean;
-          time: string;
-          index: number;
-        }
+        kind: "message";
+        key: string;
+        message: Message;
+        showTime: boolean;
+        time: string;
+        index: number;
+      }
     > = [];
 
     for (let index = 0; index < hydratedMessages.length; index += 1) {
@@ -832,9 +939,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           kind: "message",
           key: `message-${String(
             currentMsg.local_client_id ||
-              currentMsg.msg_id ||
-              currentMsg._id ||
-              index,
+            currentMsg.msg_id ||
+            currentMsg._id ||
+            index,
           )}-${index}`,
           message: currentMsg,
           showTime: shouldShowTimestamp(
@@ -954,36 +1061,26 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     [getPinnedMediaValue],
   );
 
-  const openCallWindow = (
+  // Helper thực sự mở cửa sổ gọi (sau khi đã xác nhận sẵn sàng)
+  const doOpenCallWindow = (
     type: "voice" | "video",
-    action: "start" | "join" = "start",
+    action: "start" | "join",
+    displayName: string,
+    displayAvatar: string,
+    invitedUserIds?: string[]
   ) => {
-    if (!activeConversation?._id) return;
-
-    const blockReason = getCallOpenBlockReason(activeConversation._id);
-    if (blockReason === "other") {
-      window.alert("Bạn đang ở trong cuộc gọi khác.");
-      return;
-    }
-    if (blockReason === "same") {
-      window.alert("Bạn đang ở trong cuộc gọi này.");
-      return;
-    }
-
-    const displayName = getConversationDisplayName(
-      activeConversation,
-      normalizedUserId,
-    );
-    const displayAvatar =
-      getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
-
     const params = new URLSearchParams({
-      conversationId: activeConversation._id,
+      conversationId: activeConversation!._id,
       type,
       action,
       name: displayName,
-      avatar: displayAvatar,
+      // Tránh truyền base64 quá dài gây lỗi HTTP 431 (Request Header Fields Too Large)
+      avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
     });
+
+    if (invitedUserIds && invitedUserIds.length > 0) {
+      params.append("invitedUserIds", invitedUserIds.join(","));
+    }
 
     setIsOpeningCall(true);
     const callWindow = window.open(
@@ -997,6 +1094,93 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     }
     setTimeout(() => setIsOpeningCall(false), 500);
   };
+
+  const handleGroupCallStart = (selectedUserIds: string[], callType: "voice" | "video") => {
+    setIsGroupCallModalOpen(false);
+    
+    const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
+    const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
+
+    doOpenCallWindow(callType, "start", displayName, displayAvatar, selectedUserIds);
+  };
+
+  const openCallWindow = (
+    type: "voice" | "video",
+    action: "start" | "join" = "start",
+  ) => {
+    if (!activeConversation?._id) return;
+
+    // Nếu là bắt đầu gọi nhóm -> hiện modal chọn thành viên trước
+    if (action === "start" && activeConversation.type === "group") {
+      setInitialCallTypeForGroup(type);
+      setIsGroupCallModalOpen(true);
+      return;
+    }
+
+    const blockReason = getCallOpenBlockReason(activeConversation._id);
+    if (blockReason === "other") {
+      setCallBlockModal({
+        title: "Đang trong cuộc gọi",
+        message:
+          "Bạn đang trong một cuộc gọi khác. Vui lòng kết thúc trước khi gọi mới.",
+      });
+      return;
+    }
+    if (blockReason === "same") {
+      setCallBlockModal({
+        title: "Đang trong cuộc gọi",
+        message: "Bạn đang ở trong cuộc gọi này rồi.",
+      });
+      return;
+    }
+
+    const displayName = getConversationDisplayName(
+      activeConversation,
+      normalizedUserId,
+    );
+    const displayAvatar =
+      getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
+
+    // Nếu là Join (chấp nhận cuộc gọi) -> mở luôn
+    if (action === "join") {
+      doOpenCallWindow(type, action, displayName, displayAvatar);
+      return;
+    }
+
+    // Nếu là Start (bắt đầu gọi) -> Check bận trước
+    pendingCallParamsRef.current = {
+      type,
+      action,
+      displayName,
+      displayAvatar,
+    };
+    socketService.checkCallAvailability(
+      activeConversation._id,
+      normalizedUserId as string,
+    );
+  };
+
+  useEffect(() => {
+    const onCallReady = (payload: { conversationId: string }) => {
+      if (payload.conversationId !== activeConversation?._id) return;
+      const params = pendingCallParamsRef.current;
+      if (params) {
+        doOpenCallWindow(
+          params.type,
+          params.action,
+          params.displayName,
+          params.displayAvatar,
+        );
+        pendingCallParamsRef.current = null;
+      }
+    };
+
+    socketService.onCallReady(onCallReady);
+
+    return () => {
+      socketService.offCallReady(onCallReady);
+    };
+  }, [activeConversation?._id, normalizedUserId]);
 
   // Logic đánh dấu đã đọc
   useEffect(() => {
@@ -1372,8 +1556,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       setForwardModalOpen(false);
       setForwardingMessage(null);
     } catch (error) {
-       console.error("Lỗi chuyển tiếp tin nhắn:", error);
-       alert(error instanceof Error ? error.message : "Chuyển tiếp thất bại");
+      console.error("Lỗi chuyển tiếp tin nhắn:", error);
+      alert(error instanceof Error ? error.message : "Chuyển tiếp thất bại");
     } finally {
       setIsForwarding(false);
     }
@@ -1555,6 +1739,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       return;
 
     try {
+      if (action === "delete-history") {
+        await ParticipantService.deleteConversation(activeConversation._id, normalizedUserId);
+        setConfirmModal({ isOpen: false, action: null, message: null });
+
+        // Remove from list
+        window.dispatchEvent(new CustomEvent("chat:remove-conversation", {
+          detail: { conversationId: activeConversation._id }
+        }));
+
+        // Back to welcome screen or another conversation
+        window.dispatchEvent(new CustomEvent("chat:return-to-welcome"));
+        return;
+      }
+
       if (action === "revoke") {
         const revokedResult = await MessageService.revokeMessage(
           activeConversation._id,
@@ -1651,12 +1849,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 type: isSystemLikeType(previousMessage.type)
                   ? "text"
                   : (previousMessage.type as
-                      | "text"
-                      | "link"
-                      | "image"
-                      | "video"
-                      | "file"
-                      | "audio"),
+                    | "text"
+                    | "link"
+                    | "image"
+                    | "video"
+                    | "file"
+                    | "audio"),
                 createdAt:
                   previousMessage.createdAt ||
                   (previousMessage as Message & { created_at?: string })
@@ -2119,14 +2317,34 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       unmarkTyping(payload.userId);
     };
 
+    const handleReadStatus = (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+    }) => {
+      if (payload.conversationId !== activeConversation?._id) return;
+      if (String(payload.userId) === String(normalizedUserId || "")) return;
+
+      updateConversationParticipant(payload.conversationId, payload.userId, {
+        last_read_message_id: payload.msgId,
+      } as any);
+    };
+
     socketService.onTyping(handleTypingStart);
     socketService.onTypingStopped(handleTypingStop);
+    socketService.onReadStatus(handleReadStatus);
 
     return () => {
       socketService.offTyping(handleTypingStart);
       socketService.offTypingStopped(handleTypingStop);
+      socketService.offReadStatus(handleReadStatus);
     };
-  }, [activeConversation?._id, normalizedUserId]);
+  }, [
+    activeConversation?._id,
+    normalizedUserId,
+    updateParticipant,
+    updateConversationParticipant,
+  ]);
 
   useEffect(() => {
     const handleRemovedReferenceNotice = (event: Event) => {
@@ -2188,7 +2406,32 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           disableCallActions={isOpeningCall}
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
+          hideCallActions={
+            Boolean(activeConversation?.is_self_conversation) ||
+            !isParticipant ||
+            isDissolved
+          }
         />
+
+        {activeConversation?.type === "private" && !activeConversation.is_self_conversation && relationshipStatus?.status !== "ACCEPTED" && (
+          <FriendRequestBar 
+            relationship={relationshipStatus}
+            currentUserId={normalizedUserId || ""}
+            otherUserId={activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id || ""}
+            onStatusChange={fetchStatus} 
+            isFetching={isRelationshipLoading}
+          />
+        )}
+
+        {isInvited && activeConversation?._id && normalizedUserId && (
+          <GroupInvitationBar
+            conversationId={activeConversation._id}
+            userId={normalizedUserId}
+            onStatusChange={() => {
+              if (normalizedUserId) refreshConversations(normalizedUserId);
+            }}
+          />
+        )}
 
         <div
           ref={messagesContainerRef}
@@ -2200,7 +2443,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         >
           {primaryPinnedMessage && (
             <div
-              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-50 "
+              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
               style={{
                 transform: "translate3d(0, 0, 0)",
                 willChange: "transform", // Báo trước cho trình duyệt để tối ưu
@@ -2320,7 +2563,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           )}
 
           {/* No more messages indicator */}
-          {!hasMore && messages.length > 0 && (
+          {!hasMore && messages.length > 0 && !isDissolved && (
             <div className="flex justify-center py-2">
               <div className="text-sm text-gray-400">
                 Đây là tin nhắn đầu tiên của cuộc trò chuyện
@@ -2331,6 +2574,55 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           {isInitialLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 size={20} className="animate-spin text-gray-100" />
+            </div>
+          ) : isDissolved ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4 animate-fade-in px-4 py-8 bg-slate-50/30">
+              <div className="relative group overflow-hidden bg-white/70 backdrop-blur-xl px-10 py-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-white flex flex-col items-center gap-6 max-w-sm transition-all hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
+                {/* Decorative background element */}
+                <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-100/30 rounded-full blur-3xl" />
+                <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-amber-100/30 rounded-full blur-3xl" />
+
+                <div className="relative w-16 h-16 rounded-3xl bg-amber-50 flex items-center justify-center text-amber-500 shadow-inner">
+                  <AlertTriangle size={32} strokeWidth={2} />
+                </div>
+
+                <div className="relative flex flex-col items-center gap-2">
+                  <h3 className="text-[19px] font-bold text-slate-800 text-center leading-tight">
+                    Nhóm đã được giải tán
+                  </h3>
+                  <p className="text-[14px] text-slate-500 text-center max-w-[240px] leading-relaxed">
+                    Trưởng nhóm đã đóng cuộc hội thoại này. Bạn vẫn có thể xem lại lịch sử tin nhắn.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setConfirmModal({
+                      isOpen: true,
+                      action: "delete-history" as any,
+                      message: { msg_id: "DUMMY_ID" } as any,
+                    });
+                  }}
+                  className="relative px-6 py-2.5 bg-primary-50 hover:bg-primary-100 text-primary-600 font-bold text-[15px] rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 shadow-sm"
+                >
+                  <Trash2 size={16} />
+                  Xóa trò chuyện
+                </button>
+              </div>
+            </div>
+          ) : isInvited ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50/30">
+              <div className="bg-white/70 backdrop-blur-xl p-8 rounded-[2rem] shadow-sm border border-white flex flex-col items-center gap-4 max-w-sm text-center animate-in fade-in zoom-in duration-500">
+                <div className="w-16 h-16 rounded-2xl bg-primary-50 flex items-center justify-center text-primary-500 shadow-inner">
+                  <MessageCircle size={32} />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="font-bold text-slate-800 text-lg">Chào mừng bạn!</h3>
+                  <p className="text-slate-500 text-sm leading-relaxed">
+                    Bạn đã được mời tham gia cuộc trò chuyện này. Hãy chấp nhận lời mời để xem lịch sử tin nhắn và tham gia cùng mọi người.
+                  </p>
+                </div>
+              </div>
             </div>
           ) : hydratedMessages.length === 0 ? (
             <ChatEmpty />
@@ -2364,6 +2656,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                           <ChatNotification
                             type={systemMsg.type}
                             content={notificationContent}
+                            msgId={String(systemMsg.msg_id || systemMsg._id)}
+                            conversationId={activeConversation?._id}
+                            sender_id={String(systemMsg.sender_id || "")}
+                            sender_name={systemMsg.sender_name}
                           />
                         </div>
                       );
@@ -2474,7 +2770,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             })
           )}
 
-          {typingUsers.length > 0 && (
+          {typingUsers.length > 0 && !isInvited && (
             <div className="flex items-center  gap-2 mt-1 mb-1 pl-0.5">
               {/* Phần Avatar giữ nguyên */}
               <div className="w-8 h-8 rounded-full overflow-hidden border border-white/80 shadow-sm bg-slate-300 shrink-0">
@@ -2522,7 +2818,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           {showScrollButton && (
             <button
               onClick={scrollToBottom}
-              className="fixed right-6 bottom-32 bg-primary-500 hover:bg-primary-600 text-white rounded-full p-3 shadow-lg transition-all duration-200 hover:scale-110 z-40"
+              className={`fixed ${sidebarOpen ? "right-[344px]" : "right-6"
+                } bottom-32 bg-primary-500 hover:bg-primary-600 text-white rounded-full p-3 shadow-lg transition-all duration-200 hover:scale-110 z-[110]`}
               title="Scroll to bottom"
             >
               <ChevronDown size={24} strokeWidth={2} />
@@ -2530,18 +2827,42 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           )}
         </div>
 
-        <ChatInput
-          key={activeConversation._id}
-          conversationId={activeConversation._id}
-          senderId={normalizedUserId || ""}
-          onSendSuccess={handleSendSuccess}
-          onUploadStart={handleImageSendStart}
-          onUploadProgress={handleImageSendProgress}
-          onUploadSuccess={handleImageSendSuccess}
-          onUploadError={handleImageSendError}
-          replyToMessage={replyToMessage}
-          onCancelReply={() => setReplyToMessage(null)}
-        />
+        {isParticipant && !isDissolved && !isInvited ? (
+          <ChatInput
+            key={activeConversation._id}
+            conversationId={activeConversation._id}
+            senderId={normalizedUserId || ""}
+            onSendSuccess={handleSendSuccess}
+            onUploadStart={handleImageSendStart}
+            onUploadProgress={handleImageSendProgress}
+            onUploadSuccess={handleImageSendSuccess}
+            onUploadError={handleImageSendError}
+            replyToMessage={replyToMessage}
+            onCancelReply={() => setReplyToMessage(null)}
+            conversationType={activeConversation?.type}
+          />
+        ) : (
+          <div className="px-5 py-4 bg-white border-t border-slate-100">
+            <div className={`flex items-center gap-3 ${isDissolved ? "text-primary-600" : "text-slate-500"} bg-slate-50 px-4 py-3 rounded-xl border border-slate-100`}>
+              {isDissolved ? (
+                <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600">
+                  <Info size={18} strokeWidth={2.5} />
+                </div>
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
+                  <AlertTriangle size={18} />
+                </div>
+              )}
+              <p className="text-[14px] font-semibold">
+                {isDissolved
+                  ? "Bạn không thể gửi tin nhắn vào nhóm được nữa"
+                  : isInvited
+                    ? "Bạn được mời tham gia nhóm. Chấp nhận lời mời để bắt đầu trò chuyện."
+                    : "Bạn không còn là thành viên của nhóm này"}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Right Sidebar */}
@@ -2576,9 +2897,15 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             ? "Tin nhắn này sẽ bị thu hồi với tất cả mọi người trong đoạn chat"
             : "Tin nhắn này sẽ bị xóa khỏi thiết bị của bạn, nhưng vẫn hiện thị với các thành viên khác trong đoạn chat."
         }
-        confirmText={confirmModal.action === "revoke" ? "Thu Hồi" : "Xóa"}
+        confirmText={
+          confirmModal.action === "revoke"
+            ? "Thu Hồi"
+            : confirmModal.action === "delete-history"
+              ? "Xóa"
+              : "Xóa"
+        }
         cancelText="Hủy"
-        isDangerous={confirmModal.action === "delete"}
+        isDangerous={confirmModal.action === "delete" || confirmModal.action === "delete-history"}
         onConfirm={handleConfirmAction}
         onCancel={() =>
           setConfirmModal({
@@ -2636,6 +2963,27 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         }}
         onConfirm={handleConfirmForwardMessage}
       />
+
+      <ConfirmModal
+        isOpen={!!callBlockModal}
+        title={callBlockModal?.title ?? ""}
+        message={callBlockModal?.message ?? ""}
+        confirmText="Đóng"
+        hideCancelButton
+        onConfirm={() => setCallBlockModal(null)}
+        onCancel={() => setCallBlockModal(null)}
+      />
+
+      {activeConversation?._id && normalizedUserId && (
+        <GroupCallModal
+          isOpen={isGroupCallModalOpen}
+          onClose={() => setIsGroupCallModalOpen(false)}
+          onStart={handleGroupCallStart}
+          conversationId={activeConversation._id}
+          initialCallType={initialCallTypeForGroup}
+          currentUserId={normalizedUserId}
+        />
+      )}
     </div>
   );
 };

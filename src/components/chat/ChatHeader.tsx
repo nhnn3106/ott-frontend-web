@@ -17,6 +17,7 @@ interface ChatHeaderProps extends ChatAreaProps {
   // Props từ bản develop (Sidebar logic)
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  hideCallActions?: boolean;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -27,6 +28,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   currentUserId,
   isSidebarOpen = false,
   onToggleSidebar,
+  hideCallActions = false,
 }) => {
   const getConversationName = (): string => {
     return getConversationDisplayName(conversation, currentUserId);
@@ -62,35 +64,38 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
         {/* Right Section: Actions */}
         <div className="flex items-center gap-1 text-gray-600">
-          {/* Voice Call Button */}
-          <button
-            className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={onStartVoiceCall}
-            disabled={disableCallActions}
-            title="Gọi thoại"
-          >
-            <Phone size={20} />
-          </button>
+          {!hideCallActions && (
+            <>
+              {/* Voice Call Button */}
+              <button
+                className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={onStartVoiceCall}
+                disabled={disableCallActions}
+                title="Gọi thoại"
+              >
+                <Phone size={20} />
+              </button>
 
-          {/* Video Call Button */}
-          <button
-            className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={onStartVideoCall}
-            disabled={disableCallActions}
-            title="Gọi video"
-          >
-            <Video size={20} />
-          </button>
+              {/* Video Call Button */}
+              <button
+                className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={onStartVideoCall}
+                disabled={disableCallActions}
+                title="Gọi video"
+              >
+                <Video size={20} />
+              </button>
 
-          {/* Vertical Divider (Optional) */}
-          <div className="w-px h-6 bg-gray-200 mx-1" />
+              {/* Vertical Divider (Optional) */}
+              <div className="w-px h-6 bg-gray-200 mx-1" />
+            </>
+          )}
 
           {/* Sidebar Toggle Button */}
           <button
             onClick={onToggleSidebar}
-            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${
-              isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
-            }`}
+            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
+              }`}
             title={isSidebarOpen ? "Đóng thông tin" : "Mở thông tin"}
           >
             {isSidebarOpen ? (

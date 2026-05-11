@@ -109,7 +109,7 @@ const ProfileActions: React.FC<ProfileActionsProps> = ({
         }
       }
     },
-    [profileUserId, relationship],
+    [profileUserId],
   );
 
   const handleAccept = async () => {

@@ -33,6 +33,7 @@ export const LinkMessage = ({
   onDelete,
   onPin,
   onForward,
+  participants,
 }: {
   msg: Message;
   isMe: boolean;
@@ -46,6 +47,7 @@ export const LinkMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
+  participants?: any[];
 }) => {
   const text = Array.isArray(msg.content)
     ? msg.content.join("")
@@ -84,6 +86,7 @@ export const LinkMessage = ({
       onDelete={onDelete}
       onPin={onPin}
       onForward={onForward}
+      participants={participants}
     >
       {(borderRadius) => (
         <div

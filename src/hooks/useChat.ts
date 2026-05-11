@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { MessageService, socketService } from "../services";
+import { MessageService } from "../services";
+import { socketService } from "../services/socket.service";
 import type { Message } from "../interfaces";
+import { authFetch } from "../services/api/fetchClient";
 
-const CHAT_API_URL =
-  import.meta.env.VITE_CHAT_API_URL || "http://localhost:5000/api";
+const CHAT_API_URL = MessageService.getChatApiUrl();
 
 const getRevokedReplyContent = () => ["Tin nhắn đã được thu hồi"];
 
@@ -129,7 +130,7 @@ export const useChat = (conversationId: string, userId?: string) => {
         ? `${CHAT_API_URL}/conversations/${conversationId}/messages?userId=${encodeURIComponent(userId)}`
         : `${CHAT_API_URL}/conversations/${conversationId}/messages`;
 
-      const response = await fetch(listUrl, {
+      const response = await authFetch(listUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -192,7 +193,7 @@ export const useChat = (conversationId: string, userId?: string) => {
         console.log("📥 Loading older messages...");
         setLoading(true);
 
-        const response = await fetch(
+        const response = await authFetch(
           `${CHAT_API_URL}/conversations/${conversationId}/messages/older?before=${beforeMsgId}&limit=20${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
           {
             method: "GET",
@@ -467,9 +468,6 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId],
   );
 
-  /**
-   * Handle reaction update
-   */
   const handleReactionUpdate = useCallback(
     (payload: any) => {
       const payloadConvId =
@@ -489,6 +487,32 @@ export const useChat = (conversationId: string, userId?: string) => {
           return {
             ...message,
             reactions: payload.reactions || [],
+          };
+        }),
+      );
+    },
+    [conversationId],
+  );
+
+  const handleMessageUpdated = useCallback(
+    (payload: any) => {
+      const payloadConvId =
+        payload.conversation_id?.toString() || payload.conversationId;
+
+      if (payloadConvId !== conversationId) return;
+
+      setMessages((prev) =>
+        prev.map((message: any) => {
+          if (
+            message.msg_id !== payload.msg_id &&
+            message._id !== payload._id
+          ) {
+            return message;
+          }
+
+          return {
+            ...message,
+            ...payload, // update all changed fields (e.g. poll_options)
           };
         }),
       );
@@ -524,30 +548,47 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId],
   );
 
+  const handleConversationSynced = useCallback(
+    (payload: any) => {
+      const payloadConversationId = String(
+        payload?._id || payload?.conversation?._id || payload?.conversationId || "",
+      );
+      if (!payloadConversationId || payloadConversationId !== String(conversationId || "")) {
+        return;
+      }
+
+      void loadMessages();
+    },
+    [conversationId, loadMessages],
+  );
+
   useEffect(() => {
     loadMessages();
     socketService.joinConversation(conversationId);
     socketService.onNewMessage(handleNewMessage);
+    socketService.onNewConversation(handleConversationSynced);
     socketService.onMessageReaction(handleReactionUpdate);
+    socketService.onPollUpdate(handleMessageUpdated);
+    socketService.onMessageDestroyed(handleMessageDeleted);
+    socketService.onMessageRecalled(handleMessageRevoked);
 
-    // Add new event listeners for edit/delete/revoke
     const socket = socketService.getSocket();
     if (socket) {
       socket.on("tin_nhan_da_chinh_sua", handleMessageEdited);
-      socket.on("tin_nhan_da_xoa", handleMessageDeleted);
-      socket.on("tin_nhan_thu_hoi", handleMessageRevoked);
       socket.on("tin_nhan_pin", handleMessagePin);
     }
 
     return () => {
       socketService.offNewMessage(handleNewMessage);
+      socketService.offNewConversation(handleConversationSynced);
       socketService.offMessageReaction(handleReactionUpdate);
+      socketService.offPollUpdate(handleMessageUpdated);
+      socketService.offMessageDestroyed(handleMessageDeleted);
+      socketService.offMessageRecalled(handleMessageRevoked);
 
       const socket = socketService.getSocket();
       if (socket) {
         socket.off("tin_nhan_da_chinh_sua", handleMessageEdited);
-        socket.off("tin_nhan_da_xoa", handleMessageDeleted);
-        socket.off("tin_nhan_thu_hoi", handleMessageRevoked);
         socket.off("tin_nhan_pin", handleMessagePin);
       }
     };
@@ -555,11 +596,13 @@ export const useChat = (conversationId: string, userId?: string) => {
     conversationId,
     loadMessages,
     handleNewMessage,
+    handleConversationSynced,
     handleReactionUpdate,
     handleMessageEdited,
     handleMessageDeleted,
     handleMessageRevoked,
     handleMessagePin,
+    handleMessageUpdated,
   ]);
 
   return {

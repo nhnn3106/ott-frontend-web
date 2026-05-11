@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import type { TabKey } from "../../components/social/ProfileTabs";
 import ProfileHeader from "../../components/social/ProfileHeader";
 import PostsTab from "../../components/social/PostsTab";
@@ -13,6 +13,7 @@ import { useAvatarUpload } from "../../hooks/social/useAvatarUpload";
 import { useCoverUpload } from "../../hooks/social/useCoverUpload";
 import { useAboutEdit } from "../../hooks/social/useAboutEdit";
 import { usePostActions } from "../../hooks/social/usePostActions";
+import { getFullUrl } from "../../utils/fileUtils";
 
 const SocialProfile: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -111,11 +112,19 @@ const SocialProfile: React.FC = () => {
     },
   ];
 
-  const displayName =
-    profileUser?.displayName ?? profileUser?.username ?? `User ${userId ?? ""}`;
+  const location = useLocation();
+  const fallbackUser = location.state?.fallbackUser;
 
-  const shownAvatar = localAvatar ?? profileUser?.avatarUrl;
-  const shownCover = localCover ?? profileUser?.coverUrl;
+  const displayName =
+    profileUser?.displayName ||
+    profileUser?.username ||
+    fallbackUser?.displayName ||
+    fallbackUser?.username ||
+    userId ||
+    "Người dùng";
+
+  const shownAvatar = getFullUrl(localAvatar || profileUser?.avatarUrl || fallbackUser?.avatarUrl);
+  const shownCover = getFullUrl(localCover || profileUser?.coverUrl);
 
   return (
     <div className="bg-primary-50 w-full h-full overflow-y-auto">
@@ -151,7 +160,7 @@ const SocialProfile: React.FC = () => {
               loading={loading}
               onToggleLike={handleToggleLike}
               onDeletePost={handleDeletePost}
-              onEditPost={() => {}}
+              onEditPost={() => { }}
             />
           )}
 

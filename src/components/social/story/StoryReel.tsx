@@ -17,6 +17,7 @@ interface Props {
   storyGroups: StoryUserGroup[];
   suggestedUsers: StorySuggestedUser[];
   currentUserAvatar: string;
+  currentUserId: string;
   isLoading?: boolean;
   onCreateStory: () => void;
   onOpenUserStories: (userStories: StoryItem[]) => void;
@@ -26,6 +27,7 @@ const StoryReel: React.FC<Props> = ({
   storyGroups,
   suggestedUsers,
   currentUserAvatar,
+  currentUserId,
   isLoading = false,
   onCreateStory,
   onOpenUserStories,
@@ -142,6 +144,7 @@ const StoryReel: React.FC<Props> = ({
                 <SuggestedFriendCards
                   key={`suggested-${item.user.id}`}
                   users={[item.user]}
+                  currentUserId={currentUserId}
                 />
               );
             });

@@ -1,5 +1,6 @@
 import React from "react";
 import Avatar from "../../../common/Avatar";
+import { getFullUrl } from "../../../../utils";
 import type { SearchMessageRowProps } from "../../../../types";
 
 const SearchMessageRow: React.FC<SearchMessageRowProps> = ({
@@ -24,7 +25,7 @@ const SearchMessageRow: React.FC<SearchMessageRowProps> = ({
     >
       <div className="flex items-center gap-2.5">
         <Avatar
-          src={conversationMeta?.avatar || ""}
+          src={getFullUrl(conversationMeta?.avatar || "")}
           name={conversationMeta?.name || "Đoạn chat"}
           size={40}
         />
@@ -42,7 +43,9 @@ const SearchMessageRow: React.FC<SearchMessageRowProps> = ({
           </div>
 
           <p className="mb-1 line-clamp-2 text-[15px] text-gray-800">
-            <span className="font-medium text-gray-700">{senderDisplayName}:</span>{" "}
+            {!(msg.preview || "").toLowerCase().trim().startsWith((senderDisplayName || "").toLowerCase().trim()) && (
+              <span className="font-medium text-gray-700">{senderDisplayName}:</span>
+            )}{" "}
             {highlightKeyword(msg.preview)}
           </p>
         </div>

@@ -12,6 +12,7 @@ import EndOfFeedNotice from "../../components/social/feed/EndOfFeedNotice";
 import StoryFeed from "../../components/social/story/StoryFeed";
 import CreatePostEntry from "../../components/social/feed/CreatePostEntry";
 import { useSocialFeed } from "../../hooks/useSocialFeed";
+import { useAuth } from "../../contexts/AuthContext";
 import type { Post } from "../../components/social/types";
 
 const SocialFeed: React.FC = () => {
@@ -34,6 +35,8 @@ const SocialFeed: React.FC = () => {
     handleUpdatePost,
   } = useSocialFeed();
 
+  const { isAuthenticated, isLoading } = useAuth();
+
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
@@ -53,7 +56,7 @@ const SocialFeed: React.FC = () => {
 
   console.log(currentUser);
 
-  if (!loadingDB && !currentUser.id) {
+  if (isLoading) {
     return (
       <SocialFeedLayout
         containerRef={containerRef}
@@ -61,15 +64,35 @@ const SocialFeed: React.FC = () => {
           <div className="flex items-center justify-center min-h-[70vh]">
             <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-6 text-center max-w-md">
               <h2 className="text-lg font-semibold text-gray-900">
-                Chua chon user demo
+                Dang tai thong tin
               </h2>
               <p className="text-sm text-gray-500 mt-2">
-                Hay dang nhap demo bang userId de test tinh nang social.
+                Vui long doi trong giay lat.
+              </p>
+            </div>
+          </div>
+        }
+      />
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <SocialFeedLayout
+        containerRef={containerRef}
+        center={
+          <div className="flex items-center justify-center min-h-[70vh]">
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-6 text-center max-w-md">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Can dang nhap
+              </h2>
+              <p className="text-sm text-gray-500 mt-2">
+                Hay dang nhap de su dung tinh nang social.
               </p>
               <Link
-                to="/social/demo-login"
+                to="/login"
                 className="inline-flex items-center justify-center mt-4 px-4 py-2 rounded-xl bg-primary-500 text-white font-semibold hover:bg-primary-600 transition">
-                Di den dang nhap demo
+                Dang nhap
               </Link>
             </div>
           </div>

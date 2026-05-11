@@ -1,5 +1,6 @@
 import { API_CHAT_SERVER_URL } from "../config/api.config";
 import type { Participant } from "../types";
+import { authFetch } from "./api/fetchClient";
 
 export class ParticipantService {
   /**
@@ -11,11 +12,10 @@ export class ParticipantService {
     isPinned: boolean,
   ): Promise<void> {
     try {
-      const response = await fetch(`${API_CHAT_SERVER_URL}/participants/pin`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/participants/pin`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           conversationId,
@@ -42,7 +42,7 @@ export class ParticipantService {
     categoryId: string | null,
   ): Promise<void> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/participants/category`,
         {
           method: "PUT",
@@ -74,13 +74,12 @@ export class ParticipantService {
     muteUntil?: Date | null,
   ): Promise<void> {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_CHAT_SERVER_URL}/participants/notification`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
           },
           body: JSON.stringify({
             conversationId,
@@ -109,13 +108,12 @@ export class ParticipantService {
     conversationId: string,
     userId: string,
   ): Promise<Participant> {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/delete-conversation`,
       {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ conversationId, userId }),
       },
@@ -138,13 +136,12 @@ export class ParticipantService {
     userId: string,
     msgId: string,
   ): Promise<Participant> {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/read`,
       {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ conversationId, userId, msgId }),
       },
@@ -162,13 +159,12 @@ export class ParticipantService {
    * Get conversation members with user details
    */
   static async getConversationMembers(conversationId: string) {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/members/${conversationId}`,
       {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
       },
     );
@@ -193,13 +189,12 @@ export class ParticipantService {
     conversationId: string,
     userId: string,
   ): Promise<{ success: boolean; conversationId: string; userId: string }> {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/leave/${conversationId}/${userId}`,
       {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
       },
     );
@@ -220,13 +215,12 @@ export class ParticipantService {
     userId: string,
     adminId: string,
   ): Promise<{ success: boolean; conversationId: string; userId: string }> {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/remove/${conversationId}/${userId}`,
       {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ adminId }),
       },
@@ -249,13 +243,12 @@ export class ParticipantService {
     newRole: "admin" | "user",
     adminId: string,
   ): Promise<{ success: boolean; conversationId: string; userId: string; newRole: string }> {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/role/${conversationId}/${userId}`,
       {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ adminId, newRole }),
       },
@@ -275,13 +268,12 @@ export class ParticipantService {
     requesterId: string,
     nickname: string,
   ): Promise<{ success: boolean; conversationId: string; userId: string; nickname: string }> {
-    const response = await fetch(
+    const response = await authFetch(
       `${API_CHAT_SERVER_URL}/participants/nickname/${conversationId}/${userId}`,
       {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({ requesterId, nickname }),
       },
@@ -293,5 +285,67 @@ export class ParticipantService {
     }
 
     return await response.json();
+  }
+
+  static async transferOwnership(
+    conversationId: string,
+    currentOwnerId: string,
+    newOwnerId: string,
+  ): Promise<{ success: boolean; conversationId: string; oldOwnerId: string; newOwnerId: string }> {
+    const response = await authFetch(
+      `${API_CHAT_SERVER_URL}/participants/transfer-owner/${conversationId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ currentOwnerId, newOwnerId }),
+      },
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to transfer ownership");
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Chấp nhận lời mời tham gia nhóm
+   */
+  static async acceptGroupInvitation(conversationId: string, userId: string): Promise<void> {
+    const response = await authFetch(
+      `${API_CHAT_SERVER_URL}/participants/accept-invitation`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, userId }),
+      },
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to accept invitation");
+    }
+  }
+
+  /**
+   * Từ chối lời mời tham gia nhóm
+   */
+  static async rejectGroupInvitation(conversationId: string, userId: string): Promise<void> {
+    const response = await authFetch(
+      `${API_CHAT_SERVER_URL}/participants/reject-invitation`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, userId }),
+      },
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to reject invitation");
+    }
   }
 }

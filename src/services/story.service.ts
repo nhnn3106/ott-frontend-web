@@ -5,6 +5,7 @@ import type {
     StorySuggestedUser,
     StoryUserGroup,
 } from "../components/social/types";
+import { authFetch } from "./api/fetchClient";
 
 export interface ApiStory {
     id: string;
@@ -174,7 +175,7 @@ export async function fetchStoryGroups(accountId: string): Promise<StoryUserGrou
     try {
         if (!accountId) return [];
 
-        const reelRes = await fetch(
+        const reelRes = await authFetch(
             `${API_MEDIA_SERVER_URL}/stories/reel/${accountId}?suggestionLimit=0`,
         );
 
@@ -188,7 +189,7 @@ export async function fetchStoryGroups(accountId: string): Promise<StoryUserGrou
             }
         }
 
-        const fallbackRes = await fetch(`${API_MEDIA_SERVER_URL}/stories`);
+        const fallbackRes = await authFetch(`${API_MEDIA_SERVER_URL}/stories`);
         if (!fallbackRes.ok) return [];
         const fallbackStories = unwrapList<ApiStory>(await fallbackRes.json());
         return groupStories(fallbackStories);
@@ -201,7 +202,7 @@ export async function fetchSuggestedUsers(accountId: string, limit = 8): Promise
     try {
         if (!accountId) return [];
 
-        const reelRes = await fetch(
+        const reelRes = await authFetch(
             `${API_MEDIA_SERVER_URL}/stories/reel/${accountId}?suggestionLimit=${limit}`,
         );
 
@@ -221,7 +222,7 @@ export async function fetchStories(accountId: string): Promise<StoryReelData> {
 
 export async function createStory(request: StoryCreateRequest): Promise<ApiStory | null> {
     try {
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/stories`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/stories`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(request),
@@ -242,7 +243,7 @@ export async function uploadStoryMedia(file: File, storyItemId?: string): Promis
             formData.append("storyItemId", storyItemId);
         }
 
-        const res = await fetch(`${API_MEDIA_SERVER_URL}/stories/upload`, {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/stories/upload`, {
             method: "POST",
             body: formData,
             signal: AbortSignal.timeout(15_000),

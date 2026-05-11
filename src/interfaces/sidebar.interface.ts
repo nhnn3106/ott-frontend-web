@@ -22,6 +22,7 @@ export interface ConversationMember {
   joined_at: string;
   added_by?: string;
   nickname?: string;
+  status?: "joined" | "invited" | "rejected" | "left";
 }
 
 export interface LinkData {
@@ -32,10 +33,21 @@ export interface LinkData {
   createdAt: string;
 }
 
-export type ViewMode = "main" | "members" | "storage";
+export type ViewMode = "main" | "members" | "storage" | "bulletin";
 export type StorageTab = "media" | "files" | "links";
+export type BulletinTab = "pinned" | "polls";
 
 // Sidebar Sub-Component Props
+export interface GroupBulletinBoardProps {
+  conversationId: string;
+  currentUserId: string;
+  pinnedMessages: Message[];
+  pollMessages: Message[];
+  activeTab?: BulletinTab;
+  onUnpin: (msgId: string) => void;
+  onBack: () => void;
+  conversationType?: string;
+}
 export interface GroupInfoHeaderProps {
   conversation: Conversation;
   memberCount: number;
@@ -58,10 +70,16 @@ export interface MembersFullViewProps {
   ownerId: string;
   currentUserId: string;
   isManager: boolean;
+  friendIds: Set<string>;
   onBack: () => void;
   onMemberRemoved: (userId: string) => void;
   onMemberRoleUpdated: (userId: string, newRole: "admin" | "user") => void;
+  onTransferOwnership?: (userId: string) => void;
   onAddMember: () => void;
+  onAddFriend: (userId: string) => void;
+  pendingFriendRequestIds?: Set<string>;
+  sentFriendRequestIds?: Set<string>;
+  onFriendAccepted?: (userId: string) => Promise<void>;
 }
 
 export interface StorageViewProps {
@@ -95,6 +113,9 @@ export interface GroupActionsProps {
   conversation: Conversation;
   currentUserId: string;
   isOwner?: boolean;
+  isDissolved?: boolean;
+  relationship?: any;
+  onUnfriend?: () => void;
   onLeaveSuccess: () => void;
   onActionSuccess?: () => Promise<void> | void;
 }

@@ -29,6 +29,7 @@ interface Props {
   showComments: boolean;
   onClose: () => void;
   onToggleComments: () => void;
+  onShowReactionsList: () => void;
   onLikeClick: () => void;
   onSelectReaction: (key: ReactionKey) => void;
   onLikeMouseEnter: () => void;
@@ -58,6 +59,7 @@ const PostDetailModal: React.FC<Props> = ({
   showComments,
   onClose,
   onToggleComments,
+  onShowReactionsList,
   onLikeClick,
   onSelectReaction,
   onLikeMouseEnter,
@@ -95,6 +97,7 @@ const PostDetailModal: React.FC<Props> = ({
             <PostHeader
               author={post.author}
               time={post.time}
+              visibility={post.visibility}
               canEdit={post.relationship === "self"}
               showMenu={showMenu}
               menuRef={menuRef}
@@ -104,13 +107,20 @@ const PostDetailModal: React.FC<Props> = ({
               onProfile={onProfile}
             />
 
-            <PostBody content={post.content} media={post.media} />
+            <PostBody
+              content={post.content}
+              media={post.media}
+              totalLikes={post.likes}
+              isInView
+              variant="carousel"
+            />
 
             <PostReactionsSummary
               reactionCounts={reactionCounts}
               commentCount={commentCount}
               shares={post.shares}
               onToggleComments={onToggleComments}
+              onShowReactionsList={onShowReactionsList}
             />
 
             <PostActions

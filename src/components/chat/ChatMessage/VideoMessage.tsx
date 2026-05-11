@@ -29,6 +29,7 @@ export const VideoMessage = ({
   onDelete,
   onPin,
   onForward,
+  participants,
 }: {
   msg: Message;
   url: string;
@@ -44,6 +45,7 @@ export const VideoMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
+  participants?: any[];
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -187,6 +189,7 @@ export const VideoMessage = ({
       onDelete={onDelete}
       onPin={onPin}
       onForward={onForward}
+      participants={participants}
     >
       {(borderRadius) => (
         <div className="relative inline-block">
