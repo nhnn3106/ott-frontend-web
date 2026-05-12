@@ -70,12 +70,16 @@ export const PresenceProvider: React.FC<PresenceProviderProps> = ({ children }) 
     if (!isAuthenticated) return;
 
     // Nhận kết quả batch query trạng thái
-    const onPresenceResult = (result: { userId: string; isOnline: boolean }[]) => {
+    const onPresenceResult = (result: { userId: string; isOnline: boolean; lastSeenAt?: string | null }[]) => {
       setPresenceMap((prev) => {
         const next = new Map(prev);
-        result.forEach(({ userId, isOnline }) => {
+        result.forEach(({ userId, isOnline, lastSeenAt }) => {
           const existing = next.get(userId) ?? { isOnline: false, lastSeenAt: null };
-          next.set(userId, { ...existing, isOnline });
+          next.set(userId, { 
+            ...existing, 
+            isOnline,
+            lastSeenAt: lastSeenAt ? new Date(lastSeenAt) : existing.lastSeenAt 
+          });
         });
         return next;
       });

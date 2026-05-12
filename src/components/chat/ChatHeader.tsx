@@ -22,14 +22,25 @@ interface ChatHeaderProps extends ChatAreaProps {
 
 // ─── Helper: format last seen ────────────────────────────────────────────────
 const formatLastSeen = (date: Date | null): string => {
-  if (!date) return "Hoạt động gần đây";
+  if (!date) return "Ngoại tuyến";
   const now = new Date();
   const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diff < 60) return "Vừa mới hoạt động";
+  if (diff < 60) return "Vừa mới truy cập";
   if (diff < 3600) return `Hoạt động ${Math.floor(diff / 60)} phút trước`;
   if (diff < 86400) return `Hoạt động ${Math.floor(diff / 3600)} giờ trước`;
-  return `Hoạt động ${Math.floor(diff / 86400)} ngày trước`;
+  
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear()
+  ) {
+    return "Hoạt động hôm qua";
+  }
+
+  return `Hoạt động ${date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`;
 };
 
 // ─── Helper: lấy userId của người kia trong 1-1 chat ────────────────────────
@@ -124,13 +135,15 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     : "bg-gray-300"
                 }`}
               />
-              <p
-                className={`text-xs font-medium transition-colors duration-500 ${
-                  statusDot ? "text-green-600" : "text-gray-400"
-                }`}
-              >
-                {statusText}
-              </p>
+              {statusText && (
+                <p
+                  className={`text-xs font-medium transition-colors duration-500 ${
+                    statusDot ? "text-green-600" : "text-gray-500"
+                  }`}
+                >
+                  {statusText}
+                </p>
+              )}
             </div>
           </div>
         </div>

@@ -17,6 +17,31 @@ import {
 } from "../../utils";
 import { EmojiText } from "../chat/EmojiText";
 import { useAuth } from "../../contexts/AuthContext";
+import { usePresence } from "../../contexts/PresenceContext";
+
+// ─── Helper: format last seen ngắn gọn ───────────────────────────────────────
+const formatLastSeenShort = (date: Date | null): string => {
+  if (!date) return "";
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (diff < 60) return "vừa mới";
+  if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)} ngày trước`;
+  return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+};
+
+// ─── Helper: lấy userId của người kia trong 1-1 chat ─────────────────────────
+const getOtherParticipantId = (conversation: any, currentUserId?: string): string | null => {
+  if (conversation.type !== "private") return null;
+  const participants = conversation.participants ?? [];
+  const other = participants.find(
+    (p: any) => String(p.user_id ?? p._id ?? "") !== String(currentUserId ?? "")
+  );
+  return other ? String(other.user_id ?? other._id ?? "") : null;
+};
+
+
 
 const ConversationItem: React.FC<ConversationItemProps> = ({
   item,
@@ -39,6 +64,22 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
   const [isProcessingInvitation, setIsProcessingInvitation] = useState(false);
   const { user: authUser } = useAuth();
 
+  // ── PRESENCE ──────────────────────────────────────────────────────────────
+  const { isUserOnline, getLastSeen, watchUsers } = usePresence();
+  const otherUserId = getOtherParticipantId(conversation, currentUserId);
+
+  useEffect(() => {
+    if (otherUserId) {
+      watchUsers([otherUserId]);
+    }
+  }, [otherUserId, watchUsers]);
+
+  // Chỉ hiển thị trạng thái cho chat 1-1
+  const showPresence = conversation.type === "private" && !!otherUserId;
+  const otherIsOnline = showPresence ? isUserOnline(otherUserId!) : false;
+  const otherLastSeen = showPresence ? getLastSeen(otherUserId!) : null;
+  // ──────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     // Find and set current category from participant settings
     if (participant.settings.category_id && categories.length > 0) {
@@ -50,6 +91,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       setCurrentCategory(null);
     }
   }, [participant.settings.category_id, categories]);
+
 
   // Check if conversation is muted
   const isMuted = !!(
@@ -317,7 +359,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
 
         <div className="flex items-center space-x-3">
           {/* Avatar */}
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <Avatar
               src={getConversationAvatar()}
               name={getConversationName()}
@@ -325,15 +367,27 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
               className="ring-1 ring-gray-200"
             />
 
-            {/* Conversation type indicator */}
+            {/* Presence dot (1-1) or group icon */}
             <div
-              className={`
-            absolute -bottom-1 -right-1 w-5 h-5 rounded-full 
-            flex items-center justify-center bg-white
-            ring-2 ring-gray-100 shadow-sm
-          `}
+              className="
+                absolute -bottom-1 -right-1 w-5 h-5 rounded-full
+                flex items-center justify-center bg-white
+                ring-2 ring-gray-100 shadow-sm
+              "
             >
-              {conversation.type === "group" ? (
+              {showPresence ? (
+                /* Online/Offline dot cho 1-1 */
+                <span className="relative flex h-3 w-3">
+                  {otherIsOnline && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                  )}
+                  <span
+                    className={`relative inline-flex rounded-full h-3 w-3 transition-colors duration-500 ${
+                      otherIsOnline ? "bg-emerald-500" : "bg-gray-300"
+                    }`}
+                  />
+                </span>
+              ) : conversation.type === "group" ? (
                 <Users className="w-3 h-3 text-primary-500" />
               ) : (
                 <MessageCircle className="w-3 h-3 text-primary-500" />
@@ -341,13 +395,14 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
             </div>
           </div>
 
+
           {/* Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-0.5">
               <div className="flex items-center gap-1.5 flex-1 min-w-0">
                 <h3
                   className={`
-                font-semibold truncate transition-colors duration-200 select-none
+                font-semibold truncate transition-colors duration-200 select-none text-sm
                 ${isSelected ? "text-primary-500" : "text-gray-900"}
                 ${isHovered ? "text-primary-500" : ""}
               `}
@@ -359,10 +414,12 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center space-x-1 ml-2 ">
+              <div className="flex items-center space-x-1 ml-2">
                 {isMuted && <FaBellSlash className="w-4 h-4 text-gray-400" />}
                 <span
-                  className={`text-xs  whitespace-nowrap select-none max-w-18 ${hasUnreadMessage ? "text-primary-500 font-medium" : "text-gray-400"}`}
+                  className={`text-xs whitespace-nowrap select-none max-w-18 ${
+                    hasUnreadMessage ? "text-primary-500 font-medium" : "text-gray-400"
+                  }`}
                 >
                   {getTimeDisplay()}
                 </span>
@@ -379,7 +436,9 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
               )}
 
               <p
-                className={`text-sm truncate flex-1 select-none ${hasUnreadMessage ? "text-gray-900 font-semibold" : "text-gray-600"}`}
+                className={`text-sm truncate flex-1 select-none ${
+                  hasUnreadMessage ? "text-gray-900 font-semibold" : "text-gray-500"
+                }`}
               >
                 <EmojiText
                   text={getLatestMessagePreview()}
@@ -396,6 +455,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
               )}
             </div>
           </div>
+
         </div>
       </div>
 
