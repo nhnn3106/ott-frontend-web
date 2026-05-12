@@ -65,6 +65,15 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 }) => {
   const { isUserOnline, getLastSeen, watchUsers } = usePresence();
 
+  // Làm mới UI mỗi 1 phút để cập nhật thời gian "truy cập cuối"
+  const [, setTick] = React.useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   const getConversationName = (): string =>
     getConversationDisplayName(conversation, currentUserId);
 
