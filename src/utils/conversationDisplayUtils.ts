@@ -53,7 +53,10 @@ export const getConversationDisplayName = (
     }
 
     const other = getOtherParticipant(conversation, currentUserId);
-    return resolveParticipantName(other);
+    if (other) return resolveParticipantName(other);
+    
+    // Fallback to conversation name if no other participant found (useful for virtual/new chats)
+    if (explicitName) return explicitName;
   }
 
   const explicitName = String(conversation.name || "").trim();

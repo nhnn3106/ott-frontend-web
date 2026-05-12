@@ -23,7 +23,7 @@ import {
   Music,
   ListChecks,
 } from "lucide-react";
-import { MessageService } from "../../../services";
+import { ConversationService, MessageService } from "../../../services";
 import type { ChatInputProps } from "../../../types/message.type";
 import {
   convertDisplayShortcodeToEmoji,
@@ -193,6 +193,7 @@ export const ChatInput = ({
   onUploadProgress,
   onUploadSuccess,
   onUploadError,
+  onConversationCreated,
   replyToMessage,
   onCancelReply,
   conversationType,
@@ -587,6 +588,24 @@ export const ChatInput = ({
     return fallback;
   };
 
+  const getRealConversationId = async () => {
+    if (conversationId.startsWith("VIRTUAL_CONV_")) {
+      const targetUserId = conversationId.replace("VIRTUAL_CONV_", "");
+      try {
+        const result = await ConversationService.getOrCreatePrivateConversation(senderId, targetUserId);
+        const realId = (result as any).conversation?._id || (result as any)._id;
+        if (onConversationCreated) {
+          onConversationCreated(result);
+        }
+        return realId;
+      } catch (err) {
+        console.error("Failed to create conversation lazily:", err);
+        throw err;
+      }
+    }
+    return conversationId;
+  };
+
   const showUploadLimitModal = (
     invalid: Array<{ file: File; maxSizeMb: number }>,
   ) => {
@@ -621,15 +640,15 @@ export const ChatInput = ({
       msg_id: String(replyToMessage.msg_id || replyToMessage._id || ""),
       sender_id: String(replyToMessage.sender_id || ""),
       sender_name: String(replyToMessage.sender_name || ""),
-      type: replyToMessage.type,
+      type: String(replyToMessage.type || "") as "text" | "link" | "image" | "file" | "video" | "audio" | "system_add" | "system_block" | "system_leave" | "system_pin" | "system_unpin" | "call_start" | "call_join" | "call_end" | "call_missed" | "call_cancel" | "call_no_answer" | "poll" | "system_poll",
       content: rawContent,
       raw_content: rawContent,
       file_name: replyToMessage.fileName,
       url: rawContent,
       media_urls: Array.isArray(replyToMessage.content)
         ? replyToMessage.content
-            .map((item) => String(item || ""))
-            .filter(Boolean)
+          .map((item) => String(item || ""))
+          .filter(Boolean)
         : undefined,
       media_count: Array.isArray(replyToMessage.content)
         ? replyToMessage.content.filter(Boolean).length
@@ -740,8 +759,10 @@ export const ChatInput = ({
         }),
       );
 
+      const effectiveConvId = await getRealConversationId();
+
       const sentMessage = await MessageService.sendMessage(
-        conversationId,
+        effectiveConvId,
         senderId,
         keys,
         "image",
@@ -770,7 +791,7 @@ export const ChatInput = ({
       );
       console.error(error);
       onUploadError?.({ clientMessageId, error: errorMessage });
-      alert(errorMessage);
+      alert(`Gửi tin nhắn thất bại: ${errorMessage}`);
     } finally {
       previewUrls.forEach((url) => {
         if (url.startsWith("blob:")) {
@@ -840,8 +861,10 @@ export const ChatInput = ({
         mimeType,
         abortController.signal,
       );
+      const effectiveConvId = await getRealConversationId();
+
       const sentMessage = await MessageService.sendMessage(
-        conversationId,
+        effectiveConvId,
         senderId,
         key,
         fileCategory,
@@ -869,7 +892,7 @@ export const ChatInput = ({
       );
       console.error(err);
       onUploadError?.({ clientMessageId, error: errorMessage });
-      alert(errorMessage);
+      alert(`Gửi tin nhắn thất bại: ${errorMessage}`);
     } finally {
       if (previewUrl.startsWith("blob:")) {
         URL.revokeObjectURL(previewUrl);
@@ -923,8 +946,10 @@ export const ChatInput = ({
           const messageType = isStandaloneLink(text) ? "link" : "text";
           const messageContent = convertEmojiImageMarkupToText(text);
 
+          const effectiveConvId = await getRealConversationId();
+
           const sentMessage = await MessageService.sendMessage(
-            conversationId,
+            effectiveConvId,
             senderId,
             messageContent,
             messageType,
@@ -935,8 +960,9 @@ export const ChatInput = ({
           setText("");
           await onSendSuccess(sentMessage);
           if (replyToMsgId) onCancelReply?.();
-        } catch {
-          alert("Gửi tin nhắn thất bại");
+        } catch (error: any) {
+          console.error("Lỗi gửi tin nhắn:", error);
+          alert(`Gửi tin nhắn thất bại: ${error.message || "Lỗi không xác định"}`);
         }
       }
     } finally {
@@ -1225,8 +1251,9 @@ export const ChatInput = ({
   const handleCreatePoll = async (data: { question: string; options: { id: string; name: string; voters: string[] }[]; multipleChoice: boolean }) => {
     try {
       setIsUploading(true);
+      const effectiveConvId = await getRealConversationId();
       await MessageService.sendMessage(
-        conversationId,
+        effectiveConvId,
         senderId,
         "Khảo sát",
         "poll",

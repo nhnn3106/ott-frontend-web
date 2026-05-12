@@ -274,6 +274,14 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       updateParticipant(conversation._id, {
         deleted_msg_id: updatedParticipant.deleted_msg_id,
       });
+
+      // Báo cho ChatPage biết để đóng cửa sổ chat nếu đang mở đoạn này
+      window.dispatchEvent(
+        new CustomEvent("chat:remove-conversation", {
+          detail: { conversationId: conversation._id },
+        }),
+      );
+
       setIsDeleteModalOpen(false);
     } catch (error: unknown) {
       const message =

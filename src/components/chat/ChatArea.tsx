@@ -2842,7 +2842,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
         {isParticipant && !isDissolved && !isInvited ? (
           <ChatInput
-            key={activeConversation._id}
+            key={
+              activeConversation.type === 'private' || activeConversation._id.startsWith('VIRTUAL_CONV_')
+                ? (activeConversation._id.startsWith('VIRTUAL_CONV_') 
+                    ? activeConversation._id.replace('VIRTUAL_CONV_', '') 
+                    : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
+                : activeConversation._id
+            }
             conversationId={activeConversation._id}
             senderId={normalizedUserId || ""}
             onSendSuccess={handleSendSuccess}
@@ -2850,6 +2856,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             onUploadProgress={handleImageSendProgress}
             onUploadSuccess={handleImageSendSuccess}
             onUploadError={handleImageSendError}
+            onConversationCreated={(newConv) => {
+              window.dispatchEvent(new CustomEvent("chat:open-conversation", {
+                detail: {
+                  conversationId: newConv.conversation?._id || newConv._id,
+                  conversation: newConv.conversation || newConv
+                }
+              }));
+            }}
             replyToMessage={replyToMessage}
             onCancelReply={() => setReplyToMessage(null)}
             conversationType={activeConversation?.type}

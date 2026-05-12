@@ -632,17 +632,45 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
   ) => {
     try {
       if (!currentUser?.id || !conversation?._id) return;
-      const userIds = selectedUsers
-        .map((u: User) => u.user_id || u._id)
-        .filter(Boolean) as string[];
+      const friendIds = selectedUsers
+        .filter(u => availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)))
+        .map(u => u.user_id || u._id)
+        .filter((id): id is string => !!id);
+
+      const strangers = selectedUsers.filter(u => !availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)));
+      const strangerIds = strangers.map(u => u.user_id || u._id).filter((id): id is string => !!id);
+
       const newGroup = await ConversationService.createGroup(
         currentUser.id,
         groupName,
-        userIds,
+        friendIds,
         groupAvatar,
-        memberNames,
+        memberNames?.filter((_, idx) => availableUsers.some(f => (f.user_id || f._id) === (selectedUsers[idx].user_id || selectedUsers[idx]._id))),
       );
       if (newGroup && newGroup._id) {
+        // Handle strangers: send invite link
+        if (strangerIds.length > 0) {
+          try {
+            const link = await ConversationService.getInviteLink(newGroup._id, currentUser.id);
+            for (const sId of strangerIds) {
+              const existingConv = conversations.find(c => 
+                c.conversation.type === "private" && 
+                c.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(sId))
+              );
+
+              let targetConvId: string;
+              if (existingConv) {
+                targetConvId = existingConv.conversation._id;
+              } else {
+                const directConv = await ConversationService.getOrCreatePrivateConversation(currentUser!.id, sId);
+                targetConvId = (directConv as any).conversation?._id || (directConv as any)._id;
+              }
+              await MessageService.sendMessage(targetConvId, currentUser!.id, link, "link");
+            }
+          } catch (linkErr) {
+            console.error("Failed to send invite links to strangers:", linkErr);
+          }
+        }
         // Close modal and select the new group
         setShowCreateGroupModal(false);
         // We need a way to tell the parent (ChatArea/ChatPage) to select this conversation

@@ -98,6 +98,7 @@ export interface FriendOption {
     id: string;
     name: string;
     avatarUrl?: string;
+    phone?: string;
 }
 
 export interface FriendRequestOption {
@@ -186,11 +187,15 @@ export async function fetchFriends(userId: string): Promise<FriendOption[]> {
             const friendAvatar = isRequester
                 ? rel.receiverAvatarUrl
                 : rel.requesterAvatarUrl;
+            const friendPhone = isRequester
+                ? rel.receiverPhoneNumber
+                : rel.requesterPhoneNumber;
 
             return {
                 id: friendId,
                 name: friendName || "Người dùng",
                 avatarUrl: friendAvatar || undefined,
+                phone: friendPhone || undefined,
             };
         });
     } catch (error) {

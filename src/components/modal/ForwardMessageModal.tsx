@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { Search, X, CheckCircle2 } from "lucide-react";
 import type { ConversationWithParticipant, Message } from "../../types";
-import { getConversationDisplayName } from "../../utils";
+import { getConversationDisplayName, getConversationDisplayAvatar } from "../../utils";
+import Avatar from "../common/Avatar";
 
 interface ForwardMessageModalProps {
   isOpen: boolean;
@@ -34,10 +35,12 @@ export const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
         const name =
           getConversationDisplayName(item.conversation, currentUserId) ||
           "Hội thoại";
+        const avatar = getConversationDisplayAvatar(item.conversation, currentUserId);
         return {
           id: String(item.conversation._id),
           name,
           type: item.conversation.type,
+          avatar,
         };
       })
       .sort((a, b) => {
@@ -150,12 +153,20 @@ export const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
                       : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-slate-900">
-                      {item.name}
-                    </div>
-                    <div className="text-[12px] text-slate-500">
-                      {item.type === "group" ? "Nhóm" : "Bạn bè"}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar
+                      src={item.avatar}
+                      name={item.name}
+                      size={40}
+                      className="shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-slate-900">
+                        {item.name}
+                      </div>
+                      <div className="text-[12px] text-slate-500">
+                        {item.type === "group" ? "Nhóm" : "Bạn bè"}
+                      </div>
                     </div>
                   </div>
 

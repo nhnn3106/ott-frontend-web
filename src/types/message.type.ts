@@ -142,6 +142,7 @@ export interface ChatInputProps {
   replyToMessage?: Message | null;
   onCancelReply?: () => void;
   conversationType?: string;
+  onConversationCreated?: (newConversation: any) => void;
 }
 
 export interface ImageSendDraft {

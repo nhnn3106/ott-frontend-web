@@ -214,12 +214,16 @@ export class ConversationService {
     targetUserId: string,
   ): Promise<ConversationWithParticipant> {
     try {
-      const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations/private`, {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ creatorId, targetUserId }),
+        body: JSON.stringify({ 
+          creatorId, 
+          type: "private", 
+          memberIds: [targetUserId] 
+        }),
       });
 
       if (!response.ok) {
@@ -229,6 +233,27 @@ export class ConversationService {
       return await response.json();
     } catch (error) {
       console.error("Error get/create private conversation:", error);
+      throw error;
+    }
+  }
+
+  // Get single conversation detail
+  static async getConversationById(conversationId: string): Promise<Conversation> {
+    try {
+      const response = await authFetch(`${API_CHAT_SERVER_URL}/conversations/${conversationId}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching conversation by id:", error);
       throw error;
     }
   }
