@@ -229,6 +229,23 @@ const CallPage: React.FC = () => {
     participants.some((id) => String(id) !== String(normalizedUserId || "")) ||
     remoteStreams.length > 0;
 
+  // Premium: Lắng nghe yêu cầu focus từ tab chính để tránh mở nhiều cửa sổ hoặc tải lại trang gọi
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const channelName = `call_channel_${conversationId}`;
+    const bc = new BroadcastChannel(channelName);
+    
+    bc.onmessage = (ev) => {
+      if (ev.data.type === "PING_FOCUS") {
+        window.focus();
+        bc.postMessage({ type: "PONG_ALIVE" });
+      }
+    };
+    
+    return () => bc.close();
+  }, [conversationId]);
+
   useEffect(() => {
     socketService.connect();
     if (normalizedUserId) {
@@ -307,12 +324,18 @@ const CallPage: React.FC = () => {
     }) => {
       if (payload.conversationId !== conversationId) return;
 
-      console.log(`Cuộc gọi bị từ chối bởi: ${payload.userId}`);
+      const isGroupFromUrl = searchParams.get("isGroup") === "true";
+      const actualIsGroup = isGroup || isGroupFromUrl;
+
+      console.log(`[CALL] Received decline from ${payload.userId}. isGroup(state): ${isGroup}, isGroup(url): ${isGroupFromUrl}`);
       
       // Nếu là cuộc gọi nhóm, không được kết thúc cuộc gọi của mình khi người khác từ chối
-      if (!isGroup) {
+      if (!actualIsGroup) {
+        console.log("[CALL] 1:1 call declined, ending...");
         isClosingByCancelRef.current = true;
         endCall();
+      } else {
+        console.log(`[CALL] Group member ${payload.userId} declined, staying in call.`);
       }
     };
 
@@ -321,6 +344,7 @@ const CallPage: React.FC = () => {
       endedBy?: string | null;
     }) => {
       if (payload.conversationId !== conversationId) return;
+      console.log(`[CALL] Received onCallEnded (ket_thuc_phong_goi) event from server. EndedBy: ${payload.endedBy}`);
 
       if (!hasRemoteAnsweredRef.current) {
         isClosingByNoAnswerRef.current = true;
@@ -335,7 +359,7 @@ const CallPage: React.FC = () => {
       socketService.offCallDeclined(onDeclined);
       socketService.offCallEnded(onCallEnded);
     };
-  }, [conversationId, endCall, normalizedUserId]);
+  }, [conversationId, endCall, normalizedUserId, isGroup]);
 
   const handleExit = () => {
     endCall();
@@ -441,6 +465,10 @@ const CallPage: React.FC = () => {
         serverUrl={import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880"}
         onLeave={handleExit}
         video={callType === "video"}
+        name={remoteDisplayName}
+        avatar={remoteAvatarSrc}
+        conversationId={conversationId}
+        userId={normalizedUserId}
       />
     );
   }

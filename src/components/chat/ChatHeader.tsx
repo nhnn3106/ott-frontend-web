@@ -66,24 +66,29 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         <div className="flex items-center gap-1 text-gray-600">
           {!hideCallActions && (
             <>
-              {/* Voice Call Button */}
-              <button
-                className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={onStartVoiceCall}
-                disabled={disableCallActions}
-                title="Gọi thoại"
-              >
-                <Phone size={20} />
-              </button>
+              {/* Voice Call Button - Hidden for Groups */}
+              {conversation.type !== "group" && (
+                <button
+                  className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={onStartVoiceCall}
+                  disabled={disableCallActions}
+                  title="Gọi thoại"
+                >
+                  <Phone size={20} />
+                </button>
+              )}
 
               {/* Video Call Button */}
               <button
-                className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-2 hover:bg-gray-50 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed group relative"
                 onClick={onStartVideoCall}
-                disabled={disableCallActions}
-                title="Gọi video"
+                disabled={disableCallActions || conversation.is_calling}
+                title={conversation.is_calling ? "Đang có cuộc gọi diễn ra" : "Gọi video"}
               >
-                <Video size={20} />
+                <Video size={20} className={conversation.is_calling ? "text-gray-500" : ""} />
+                {conversation.is_calling && (
+                  <span className="absolute -top-1 -right-1 border-2 border-white rounded-full animate-pulse" />
+                )}
               </button>
 
               {/* Vertical Divider (Optional) */}
@@ -117,12 +122,15 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             <div className="flex flex-col">
               <p className="text-[13px] font-bold text-emerald-700">Cuộc gọi video nhóm</p>
               <p className="text-[11px] text-emerald-600/80 font-medium">
-                {conversation.call_participant_count || 1} người đang tham gia
+                {conversation.call_participant_count ?? 1} người đang tham gia
               </p>
             </div>
           </div>
           <button
-            onClick={onStartVideoCall}
+            onClick={() => {
+              // Sử dụng cùng logic như handleCall
+              if (onStartVideoCall) onStartVideoCall();
+            }}
             className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[13px] font-bold rounded-xl transition-all shadow-sm active:scale-95"
           >
             Tham gia
