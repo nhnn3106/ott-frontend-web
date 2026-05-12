@@ -142,7 +142,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
   const unreadCount = Number(participant.unread_count || 0);
   const hasUnreadMessage = !isSelected && unreadCount > 0;
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
-  const isInvited = participant.status === "invited" && conversation.type === "group";
+  const isInvited = false;
 
   const handleAcceptInvitation = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -274,6 +274,14 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       updateParticipant(conversation._id, {
         deleted_msg_id: updatedParticipant.deleted_msg_id,
       });
+
+      // Báo cho ChatPage biết để đóng cửa sổ chat nếu đang mở đoạn này
+      window.dispatchEvent(
+        new CustomEvent("chat:remove-conversation", {
+          detail: { conversationId: conversation._id },
+        }),
+      );
+
       setIsDeleteModalOpen(false);
     } catch (error: unknown) {
       const message =
@@ -297,7 +305,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
           }
           ${isHovered ? "shadow-lg" : ""}
         `}
-        onClick={isInvited ? undefined : onClick}
+        onClick={onClick}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -361,54 +369,32 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
               </div>
             </div>
 
-            {isInvited ? (
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-orange-600 font-medium flex-1 truncate">Bạn được mời vào nhóm này</span>
-                <button
-                  onClick={handleAcceptInvitation}
-                  disabled={isProcessingInvitation}
-                  className="cursor-pointer flex items-center gap-1 px-2.5 py-1 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                >
-                  <Check size={12} />
-                  Đồng ý
-                </button>
-                <button
-                  onClick={handleRejectInvitation}
-                  disabled={isProcessingInvitation}
-                  className="cursor-pointer flex items-center gap-1 px-2.5 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                >
-                  <XIcon size={12} />
-                  Từ chối
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                {/* Category tag - before message */}
-                {currentCategory && (
-                  <PiTagSimpleFill
-                    className="shrink-0"
-                    color={currentCategory.color}
-                  />
-                )}
+            <div className="flex items-center gap-1.5">
+              {/* Category tag - before message */}
+              {currentCategory && (
+                <PiTagSimpleFill
+                  className="shrink-0"
+                  color={currentCategory.color}
+                />
+              )}
 
-                <p
-                  className={`text-sm truncate flex-1 select-none ${hasUnreadMessage ? "text-gray-900 font-semibold" : "text-gray-600"}`}
-                >
-                  <EmojiText
-                    text={getLatestMessagePreview()}
-                    emojiSize={15}
-                    emojiClassName="inline-block align-[-0.2em] me-1"
-                  />
-                </p>
+              <p
+                className={`text-sm truncate flex-1 select-none ${hasUnreadMessage ? "text-gray-900 font-semibold" : "text-gray-600"}`}
+              >
+                <EmojiText
+                  text={getLatestMessagePreview()}
+                  emojiSize={15}
+                  emojiClassName="inline-block align-[-0.2em] me-1"
+                />
+              </p>
 
-                {/* Unread badge */}
-                {hasUnreadMessage && (
-                  <div className="min-w-5 h-5 px-1 rounded-full bg-primary-500 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
-                    {unreadLabel}
-                  </div>
-                )}
-              </div>
-            )}
+              {/* Unread badge */}
+              {hasUnreadMessage && (
+                <div className="min-w-5 h-5 px-1 rounded-full bg-primary-500 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
+                  {unreadLabel}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

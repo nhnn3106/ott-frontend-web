@@ -5,7 +5,7 @@ import LoadingSkeleton from "../../common/LoadingSkeleton";
 import CreateGroupModal from "../../modal/group/CreateGroupModal";
 import AddFriendModal from "../../modal/friend/AddFriendModal";
 import { ConversationService } from "../../../services/conversation.service";
-import { CategoryService, socketService, fetchFriends } from "../../../services";
+import { CategoryService, socketService, fetchFriends, MessageService } from "../../../services";
 import { useConversations } from "../../../contexts/ConversationsContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import type {
@@ -171,19 +171,48 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     }
 
     try {
-      const memberIds = selectedUsers
-        .map((user) => user.user_id || user._id)
+      const friendIds = selectedUsers
+        .filter(u => availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)))
+        .map(u => u.user_id || u._id)
         .filter((id): id is string => !!id);
 
+      const strangers = selectedUsers.filter(u => !availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)));
+      const strangerIds = strangers.map(u => u.user_id || u._id).filter((id): id is string => !!id);
+
+      // Create group with creator + friends only
       const result = await ConversationService.createGroup(
         normalizedUserId,
         groupName,
-        memberIds,
+        friendIds,
         avatar,
-        memberNames,
+        memberNames?.filter((_, idx) => availableUsers.some(f => (f.user_id || f._id) === (selectedUsers[idx].user_id || selectedUsers[idx]._id))),
       );
 
       if (result && result._id) {
+        // Handle strangers: send invite link
+        if (strangerIds.length > 0) {
+          try {
+            const link = await ConversationService.getInviteLink(result._id, normalizedUserId);
+            for (const sId of strangerIds) {
+              const existingConv = conversations.find(c => 
+                c.conversation.type === "private" && 
+                c.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(sId))
+              );
+
+              let targetConvId: string;
+              if (existingConv) {
+                targetConvId = existingConv.conversation._id;
+              } else {
+                const directConv = await ConversationService.getOrCreatePrivateConversation(normalizedUserId, sId);
+                targetConvId = (directConv as any).conversation?._id || (directConv as any)._id;
+              }
+              await MessageService.sendMessage(targetConvId, normalizedUserId, link, "link");
+            }
+          } catch (linkErr) {
+            console.error("Failed to send invite links to strangers:", linkErr);
+          }
+        }
+
         // Dispatch event to open the new conversation
         window.dispatchEvent(new CustomEvent("chat:open-conversation", {
           detail: {

@@ -31,6 +31,8 @@ interface UseChatSearchParams {
   onConversationSelect?: (conversation: ConversationWithParticipant) => void;
 }
 
+export const VIRTUAL_CONV_PREFIX = "VIRTUAL_CONV_";
+
 const EMPTY_SEARCH: SearchEverythingResponse = {
   contacts: [],
   conversations: [],
@@ -56,6 +58,7 @@ const useChatSearch = ({
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchHistoryConversationIds, setSearchHistoryConversationIds] =
     useState<string[]>([]);
+  const [virtualConversationsCache, setVirtualConversationsCache] = useState<Record<string, ConversationWithParticipant>>({});
   const senderDropdownRef = useRef<HTMLDivElement>(null);
   const latestSearchRequestRef = useRef(0);
 
@@ -282,15 +285,20 @@ const useChatSearch = ({
         );
 
         // Phone search logic
-        if (/^[0-9]{10}$/.test(keyword)) {
-          const phoneUser = await UserService.getUserByPhone(keyword);
+        const sanitizedKeyword = keyword.replace(/\s+/g, "");
+        if (/^\d{10,11}$/.test(sanitizedKeyword)) {
+          const phoneUser = await UserService.getUserByPhone(sanitizedKeyword);
           if (phoneUser && phoneUser.user_id !== normalizedUserId) {
-            // Check if already in contacts
+            // Check if already in current results (either conversations or contacts)
+            const alreadyInConversations = data.conversations?.some((c: any) => 
+               c.conversation_id && conversations.find(local => local.conversation._id === c.conversation_id)?.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(phoneUser.user_id))
+            );
             const alreadyInContacts = data.contacts?.some((c: any) => c.user_id === phoneUser.user_id);
-            if (!alreadyInContacts) {
+            
+            if (!alreadyInConversations && !alreadyInContacts) {
               const newContact: SearchContactItem = {
                 user_id: phoneUser.user_id,
-                name: phoneUser.display_name || phoneUser.name || '',
+                name: phoneUser.display_name || phoneUser.name || phoneUser.phone || 'Người dùng',
                 avatar: phoneUser.avatar,
                 phone: phoneUser.phone,
                 conversation_ids: []
@@ -299,6 +307,63 @@ const useChatSearch = ({
               data.total = (data.total || 0) + 1;
             }
           }
+        }
+
+        // Merge contacts into conversations for the UI
+        if (data.contacts?.length > 0) {
+          const contactConversations: any[] = data.contacts.map(contact => {
+            // 1. Check if it's in our LOCAL visible conversations
+            const existingVisible = conversations.find(c => 
+              c.conversation.type === "private" && 
+              c.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(contact.user_id))
+            );
+
+            if (existingVisible) {
+              return {
+                conversation_id: existingVisible.conversation._id,
+                contact_id: contact.user_id,
+                type: "private",
+                name: contact.name,
+                avatar: contact.avatar,
+                phone: contact.phone,
+                is_virtual: false,
+                last_message: existingVisible.conversation.last_message
+              };
+            }
+
+            // 2. Check if the backend returned an existing conversation ID (could be a hidden/deleted one)
+            const dbConvId = contact.conversation_ids?.[0];
+            if (dbConvId) {
+              return {
+                conversation_id: dbConvId,
+                contact_id: contact.user_id,
+                type: "private",
+                name: contact.name,
+                avatar: contact.avatar,
+                phone: contact.phone,
+                is_virtual: false // It exists in DB, just hidden from main list
+              };
+            }
+
+            // 3. Otherwise, it's a true stranger (virtual)
+            return {
+              conversation_id: "", 
+              contact_id: contact.user_id,
+              type: "private",
+              name: contact.name,
+              avatar: contact.avatar,
+              phone: contact.phone,
+              is_virtual: true
+            };
+          });
+          
+          // Filter out ones that are already in data.conversations (by ID)
+          const finalToAdd = contactConversations.filter(vc => 
+            !(data.conversations || []).some((c: any) => c.conversation_id === vc.conversation_id)
+          );
+          
+          data.conversations = [...finalToAdd, ...(data.conversations || [])];
+          data.contacts = []; 
         }
 
         let mergedResults = data;
@@ -322,17 +387,17 @@ const useChatSearch = ({
             })
             .slice(0, 24);
 
-          mergedResults = {
-            ...data,
-            messages: mergedMessages,
-            total:
-              (data.contacts?.length || 0) +
-              (data.conversations?.length || 0) +
-              mergedMessages.length +
-              (data.files?.length || 0) +
-              (data.media?.length || 0),
-          };
         }
+
+        // Always recalculate total after merging and potentially deep searching
+        mergedResults = {
+          ...mergedResults,
+          total:
+            (mergedResults.conversations?.length || 0) +
+            (mergedResults.messages?.length || 0) +
+            (mergedResults.files?.length || 0) +
+            (mergedResults.media?.length || 0),
+        };
 
         if (requestId !== latestSearchRequestRef.current) return;
         setSearchResults(mergedResults);
@@ -355,6 +420,19 @@ const useChatSearch = ({
 
   useEffect(() => {
     if (!normalizedUserId) return;
+    const cacheKey = `virtual_conv_cache_${normalizedUserId}`;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        setVirtualConversationsCache(JSON.parse(raw));
+      }
+    } catch (e) {
+      console.error("Failed to load virtual conversation cache", e);
+    }
+  }, [normalizedUserId]);
+
+  useEffect(() => {
+    if (!normalizedUserId) return;
 
     try {
       const raw = localStorage.getItem(searchHistoryKey);
@@ -371,7 +449,10 @@ const useChatSearch = ({
 
       const valid = parsed
         .map((id) => String(id))
-        .filter((id) => conversations.some((item) => item.conversation._id === id));
+        .filter((id) => 
+          id.startsWith(VIRTUAL_CONV_PREFIX) || 
+          conversations.some((item) => item.conversation._id === id)
+        );
       setSearchHistoryConversationIds(valid);
     } catch {
       setSearchHistoryConversationIds([]);
@@ -406,13 +487,70 @@ const useChatSearch = ({
 
       if (!targetConvId && contactId && normalizedUserId) {
         try {
-          const conv = await ConversationService.getOrCreatePrivateConversation(normalizedUserId, contactId);
-          if (conv) {
-            targetConv = conv;
-            targetConvId = conv.conversation._id;
+          const existingConv = conversations.find(c => 
+            c.conversation.type === "private" && 
+            c.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(contactId))
+          );
+
+          if (existingConv) {
+            targetConv = existingConv;
+            targetConvId = existingConv.conversation._id;
+          } else {
+            // Don't call getOrCreatePrivateConversation yet (Lazy creation)
+            // Instead, create a virtual conversation object
+            const targetUser = await UserService.getUserById(contactId);
+            if (targetUser) {
+              const virtualId = `${VIRTUAL_CONV_PREFIX}${contactId}`;
+              targetConvId = virtualId;
+              targetConv = {
+                conversation: {
+                  _id: virtualId,
+                  type: "private",
+                  name: targetUser.display_name || targetUser.name || "Người dùng",
+                  avatar: targetUser.avatar || "",
+                  created_by: normalizedUserId,
+                  member_count: 2,
+                  is_deleted: false,
+                  participants: [
+                    {
+                      _id: normalizedUserId,
+                      user_id: normalizedUserId,
+                      display_name: "Bạn",
+                    },
+                    {
+                      _id: contactId,
+                      user_id: contactId,
+                      display_name: targetUser.display_name || targetUser.name || "Người dùng",
+                      avatar: targetUser.avatar || "",
+                    }
+                  ]
+                } as any,
+                participant: {
+                  user_id: normalizedUserId,
+                  conversation_id: virtualId,
+                  roles: "user",
+                  settings: { is_pinned: false, notification_status: "on" }
+                } as any
+              };
+              
+              // Cache it
+              setVirtualConversationsCache(prev => ({
+                ...prev,
+                [virtualId]: targetConv!
+              }));
+              
+              // Persist cache to localStorage
+              const cacheKey = `virtual_conv_cache_${normalizedUserId}`;
+              const existingCacheRaw = localStorage.getItem(cacheKey);
+              const existingCache = existingCacheRaw ? JSON.parse(existingCacheRaw) : {};
+              localStorage.setItem(cacheKey, JSON.stringify({
+                ...existingCache,
+                [virtualId]: targetConv
+              }));
+            }
           }
         } catch (error) {
-          console.error("Failed to get/create conversation", error);
+          console.error("Failed to get/create virtual conversation", error);
           return;
         }
       }
@@ -425,8 +563,32 @@ const useChatSearch = ({
         );
       }
 
+      // 2.5 If still not found, check our virtual cache (for history items)
+      if (!targetConv && targetConvId?.startsWith(VIRTUAL_CONV_PREFIX)) {
+        targetConv = virtualConversationsCache[targetConvId];
+      }
+
+      // 3. If still not found but we have a real ID, fetch it from server (for hidden/deleted chats)
+      if (!targetConv && targetConvId && !targetConvId.startsWith(VIRTUAL_CONV_PREFIX)) {
+        try {
+          const fetchedConv = await ConversationService.getConversationById(targetConvId);
+          if (fetchedConv) {
+            targetConv = {
+              conversation: fetchedConv,
+              participant: {
+                user_id: normalizedUserId,
+                conversation_id: targetConvId,
+                roles: "user",
+                settings: { is_pinned: false, notification_status: "on" }
+              } as any
+            };
+          }
+        } catch (error) {
+          console.error("Failed to fetch hidden conversation", error);
+        }
+      }
+
       if (!targetConv) {
-        // If still not found, we might need to refresh or just bail if it's an invalid ID
         return;
       }
 
@@ -473,6 +635,8 @@ const useChatSearch = ({
       onConversationSelect,
       searchHistoryConversationIds,
       searchHistoryKey,
+      virtualConversationsCache,
+      normalizedUserId,
     ],
   );
 
@@ -541,7 +705,14 @@ const useChatSearch = ({
         const matched = conversations.find(
           (item) => item.conversation._id === conversationId,
         );
-        return matched || null;
+        if (matched) return matched;
+        
+        // Try to find in virtual cache
+        if (conversationId.startsWith(VIRTUAL_CONV_PREFIX)) {
+          return virtualConversationsCache[conversationId] || null;
+        }
+        
+        return null;
       })
       .filter((item): item is ConversationWithParticipant => !!item);
   }, [searchHistoryConversationIds, conversations]);
@@ -596,11 +767,17 @@ const useChatSearch = ({
     const normalizedKeyword = keyword.toLowerCase();
     if (!normalizedKeyword) return resolvedConversations;
 
-    return resolvedConversations.filter((conv) =>
-      String(conv.name || "")
+    return resolvedConversations.filter((conv) => {
+      const nameMatch = String(conv.name || "")
         .toLowerCase()
-        .includes(normalizedKeyword),
-    );
+        .includes(normalizedKeyword);
+      
+      const phoneMatch = String((conv as any).phone || "")
+        .toLowerCase()
+        .includes(normalizedKeyword);
+
+      return nameMatch || phoneMatch;
+    });
   }, [searchResults, keyword, conversationMetaMap]);
 
   const senderOptions = useMemo(() => {

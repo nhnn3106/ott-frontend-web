@@ -107,12 +107,14 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId, normalizeIncomingMessage],
   );
 
+  const isVirtual = conversationId.startsWith("VIRTUAL_CONV_");
+
   // Reset messages khi đổi conversation, tránh dùng tin nhắn cũ
   useEffect(() => {
     setMessages([]);
-    setHasMore(true);
+    setHasMore(!isVirtual);
     setHasMoreAfter(false);
-  }, [conversationId]);
+  }, [conversationId, isVirtual]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -123,7 +125,7 @@ export const useChat = (conversationId: string, userId?: string) => {
    * Use new REST API with Redis caching
    */
   const loadMessages = useCallback(async () => {
-    if (!conversationId) return;
+    if (!conversationId || isVirtual) return;
     setLoading(true);
     try {
       const listUrl = userId

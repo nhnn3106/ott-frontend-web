@@ -223,7 +223,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
         unread_count: (participantFromConv as any)?.unread_count || 0,
         joined_at: (participantFromConv as any)?.joined_at || new Date().toISOString(),
         roles: (participantFromConv as any)?.roles || (conversation.created_by === currentUserId ? "admin" : "user"),
-        status: (participantFromConv as any)?.status || (conversation.created_by === currentUserId ? "joined" : "invited"),
+        status: (participantFromConv as any)?.status || "joined",
       },
     };
 
@@ -268,12 +268,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
             newItem => newItem.conversation._id === prevItem.conversation._id
           );
 
-          // If it's a group invitation we just added optimistically and it's not in the API yet, keep it
-          // ONLY if it hasn't been explicitly rejected/removed in this session
-          if (!exists && prevItem.participant.status === "invited" && !dissolvedSessionIdsRef.current.has(prevItem.conversation._id)) {
-            console.log('✨ Preserving optimistic invitation during refresh:', prevItem.conversation._id);
-            merged.push(prevItem);
-          }
+
         });
 
         // Map and resolve last_read_message_id as before
