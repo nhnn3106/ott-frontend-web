@@ -646,7 +646,56 @@ class SocketService {
       this.socket?.removeAllListeners("cap_nhat_thong_tin_ca_nhan");
     }
   }
+
+  // ── PRESENCE (User Online/Offline Status) ────────────────────────────────
+
+  /**
+   * Hỏi server trạng thái online của danh sách userId.
+   * Server sẽ trả về event "ket_qua_trang_thai_hoat_dong".
+   */
+  queryPresence(userIds: string[]) {
+    this.emitWhenConnected("hoi_trang_thai_hoat_dong", { userIds });
+  }
+
+  /**
+   * Nhận kết quả batch query presence từ server.
+   */
+  onPresenceResult(callback: (result: { userId: string; isOnline: boolean }[]) => void) {
+    this.socket?.on("ket_qua_trang_thai_hoat_dong", callback);
+  }
+
+  offPresenceResult(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("ket_qua_trang_thai_hoat_dong", callback);
+    } else {
+      this.socket?.removeAllListeners("ket_qua_trang_thai_hoat_dong");
+    }
+  }
+
+  /**
+   * Lắng nghe sự kiện thay đổi trạng thái hoạt động real-time.
+   * Event: "trang_thai_hoat_dong" từ server.
+   */
+  onPresenceChanged(
+    callback: (payload: {
+      userId: string;
+      isOnline: boolean;
+      lastSeenAt: string | null;
+    }) => void
+  ) {
+    this.socket?.on("trang_thai_hoat_dong", callback);
+  }
+
+  offPresenceChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("trang_thai_hoat_dong", callback);
+    } else {
+      this.socket?.removeAllListeners("trang_thai_hoat_dong");
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 }
 
 console.log("🚀 SocketService V2.0.1 Loaded");
 export const socketService = new SocketService();
+

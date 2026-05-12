@@ -1,5 +1,5 @@
 // src/components/Chat/ChatHeader.tsx
-import React from "react";
+import React, { useEffect } from "react";
 import { Phone, Video, PanelRightOpen, PanelRightClose } from "lucide-react";
 import Avatar from "../common/Avatar";
 import type { ChatAreaProps } from "../../interfaces";
@@ -7,18 +7,40 @@ import {
   getConversationDisplayAvatar,
   getConversationDisplayName,
 } from "../../utils";
+import { usePresence } from "../../contexts/PresenceContext";
+import type { Conversation } from "../../types";
 
 interface ChatHeaderProps extends ChatAreaProps {
-  // Props từ bản HEAD (Call logic)
   onStartVoiceCall?: () => void;
   onStartVideoCall?: () => void;
   disableCallActions?: boolean;
   currentUserId?: string;
-  // Props từ bản develop (Sidebar logic)
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   hideCallActions?: boolean;
 }
+
+// ─── Helper: format last seen ────────────────────────────────────────────────
+const formatLastSeen = (date: Date | null): string => {
+  if (!date) return "Hoạt động gần đây";
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diff < 60) return "Vừa mới hoạt động";
+  if (diff < 3600) return `Hoạt động ${Math.floor(diff / 60)} phút trước`;
+  if (diff < 86400) return `Hoạt động ${Math.floor(diff / 3600)} giờ trước`;
+  return `Hoạt động ${Math.floor(diff / 86400)} ngày trước`;
+};
+
+// ─── Helper: lấy userId của người kia trong 1-1 chat ────────────────────────
+const getOtherUserId = (conversation: Conversation, currentUserId?: string): string | null => {
+  if (conversation.type !== "private") return null;
+  const participants = conversation.participants ?? [];
+  const other = participants.find(
+    (p: any) => String(p.user_id ?? p._id) !== String(currentUserId)
+  );
+  return other ? String(other.user_id ?? other._id) : null;
+};
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
   conversation,
@@ -30,13 +52,54 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onToggleSidebar,
   hideCallActions = false,
 }) => {
-  const getConversationName = (): string => {
-    return getConversationDisplayName(conversation, currentUserId);
-  };
+  const { isUserOnline, getLastSeen, watchUsers } = usePresence();
 
-  const getConversationAvatar = (): string | undefined => {
-    return getConversationDisplayAvatar(conversation, currentUserId);
-  };
+  const getConversationName = (): string =>
+    getConversationDisplayName(conversation, currentUserId);
+
+  const getConversationAvatar = (): string | undefined =>
+    getConversationDisplayAvatar(conversation, currentUserId);
+
+  // Xác định userId của người kia (chỉ 1-1)
+  const otherUserId = getOtherUserId(conversation, currentUserId);
+
+  // Đăng ký theo dõi presence khi conversation thay đổi
+  useEffect(() => {
+    if (otherUserId) {
+      watchUsers([otherUserId]);
+    }
+    // Với group, có thể watch tất cả members
+    if (conversation.type === "group" && conversation.participants) {
+      const ids = (conversation.participants as any[])
+        .map((p: any) => String(p.user_id ?? p._id))
+        .filter(Boolean);
+      if (ids.length > 0) watchUsers(ids);
+    }
+  }, [otherUserId, conversation._id, watchUsers]);
+
+  // ─── Tính trạng thái hiển thị ────────────────────────────────────────────
+  let statusDot = false;
+  let statusText = "";
+
+  if (conversation.type === "private" && otherUserId) {
+    statusDot = isUserOnline(otherUserId);
+    if (statusDot) {
+      statusText = "Đang hoạt động";
+    } else {
+      const lastSeen = getLastSeen(otherUserId);
+      statusText = formatLastSeen(lastSeen);
+    }
+  } else if (conversation.type === "group") {
+    // Với nhóm: đếm số thành viên đang online
+    const participants = (conversation.participants ?? []) as any[];
+    const onlineCount = participants.filter((p: any) =>
+      isUserOnline(String(p.user_id ?? p._id))
+    ).length;
+    statusDot = onlineCount > 0;
+    statusText = onlineCount > 0
+      ? `${onlineCount} thành viên đang hoạt động`
+      : "Không có ai đang hoạt động";
+  }
 
   return (
     <div className="relative flex-none z-10">
@@ -54,9 +117,19 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               {getConversationName()}
             </h2>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              <p className="text-xs text-green-600 font-medium">
-                Đang hoạt động
+              <span
+                className={`w-2 h-2 rounded-full transition-colors duration-500 ${
+                  statusDot
+                    ? "bg-green-500 animate-pulse"
+                    : "bg-gray-300"
+                }`}
+              />
+              <p
+                className={`text-xs font-medium transition-colors duration-500 ${
+                  statusDot ? "text-green-600" : "text-gray-400"
+                }`}
+              >
+                {statusText}
               </p>
             </div>
           </div>
@@ -91,7 +164,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 )}
               </button>
 
-              {/* Vertical Divider (Optional) */}
+              {/* Vertical Divider */}
               <div className="w-px h-6 bg-gray-200 mx-1" />
             </>
           )}
@@ -99,8 +172,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           {/* Sidebar Toggle Button */}
           <button
             onClick={onToggleSidebar}
-            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
-              }`}
+            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${
+              isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
+            }`}
             title={isSidebarOpen ? "Đóng thông tin" : "Mở thông tin"}
           >
             {isSidebarOpen ? (
@@ -128,7 +202,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           </div>
           <button
             onClick={() => {
-              // Sử dụng cùng logic như handleCall
               if (onStartVideoCall) onStartVideoCall();
             }}
             className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[13px] font-bold rounded-xl transition-all shadow-sm active:scale-95"
