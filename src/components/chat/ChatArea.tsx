@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   Info,
   Trash2,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
@@ -31,6 +32,7 @@ import {
   ConversationService,
   fetchRelationshipStatusViaChat,
   socketService,
+  AiService,
 } from "../../services";
 import type { ChatAreaProps } from "../../interfaces";
 import type {
@@ -193,14 +195,21 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const [relationshipStatus, setRelationshipStatus] = useState<any>(null);
   const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
+  const [smartReplies, setSmartReplies] = useState<string[]>([]);
+  const [isSmartReplyLoading, setIsSmartReplyLoading] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [isSmartReplyOpen, setIsSmartReplyOpen] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryResult, setSummaryResult] = useState<string | null>(null);
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
 
   const fetchStatus = useCallback(async () => {
     if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
       const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-      
+
       // If participants list is not in activeConversation, try to find from members if it's a private chat
       // Actually, private conversations should have user_id if we fetch correctly.
-      
+
       if (otherParticipantId) {
         setIsRelationshipLoading(true);
         const status = await fetchRelationshipStatusViaChat(normalizedUserId, otherParticipantId);
@@ -227,9 +236,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         const requesterId = payload.requesterId || payload.requester_id;
         const receiverId = payload.receiverId || payload.receiver_id;
 
-        if (otherParticipantId && 
-            (String(requesterId) === String(otherParticipantId) || 
-             String(receiverId) === String(otherParticipantId))) {
+        if (otherParticipantId &&
+          (String(requesterId) === String(otherParticipantId) ||
+            String(receiverId) === String(otherParticipantId))) {
           console.log("ChatArea: Relationship status updated via socket:", payload.status);
           setRelationshipStatus(payload);
         }
@@ -259,7 +268,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const isDissolved = useMemo(() => {
     if (activeConversation?.status === "dissolved" || Boolean(activeConversation?.is_dissolved)) return true;
-    
+
     // Derived from messages
     return messages.some(
       (m) =>
@@ -1072,7 +1081,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     const conversationId = activeConversation!._id;
     const windowName = `call_${conversationId}`;
     const channelName = `call_channel_${conversationId}`;
-    
+
     // Premium: Kiểm tra xem cửa sổ gọi cho cuộc hội thoại này đã mở chưa
     // Nếu đã mở thì chỉ focus, không tải lại (để không ngắt kết nối LiveKit)
     const bc = new BroadcastChannel(channelName);
@@ -1126,7 +1135,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleGroupCallStart = (selectedUserIds: string[], callType: "voice" | "video") => {
     setIsGroupCallModalOpen(false);
-    
+
     const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
     const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
 
@@ -1282,6 +1291,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         console.error(`✗ Failed to mark as read:`, error);
       });
   }, [messages, normalizedUserId, activeConversation?._id, updateParticipant]);
+
+  useEffect(() => {
+    if (smartReplies.length > 0) {
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    }
+  }, [smartReplies.length]);
 
   const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
     setSelectedMediaId(msgId);
@@ -2189,14 +2206,110 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     prevLastMessageIdRef.current = currentLastMessageId;
   }, [messages, loading]);
 
+  // AI Smart Replies Logic
   useEffect(() => {
-    return () => {
-      if (initialScrollRafRef.current !== null) {
-        window.cancelAnimationFrame(initialScrollRafRef.current);
-        initialScrollRafRef.current = null;
+    const lastMessage = messages[messages.length - 1];
+
+    // Debug logic
+    if (lastMessage) {
+      console.log("[AI Debug] Last message sender:", lastMessage.sender_id);
+      console.log("[AI Debug] Current user ID:", normalizedUserId);
+      console.log("[AI Debug] Should trigger:", String(lastMessage.sender_id) !== String(normalizedUserId));
+    }
+
+    if (
+      lastMessage &&
+      String(lastMessage.sender_id) !== String(normalizedUserId) &&
+      !isSystemLikeType(lastMessage.type)
+    ) {
+      const fetchSuggestions = async () => {
+        setIsSmartReplyLoading(true);
+        try {
+          const aiConvId = activeConversation._id.startsWith('VIRTUAL_CONV_')
+            ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+            : activeConversation._id;
+
+          console.log("[AI Debug] Fetching smart replies for conversation:", aiConvId);
+          const suggestions = await AiService.getSmartReplies(aiConvId);
+          // Vì BE đã dùng JSON Mode và lọc kỹ, FE chỉ cần filter cơ bản
+          setSmartReplies((suggestions || []).slice(0, 3));
+        } catch (error) {
+          console.error("Error fetching smart replies:", error);
+        } finally {
+          setIsSmartReplyLoading(false);
+        }
+      };
+      fetchSuggestions();
+    } else {
+      setSmartReplies([]);
+    }
+  }, [messages.length, messages[messages.length - 1]?._id, activeConversation._id, normalizedUserId]);
+
+  // Tự động đóng gợi ý khi chuyển cuộc hội thoại
+  useEffect(() => {
+    setIsSmartReplyOpen(false);
+  }, [activeConversation._id]);
+
+  // AI Translation Logic - Auto translate new messages
+  useEffect(() => {
+    if (!isTranslating) return;
+
+    // Dịch 3 tin nhắn gần nhất nếu chưa được dịch
+    const recentMessages = messages.slice(-3);
+
+    recentMessages.forEach(async (msg) => {
+      if (
+        msg &&
+        msg.type === "text" &&
+        String(msg.sender_id) !== String(normalizedUserId) &&
+        !translatedMessages[msg._id]
+      ) {
+        const rawContent = msg.content;
+        let textToTranslate = "";
+
+        if (Array.isArray(rawContent)) {
+          const first = rawContent[0];
+          textToTranslate = typeof first === "string" ? first : (first as any)?.text || "";
+        } else {
+          textToTranslate = typeof rawContent === "string" ? rawContent : (rawContent as any)?.text || "";
+        }
+
+        if (!textToTranslate) return;
+
+        try {
+          const translated = await AiService.translateText(textToTranslate);
+          setTranslatedMessages(prev => ({ ...prev, [msg._id]: translated }));
+        } catch (error) {
+          console.error("Translation error for message:", msg._id, error);
+        }
       }
-    };
-  }, []);
+    });
+  }, [messages.length, isTranslating, normalizedUserId]);
+
+  const handleSelectSmartReply = (reply: string) => {
+    setSmartReplies([]);
+    window.dispatchEvent(new CustomEvent('chat:send-smart-reply', { detail: { text: reply } }));
+  };
+
+  const handleSummarize = async () => {
+    setIsSummarizing(true);
+    try {
+      const aiConvId = activeConversation._id.startsWith('VIRTUAL_CONV_')
+        ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+        : activeConversation._id;
+
+      const summary = await AiService.summarizeConversation(aiConvId);
+      setSummaryResult(summary);
+    } catch (error) {
+      console.error("Summarization error:", error);
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
+  const handleToggleTranslation = () => {
+    setIsTranslating(!isTranslating);
+  };
 
   useEffect(() => {
     const handleScrollBottom = () => {
@@ -2443,6 +2556,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           disableCallActions={isOpeningCall}
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
+          onSummarize={handleSummarize}
+          isSummarizing={isSummarizing}
+          isTranslating={isTranslating}
+          onToggleTranslation={handleToggleTranslation}
           hideCallActions={
             Boolean(activeConversation?.is_self_conversation) ||
             !isParticipant ||
@@ -2451,11 +2568,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         />
 
         {activeConversation?.type === "private" && !activeConversation.is_self_conversation && relationshipStatus?.status !== "ACCEPTED" && (
-          <FriendRequestBar 
+          <FriendRequestBar
             relationship={relationshipStatus}
             currentUserId={normalizedUserId || ""}
             otherUserId={activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id || ""}
-            onStatusChange={fetchStatus} 
+            onStatusChange={fetchStatus}
             isFetching={isRelationshipLoading}
           />
         )}
@@ -2507,7 +2624,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 </button>
 
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                  <button
+                    <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -2779,6 +2896,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                       onPin={handlePinMessage}
                       onForward={handleForwardMessage}
                       conversation={activeConversation}
+                      translatedText={translatedMessages[msg._id]}
                     />
                   </div>
                 </React.Fragment>
@@ -2844,33 +2962,83 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         </div>
 
         {isParticipant && !isDissolved && !isInvited && relationshipStatus?.status !== "BLOCKED" ? (
-          <ChatInput
-            key={
-              activeConversation.type === 'private' || activeConversation._id.startsWith('VIRTUAL_CONV_')
-                ? (activeConversation._id.startsWith('VIRTUAL_CONV_') 
-                    ? activeConversation._id.replace('VIRTUAL_CONV_', '') 
-                    : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
-                : activeConversation._id
-            }
-            conversationId={activeConversation._id}
-            senderId={normalizedUserId || ""}
-            onSendSuccess={handleSendSuccess}
-            onUploadStart={handleImageSendStart}
-            onUploadProgress={handleImageSendProgress}
-            onUploadSuccess={handleImageSendSuccess}
-            onUploadError={handleImageSendError}
-            onConversationCreated={(newConv) => {
-              window.dispatchEvent(new CustomEvent("chat:open-conversation", {
-                detail: {
-                  conversationId: newConv.conversation?._id || newConv._id,
-                  conversation: newConv.conversation || newConv
-                }
-              }));
-            }}
-            replyToMessage={replyToMessage}
-            onCancelReply={() => setReplyToMessage(null)}
-            conversationType={activeConversation?.type}
-          />
+          <>
+            {/* AI Smart Replies - Premium Glassmorphism UI */}
+            {isSmartReplyOpen && smartReplies.length > 0 && (
+              <div className="px-4 py-3 flex items-center gap-3 animate-slide-up relative z-10 bg-white/40 backdrop-blur-sm border-t border-primary-100/20">
+                <div className="flex-1 flex flex-wrap gap-2.5">
+                  {smartReplies.map((reply, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        handleSelectSmartReply(reply);
+                        setIsSmartReplyOpen(false); // Đóng sau khi chọn
+                      }}
+                      className="px-4 py-2 bg-white/80 backdrop-blur-md border border-primary-100/50 rounded-2xl text-[13px] font-medium text-primary-800 hover:text-white hover:bg-primary-500 hover:border-primary-500 transition-all duration-300 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-95 flex items-center gap-2 group"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary-400 group-hover:bg-white transition-colors" />
+                      {reply}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 pl-2 border-l border-primary-100/30">
+                  <button
+                    onClick={() => setIsSmartReplyOpen(false)}
+                    className="p-2 text-primary-300 hover:text-primary-600 hover:bg-primary-50 transition-all rounded-full"
+                    title="Đóng gợi ý"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="relative bg-white border-t border-slate-100">
+              {/* Nút "Gợi ý AI" kiểu Pill - Hiện phía trên input bên phải */}
+              {smartReplies.length > 0 && !isSmartReplyOpen && (
+                <button
+                  onClick={() => setIsSmartReplyOpen(true)}
+                  className="absolute -top-12 right-6 px-4 py-2 bg-white border border-primary-100 text-primary-600 rounded-full shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2 z-20 group animate-in fade-in slide-in-from-bottom-2"
+                >
+                  <div className="relative">
+                    <Sparkles size={16} className="group-hover:rotate-12 transition-transform" />
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse border border-white"></span>
+                  </div>
+                  <span className="text-xs font-bold tracking-wide">Gợi ý trả lời (AI)</span>
+                </button>
+              )}
+
+              <div className="w-full">
+                <ChatInput
+                  key={
+                    activeConversation.type === 'private' || activeConversation._id.startsWith('VIRTUAL_CONV_')
+                      ? (activeConversation._id.startsWith('VIRTUAL_CONV_')
+                        ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+                        : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
+                      : activeConversation._id
+                  }
+                  conversationId={activeConversation._id}
+                  senderId={normalizedUserId || ""}
+                  onSendSuccess={handleSendSuccess}
+                  onUploadStart={handleImageSendStart}
+                  onUploadProgress={handleImageSendProgress}
+                  onUploadSuccess={handleImageSendSuccess}
+                  onUploadError={handleImageSendError}
+                  onConversationCreated={(newConv) => {
+                    window.dispatchEvent(new CustomEvent("chat:open-conversation", {
+                      detail: {
+                        conversationId: newConv.conversation?._id || newConv._id,
+                        conversation: newConv.conversation || newConv
+                      }
+                    }));
+                  }}
+                  replyToMessage={replyToMessage}
+                  onCancelReply={() => setReplyToMessage(null)}
+                  conversationType={activeConversation?.type}
+                />
+              </div>
+            </div>
+          </>
         ) : (
           <div className="px-5 py-4 bg-white border-t border-slate-100">
             <div className={`flex items-center gap-3 ${isDissolved || relationshipStatus?.status === "BLOCKED" ? "text-primary-600" : "text-slate-500"} bg-slate-50 px-4 py-3 rounded-xl border border-slate-100`}>
@@ -2887,9 +3055,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 {isDissolved
                   ? "Bạn không thể gửi tin nhắn vào nhóm được nữa"
                   : relationshipStatus?.status === "BLOCKED"
-                    ? ((relationshipStatus.requester_id === normalizedUserId || relationshipStatus.requesterId === normalizedUserId) 
-                        ? "Bạn đã chặn người dùng này. Bỏ chặn để tiếp tục trò chuyện." 
-                        : "Bạn không thể gửi tin nhắn cho người dùng này.")
+                    ? ((relationshipStatus.requester_id === normalizedUserId || relationshipStatus.requesterId === normalizedUserId)
+                      ? "Bạn đã chặn người dùng này. Bỏ chặn để tiếp tục trò chuyện."
+                      : "Bạn không thể gửi tin nhắn cho người dùng này.")
                     : "Bạn không còn là thành viên của nhóm này"}
               </p>
             </div>
@@ -3016,6 +3184,43 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           currentUserId={normalizedUserId}
         />
       )}
+
+      {/* AI Summary Modal */}
+      <ConfirmModal
+        isOpen={!!summaryResult}
+        title="Tóm tắt hội thoại (AI)"
+        message={
+          <div className="text-left py-2">
+            <div className="bg-white rounded-2xl p-5 border border-primary-100 shadow-inner max-h-[60vh] overflow-y-auto space-y-4">
+              {summaryResult?.split('\n').map((line, i) => {
+                const cleanLine = line.trim();
+                if (!cleanLine) return null;
+                
+                const isBullet = cleanLine.startsWith('-') || cleanLine.startsWith('*');
+                
+                return (
+                  <div key={i} className={`flex items-start gap-3 ${isBullet ? 'pl-2' : ''}`}>
+                    {isBullet ? (
+                      <div className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-400 flex-shrink-0 shadow-sm" />
+                    ) : (
+                      <div className="mt-1 p-1.5 bg-primary-50 text-primary-600 rounded-lg shadow-sm flex-shrink-0">
+                        <Sparkles size={14} />
+                      </div>
+                    )}
+                    <p className={`text-sm leading-relaxed ${isBullet ? 'text-gray-700' : 'text-gray-800 font-medium'}`}>
+                      {cleanLine.replace(/^[-*]\s*/, '')}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        }
+        confirmText="Đóng"
+        hideCancelButton
+        onConfirm={() => setSummaryResult(null)}
+        onCancel={() => setSummaryResult(null)}
+      />
     </div>
   );
 };
