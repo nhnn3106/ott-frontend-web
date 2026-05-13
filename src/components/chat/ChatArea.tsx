@@ -135,6 +135,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const newerLoadScrollTopRef = useRef<number | null>(null);
   const suppressTopLoadUntilRef = useRef(0);
   const suppressBottomLoadUntilRef = useRef(0);
+  const suppressAutoScrollUntilRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const wasNearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
@@ -1596,14 +1597,36 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         const loadedContext = await loadMessageContext(messageId, 20, 20);
 
         if (loadedContext) {
+          // Prevent auto-scroll to bottom from fighting with our jump.
+          suppressAutoScrollUntilRef.current = Date.now() + 1500;
+          isFirstLoadRef.current = false;
+          wasNearBottomRef.current = false;
+
           // Prevent immediate top-trigger load burst after context replacement.
           suppressTopLoadUntilRef.current = Date.now() + 600;
-          await waitForNextFrame();
-          targetElement = findTarget();
+
+          // React batches state updates - the DOM may not be ready after just
+          // one animation frame. Poll up to 20 times (x50ms = 1s) so the
+          // element is found as soon as React commits the new messages to DOM.
+          const MAX_RETRIES = 20;
+          const RETRY_INTERVAL_MS = 50;
+          for (let i = 0; i < MAX_RETRIES; i++) {
+            await waitForNextFrame();
+            targetElement = findTarget();
+            if (targetElement) break;
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, RETRY_INTERVAL_MS),
+            );
+          }
         }
       }
 
       if (!targetElement) return false;
+
+      // Ensure auto-scroll doesn't override our manual scroll.
+      suppressAutoScrollUntilRef.current = Date.now() + 1000;
+      wasNearBottomRef.current = false;
+      setShowScrollButton(true);
 
       centerTargetInContainer(targetElement);
       await waitForNextFrame();
@@ -2325,7 +2348,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       !isLoadingNewerRef.current &&
       !loading &&
       hasAppendedNewMessage &&
-      wasNearBottom
+      wasNearBottom &&
+      Date.now() > suppressAutoScrollUntilRef.current
     ) {
       requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight;
@@ -2383,7 +2407,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         !isLoadingNewerRef.current &&
         !isFirstLoadRef.current &&
         !forceScrollToBottomRef.current &&
-        !suppressAutoScrollAfterNewerLoadRef.current
+        !suppressAutoScrollAfterNewerLoadRef.current &&
+        Date.now() > suppressAutoScrollUntilRef.current
       ) {
         container.scrollTop = container.scrollHeight;
         wasNearBottomRef.current = true;
