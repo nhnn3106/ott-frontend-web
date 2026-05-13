@@ -83,6 +83,7 @@ export const TextMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div

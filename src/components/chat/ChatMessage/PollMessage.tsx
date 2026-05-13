@@ -20,6 +20,7 @@ interface PollMessageProps {
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: any[];
+  conversationType?: string;
 }
 
 export const PollMessage: React.FC<PollMessageProps> = ({
@@ -31,6 +32,7 @@ export const PollMessage: React.FC<PollMessageProps> = ({
   isTopBoundary,
   onPin,
   participants,
+  conversationType,
 }) => {
   const [isVoting, setIsVoting] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -99,6 +101,7 @@ export const PollMessage: React.FC<PollMessageProps> = ({
         hideAvatar={true}
         showActionsOnHover={false}
         participants={participants}
+        conversationType={conversationType}
         onViewDetails={() => setIsDetailModalOpen(true)}
       >
         {(borderRadius) => (

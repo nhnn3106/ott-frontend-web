@@ -36,6 +36,7 @@ export const AudioMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   url: string;
@@ -53,6 +54,7 @@ export const AudioMessage = ({
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: any[];
+  conversationType?: string;
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -180,6 +182,7 @@ export const AudioMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div className="relative inline-block">

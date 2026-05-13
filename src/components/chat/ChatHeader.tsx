@@ -7,14 +7,14 @@ import {
   getConversationDisplayAvatar,
   getConversationDisplayName,
 } from "../../utils";
+import { usePresence } from "../../contexts/PresenceContext";
+import type { Conversation } from "../../types";
 
 interface ChatHeaderProps extends ChatAreaProps {
-  // Props từ bản HEAD (Call logic)
   onStartVoiceCall?: () => void;
   onStartVideoCall?: () => void;
   disableCallActions?: boolean;
   currentUserId?: string;
-  // Props từ bản develop (Sidebar logic)
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   hideCallActions?: boolean;
@@ -23,6 +23,63 @@ interface ChatHeaderProps extends ChatAreaProps {
   onToggleTranslation?: () => void;
   isSummarizing?: boolean;
 }
+
+// ─── Helper: format last seen ────────────────────────────────────────────────
+const formatLastSeen = (date: Date | null): string => {
+  if (!date) return "Ngoại tuyến";
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  // < 1 phút
+  if (diff < 60) return "Vừa hoạt động";
+  
+  // < 1 giờ
+  if (diff < 3600) return `Hoạt động ${Math.floor(diff / 60)} phút trước`;
+  
+  // < 24 giờ (trong cùng ngày)
+  const isSameDay = 
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+    
+  if (isSameDay) return `Hoạt động ${Math.floor(diff / 3600)} giờ trước`;
+
+  // Hôm qua
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = 
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
+    
+  if (isYesterday) return "Hoạt động hôm qua";
+
+  // < 7 ngày
+  if (diff < 7 * 86400) {
+    return `Hoạt động ${Math.floor(diff / 86400)} ngày trước`;
+  }
+
+  // Cùng năm hoặc khác năm
+  const d = date.getDate();
+  const m = date.getMonth() + 1;
+  const y = date.getFullYear();
+
+  if (y === now.getFullYear()) {
+    return `Hoạt động ${d} thg ${m}`;
+  }
+
+  return `Hoạt động ${d} thg ${m} ${y}`;
+};
+
+// ─── Helper: lấy userId của người kia trong 1-1 chat ────────────────────────
+const getOtherUserId = (conversation: Conversation, currentUserId?: string): string | null => {
+  if (conversation.type !== "private") return null;
+  const participants = conversation.participants ?? [];
+  const other = participants.find(
+    (p: any) => String(p.user_id ?? p._id) !== String(currentUserId)
+  );
+  return other ? String(other.user_id ?? other._id) : null;
+};
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
   conversation,
@@ -38,13 +95,60 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onToggleTranslation,
   isSummarizing = false,
 }) => {
-  const getConversationName = (): string => {
-    return getConversationDisplayName(conversation, currentUserId);
-  };
+  const { isUserOnline, getLastSeen, watchUsers } = usePresence();
 
-  const getConversationAvatar = (): string | undefined => {
-    return getConversationDisplayAvatar(conversation, currentUserId);
-  };
+  // Làm mới UI mỗi 1 phút để cập nhật thời gian "truy cập cuối"
+  const [, setTick] = React.useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getConversationName = (): string =>
+    getConversationDisplayName(conversation, currentUserId);
+
+  const getConversationAvatar = (): string | undefined =>
+    getConversationDisplayAvatar(conversation, currentUserId);
+
+  // Xác định userId của người kia (chỉ 1-1)
+  const otherUserId = getOtherUserId(conversation, currentUserId);
+
+  // Đăng ký theo dõi presence khi conversation thay đổi
+  useEffect(() => {
+    if (otherUserId) {
+      watchUsers([otherUserId]);
+    }
+    // Với group, có thể watch tất cả members
+    if (conversation.type === "group" && conversation.participants) {
+      const ids = (conversation.participants as any[])
+        .map((p: any) => String(p.user_id ?? p._id))
+        .filter(Boolean);
+      if (ids.length > 0) watchUsers(ids);
+    }
+  }, [otherUserId, conversation._id, watchUsers]);
+
+  // ─── Tính trạng thái hiển thị ────────────────────────────────────────────
+  let statusDot = false;
+  let statusText = "";
+
+  if (conversation.is_self_conversation) {
+    statusDot = false;
+    statusText = "";
+  } else if (conversation.type === "private" && otherUserId) {
+    statusDot = isUserOnline(otherUserId);
+    if (statusDot) {
+      statusText = "Đang hoạt động";
+    } else {
+      const lastSeen = getLastSeen(otherUserId);
+      statusText = formatLastSeen(lastSeen);
+    }
+  } else if (conversation.type === "group") {
+    const participants = conversation.participants ?? [];
+    statusDot = false; // Hide dot for group member count display
+    statusText = `${participants.length} thành viên`;
+  }
 
   return (
     <div className="relative flex-none z-10">
@@ -61,12 +165,26 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             <h2 className="font-bold text-gray-800 text-lg line-clamp-1">
               {getConversationName()}
             </h2>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              <p className="text-xs text-green-600 font-medium">
-                Đang hoạt động
-              </p>
-            </div>
+            {statusText && (
+              <div className="flex items-center gap-2">
+                {conversation.type !== "group" && (
+                  <span
+                    className={`w-2 h-2 rounded-full transition-colors duration-500 ${
+                      statusDot
+                        ? "bg-green-500 animate-pulse"
+                        : "bg-gray-300"
+                    }`}
+                  />
+                )}
+                <p
+                  className={`text-xs font-medium transition-colors duration-500 ${
+                    statusDot ? "text-green-600" : "text-gray-500"
+                  }`}
+                >
+                  {statusText}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -99,7 +217,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 )}
               </button>
 
-              {/* Vertical Divider (Optional) */}
+              {/* Vertical Divider */}
               <div className="w-px h-6 bg-gray-200 mx-1" />
             </>
           )}
@@ -128,8 +246,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           {/* Sidebar Toggle Button */}
           <button
             onClick={onToggleSidebar}
-            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
-              }`}
+            className={`p-2 hover:bg-gray-50 rounded-full transition-colors cursor-pointer ${
+              isSidebarOpen ? "bg-primary-50 text-primary-600" : ""
+            }`}
             title={isSidebarOpen ? "Đóng thông tin" : "Mở thông tin"}
           >
             {isSidebarOpen ? (
@@ -157,7 +276,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           </div>
           <button
             onClick={() => {
-              // Sử dụng cùng logic như handleCall
               if (onStartVideoCall) onStartVideoCall();
             }}
             className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[13px] font-bold rounded-xl transition-all shadow-sm active:scale-95"

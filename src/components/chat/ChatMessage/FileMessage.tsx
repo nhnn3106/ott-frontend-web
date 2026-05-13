@@ -34,6 +34,7 @@ export const FileMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   url: string;
@@ -51,6 +52,7 @@ export const FileMessage = ({
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: any[];
+  conversationType?: string;
 }) => {
   const isUploading = msg.local_status === "uploading";
   const isUploadSuccess = msg.local_status === "success";
@@ -117,6 +119,7 @@ export const FileMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div

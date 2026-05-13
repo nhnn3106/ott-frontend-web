@@ -15,11 +15,11 @@ import {
   PinOff,
   Play,
   Volume2,
-  X,
   AlertTriangle,
   Info,
   Trash2,
   Sparkles,
+  X,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
@@ -28,8 +28,6 @@ import { primeMessageSenderCache } from "../../hooks/useMessageSender";
 import {
   MessageService,
   ParticipantService,
-  UserService,
-  ConversationService,
   fetchRelationshipStatusViaChat,
   socketService,
   AiService,
@@ -40,7 +38,6 @@ import type {
   ImageSendSuccess,
   Message as ChatMessageType,
 } from "../../types/message.type";
-
 // Components
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
@@ -54,7 +51,6 @@ import { ReplacePinnedModal } from "../modal/ReplacePinnedModal";
 import { ForwardMessageModal } from "../modal/ForwardMessageModal";
 import { FriendRequestBar } from "./FriendRequestBar";
 import GroupCallModal from "./Modal/GroupCallModal";
-
 // Utils
 import {
   shouldShowTimestamp,
@@ -90,10 +86,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     conversations,
     updateConversation,
     updateParticipant,
-    updateConversationParticipant,
-    refreshConversations,
   } = useConversations();
-
   const normalizedUserId = currentUser?.id;
 
   const activeConversation = useMemo(() => {
@@ -114,6 +107,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     hasMore,
     hasMoreAfter,
   } = useChat(activeConversation?._id, normalizedUserId);
+
   const isInitialLoading = loading && messages.length === 0;
 
   const [isOpeningCall, setIsOpeningCall] = useState(false);
@@ -121,6 +115,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     title: string;
     message: string;
   } | null>(null);
+
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     action: "revoke" | "delete" | "delete-history" | null;
@@ -130,23 +125,37 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     action: null,
     message: null,
   });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastMarkedRef = useRef<string>("0");
+  const lastDeliveredRef = useRef<string>("0");
+
+  const seenMarkTimerRef = useRef<number | null>(null);
+  const allowInitialSeenRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
   const isLoadingNewerRef = useRef(false);
+
   const suppressAutoScrollAfterNewerLoadRef = useRef(false);
+  const newerLoadScrollTopRef = useRef<number | null>(null);
   const suppressTopLoadUntilRef = useRef(0);
   const suppressBottomLoadUntilRef = useRef(0);
+
+  const suppressAutoScrollUntilRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const wasNearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
   const scrollHeightRef = useRef(0);
+
+  const lastLayoutScrollHeightRef = useRef(0);
+  const lastLayoutClientHeightRef = useRef(0);
   const isFirstLoadRef = useRef(true); // Track if this is first load for this conversation
   const initialScrollRafRef = useRef<number | null>(null);
+
   const prevMessageCountRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
   const autoFillOlderRef = useRef(false);
+
   const pendingCallParamsRef = useRef<{
     type: "voice" | "video";
     action: "start" | "join";
@@ -159,27 +168,34 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
   const [showPinnedMenu, setShowPinnedMenu] = useState(false);
+
   const [expandedSystemGroups, setExpandedSystemGroups] = useState<
     Record<string, boolean>
   >({});
   const [replacePinModalOpen, setReplacePinModalOpen] = useState(false);
+
   const [pendingPinMessage, setPendingPinMessage] = useState<Message | null>(
     null,
   );
   const [forwardModalOpen, setForwardModalOpen] = useState(false);
+
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(
     null,
   );
   const [isForwarding, setIsForwarding] = useState(false);
+
   const [typingUserIds, setTypingUserIds] = useState<Record<string, number>>(
     {},
   );
+
   const [locallyRemovedPinnedMap, setLocallyRemovedPinnedMap] = useState<
     Record<string, Message>
   >({});
+
   const [removedMessageNotice, setRemovedMessageNotice] = useState<{
     isOpen: boolean;
     title: string;
@@ -206,9 +222,6 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const fetchStatus = useCallback(async () => {
     if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
       const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-
-      // If participants list is not in activeConversation, try to find from members if it's a private chat
-      // Actually, private conversations should have user_id if we fetch correctly.
 
       if (otherParticipantId) {
         setIsRelationshipLoading(true);
@@ -246,6 +259,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     };
 
     socketService.onRelationshipUpdate(handleRelationshipUpdate);
+
     return () => {
       socketService.offRelationshipUpdate(handleRelationshipUpdate);
     };
@@ -306,20 +320,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     // 3. Khai báo và chạy animation trực tiếp
     bubbleTarget.animate(
       [
-        {
-          transform: "scale(1)",
-        },
-        {
-          transform: "scale(1.10)",
-          offset: 0.3,
-        },
-        {
-          transform: "scale(0.9)",
-          offset: 0.7,
-        },
-        {
-          transform: "scale(1)",
-        },
+        { transform: "scale(1)" },
+        { transform: "scale(1.10)", offset: 0.3 },
+        { transform: "scale(0.9)", offset: 0.7 },
+        { transform: "scale(1)" },
       ],
       {
         duration: 1000,
@@ -402,10 +406,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           msg_id: draft.msg_id || clientMessageId,
           created_at: draft.created_at || new Date().toISOString(),
           createdAt: draft.createdAt || new Date().toISOString(),
-          sender_name:
-            draft.sender_name ||
-            currentUser?.fullName ||
-            "Bạn",
+          sender_name: draft.sender_name || currentUser?.fullName || "Bạn",
           reactions: Array.isArray(draft.reactions) ? draft.reactions : [],
           local_status: draft.local_status || "uploading",
           local_error: draft.local_error,
@@ -603,12 +604,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         ? firstContent
         : typeof firstContent === "object" && firstContent
           ? String(
-            (firstContent as { text?: string; url?: string; name?: string })
-              .text ||
-            (firstContent as { text?: string; url?: string; name?: string })
-              .url ||
-            (firstContent as { text?: string; url?: string; name?: string })
-              .name ||
+            (firstContent as { text?: string; url?: string; name?: string }).text ||
+            (firstContent as { text?: string; url?: string; name?: string }).url ||
+            (firstContent as { text?: string; url?: string; name?: string }).name ||
             "",
           )
           : String(firstContent || "");
@@ -624,24 +622,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           ? firstContent
           : typeof firstContent === "object" && firstContent
             ? String(
-              (firstContent as { url?: string; text?: string; name?: string })
-                .url ||
-              (
-                firstContent as {
-                  url?: string;
-                  text?: string;
-                  name?: string;
-                }
-              ).text ||
-              (
-                firstContent as {
-                  url?: string;
-                  text?: string;
-                  name?: string;
-                }
-              ).name ||
+              (firstContent as { url?: string; text?: string; name?: string }).url ||
+              (firstContent as { url?: string; text?: string; name?: string }).text ||
+              (firstContent as { url?: string; text?: string; name?: string }).name ||
               "",
-            )
+              )
             : "";
 
       const fallbackLabel =
@@ -691,10 +676,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (typeof firstContent === "object" && firstContent) {
       return String(
         (firstContent as { url?: string; text?: string; name?: string }).url ||
-        (firstContent as { url?: string; text?: string; name?: string })
-          .text ||
-        (firstContent as { url?: string; text?: string; name?: string })
-          .name ||
+        (firstContent as { url?: string; text?: string; name?: string }).text ||
+        (firstContent as { url?: string; text?: string; name?: string }).name ||
         "",
       );
     }
@@ -810,6 +793,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const primaryPinnedMessage = pinnedMessages[0] || null;
   const morePinnedCount = Math.max(0, pinnedMessages.length - 1);
+
   const pinnedMessageIdSet = useMemo(() => {
     return new Set(
       pinnedMessages.map((item) => String(item.msg_id || item._id || "")),
@@ -820,6 +804,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     const mergedByKey = new Map<string, Message>();
 
     [...messages, ...optimisticImageMessages].forEach((item) => {
+      const activeConversationId = String(activeConversation?._id || "");
+      const itemConversationId = String(
+        item?.conversation_id || (item as Message & { conversationId?: string })?.conversationId || "",
+      );
+
+      if (
+        activeConversationId &&
+        itemConversationId &&
+        itemConversationId !== activeConversationId
+      ) {
+        return;
+      }
+
       const stableId = String(item?.msg_id || item?._id || "").trim();
 
       if (!stableId) {
@@ -872,6 +869,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         | "call_end"
         | "call_cancel"
         | "call_no_answer";
+
       const rawReplyContent = Array.isArray(replyTarget.content)
         ? extractContentValue(replyTarget.content[0])
         : extractContentValue(replyTarget.content);
@@ -919,6 +917,25 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     });
   }, [extractContentValue, renderedMessages]);
 
+  const latestOwnMessageId = useMemo(() => {
+    for (let index = hydratedMessages.length - 1; index >= 0; index -= 1) {
+      const message = hydratedMessages[index];
+      const stableId = String(
+        message.msg_id || message._id || message.local_client_id || "",
+      ).trim();
+
+      if (
+        stableId &&
+        !isSystemLikeType(message.type) &&
+        String(message.sender_id || "") === String(normalizedUserId || "")
+      ) {
+        return stableId;
+      }
+    }
+
+    return "";
+  }, [hydratedMessages, normalizedUserId]);
+
   const timelineItems = useMemo(() => {
     const items: Array<
       | {
@@ -944,14 +961,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       const isSystemMsg = isSystemLikeType(currentMsg.type);
 
       if (!isSystemMsg) {
+        const stableMessageKey = String(
+          currentMsg.local_client_id ||
+          currentMsg.msg_id ||
+          currentMsg._id ||
+          `index-${index}`,
+        );
+
         items.push({
           kind: "message",
-          key: `message-${String(
-            currentMsg.local_client_id ||
-            currentMsg.msg_id ||
-            currentMsg._id ||
-            index,
-          )}-${index}`,
+          key: `message-${stableMessageKey}`,
           message: currentMsg,
           showTime: shouldShowTimestamp(
             currentMsg.createdAt || "",
@@ -971,6 +990,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       let endIndex = index;
       while (endIndex + 1 < hydratedMessages.length) {
         const nextMsg = hydratedMessages[endIndex + 1];
+
         if (!isSystemLikeType(nextMsg.type)) {
           break;
         }
@@ -1164,6 +1184,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     }
 
     const blockReason = getCallOpenBlockReason(activeConversation._id);
+
     if (blockReason === "other") {
       setCallBlockModal({
         title: "Đang trong cuộc gọi",
@@ -1184,6 +1205,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       activeConversation,
       normalizedUserId,
     );
+
     const displayAvatar =
       getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
 
@@ -1200,6 +1222,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       displayName,
       displayAvatar,
     };
+
     socketService.checkCallAvailability(
       activeConversation._id,
       normalizedUserId as string,
@@ -1231,6 +1254,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   // Logic đánh dấu đã đọc
   useEffect(() => {
     lastMarkedRef.current = "0";
+    lastDeliveredRef.current = "0";
+    allowInitialSeenRef.current = true;
+    if (seenMarkTimerRef.current !== null) {
+      window.clearTimeout(seenMarkTimerRef.current);
+      seenMarkTimerRef.current = null;
+    }
     setReplyToMessage(null);
     scrollHeightRef.current = 0; // Reset scroll position when conversation changes
     isLoadingMoreRef.current = false; // Reset loading state
@@ -1241,6 +1270,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     }
     prevMessageCountRef.current = 0;
     prevLastMessageIdRef.current = null;
+    lastLayoutScrollHeightRef.current = 0;
+    lastLayoutClientHeightRef.current = 0;
+    newerLoadScrollTopRef.current = null;
     forceScrollToBottomRef.current = false;
     suppressAutoScrollAfterNewerLoadRef.current = false;
     lastScrollTopRef.current = 0;
@@ -1254,43 +1286,141 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     primeMessageSenderCache(activeConversation?.participants);
   }, [activeConversation?.participants]);
 
+  const latestMessageForCursor = messages[messages.length - 1] as
+    | (ChatMessageType & { _id?: string; msg_id?: string; sender_id?: string })
+    | undefined;
+
+  const latestCursorMsgId = String(latestMessageForCursor?.msg_id || "").trim();
+  const latestStableMsgId = String(
+    latestMessageForCursor?.msg_id ||
+    latestMessageForCursor?._id ||
+    latestMessageForCursor?.local_client_id ||
+    "",
+  ).trim();
+
+  const latestMessageSenderId = String(
+    latestMessageForCursor?.sender_id || "",
+  ).trim();
+
+  const latestMessageConversationId = String(
+    latestMessageForCursor?.conversation_id ||
+    (latestMessageForCursor as
+      | (ChatMessageType & { conversationId?: string })
+      | undefined)?.conversationId ||
+    "",
+  ).trim();
+
+  const latestMessageMatchesActiveConversation =
+    !latestMessageConversationId ||
+    latestMessageConversationId === String(activeConversation?._id || "");
+
   useEffect(() => {
-    if (!messages.length || !normalizedUserId || !activeConversation?._id)
+    if (
+      !latestCursorMsgId ||
+      !latestMessageMatchesActiveConversation ||
+      !normalizedUserId ||
+      !activeConversation?._id
+    ) {
       return;
+    }
 
-    // Mark ALL visible messages as read (including our own)
-    // This is correct because we're viewing them
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg.msg_id || lastMsg.msg_id === lastMarkedRef.current) return;
+    if (latestCursorMsgId === lastDeliveredRef.current) return;
 
-    lastMarkedRef.current = lastMsg.msg_id;
-
-    console.log(
-      `📖 Marking conversation as read up to msg_id: ${lastMsg.msg_id}`,
-    );
-
-    // Cập nhật UI ngay lập tức thông qua context
+    lastDeliveredRef.current = latestCursorMsgId;
     updateParticipant(activeConversation._id, {
-      last_read_message_id: lastMsg.msg_id,
+      last_delivered_message_id: latestCursorMsgId,
+      last_delivered_at: new Date().toISOString(),
     });
 
-    // Lưu dự phòng và gọi API
-    localStorage.setItem(
-      `read_${activeConversation._id}_${normalizedUserId}`,
-      lastMsg.msg_id,
-    );
-    ParticipantService.markAsRead(
+    socketService.markMessagesDeliveredUpTo(
       activeConversation._id,
       normalizedUserId,
-      lastMsg.msg_id,
-    )
-      .then((updated) => {
-        console.log(`✓ Backend confirmed read status update:`, updated);
-      })
-      .catch((error) => {
-        console.error(`✗ Failed to mark as read:`, error);
-      });
-  }, [messages, normalizedUserId, activeConversation?._id, updateParticipant]);
+      latestCursorMsgId,
+    );
+  }, [
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    normalizedUserId,
+    activeConversation?._id,
+    updateParticipant,
+  ]);
+
+  const markMessageSeenUpTo = useCallback(
+    (msgId: string, options: { immediate?: boolean } = {}) => {
+      if (!msgId || !normalizedUserId || !activeConversation?._id) return;
+      if (msgId === lastMarkedRef.current) return;
+
+      if (seenMarkTimerRef.current !== null) {
+        window.clearTimeout(seenMarkTimerRef.current);
+        seenMarkTimerRef.current = null;
+      }
+
+      const markSeen = () => {
+        lastMarkedRef.current = msgId;
+        seenMarkTimerRef.current = null;
+
+        const now = new Date().toISOString();
+        updateParticipant(activeConversation._id, {
+          last_delivered_message_id: msgId,
+          last_delivered_at: now,
+          last_read_message_id: msgId,
+          last_read_at: now,
+          unread_count: 0,
+        });
+
+        socketService.markMessageSeenUpTo(
+          activeConversation._id,
+          normalizedUserId,
+          msgId,
+        );
+      };
+
+      if (options.immediate) {
+        markSeen();
+        return;
+      }
+
+      seenMarkTimerRef.current = window.setTimeout(markSeen, 120);
+    },
+    [activeConversation?._id, normalizedUserId, updateParticipant],
+  );
+
+  const markLatestMessageSeen = useCallback(
+    (requireNearBottom: boolean = true) => {
+      if (!latestCursorMsgId) return;
+      if (!latestMessageMatchesActiveConversation) return;
+
+      if (requireNearBottom) {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const distanceToBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceToBottom > 180) return;
+      }
+
+      markMessageSeenUpTo(latestCursorMsgId);
+    },
+    [
+      latestCursorMsgId,
+      latestMessageMatchesActiveConversation,
+      markMessageSeenUpTo,
+    ],
+  );
+
+  useEffect(() => {
+    if (!allowInitialSeenRef.current) return;
+    if (!latestCursorMsgId) return;
+    if (!latestMessageMatchesActiveConversation) return;
+    if (latestCursorMsgId === lastMarkedRef.current) return;
+
+    allowInitialSeenRef.current = false;
+    markMessageSeenUpTo(latestCursorMsgId, { immediate: true });
+  }, [
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    markMessageSeenUpTo,
+  ]);
 
   useEffect(() => {
     if (smartReplies.length > 0) {
@@ -1388,7 +1518,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         }
 
         const isCenteredInView = () => {
-          const containerRect = container.getBoundingClientRect();
+           const containerRect = container.getBoundingClientRect();
           const targetRect = target.getBoundingClientRect();
           const targetCenterY = targetRect.top + targetRect.height / 2;
           return (
@@ -1478,17 +1608,41 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         const loadedContext = await loadMessageContext(messageId, 20, 20);
 
         if (loadedContext) {
+          // Prevent auto-scroll to bottom from fighting with our jump.
+          suppressAutoScrollUntilRef.current = Date.now() + 1500;
+          isFirstLoadRef.current = false;
+          wasNearBottomRef.current = false;
+
           // Prevent immediate top-trigger load burst after context replacement.
           suppressTopLoadUntilRef.current = Date.now() + 600;
-          await waitForNextFrame();
-          targetElement = findTarget();
+
+          // React batches state updates - the DOM may not be ready after just
+          // one animation frame.
+          // Poll up to 20 times (x50ms = 1s) so the
+          // element is found as soon as React commits the new messages to DOM.
+          const MAX_RETRIES = 20;
+          const RETRY_INTERVAL_MS = 50;
+          for (let i = 0; i < MAX_RETRIES; i++) {
+            await waitForNextFrame();
+            targetElement = findTarget();
+            if (targetElement) break;
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, RETRY_INTERVAL_MS),
+            );
+          }
         }
       }
 
       if (!targetElement) return false;
 
+      // Ensure auto-scroll doesn't override our manual scroll.
+      suppressAutoScrollUntilRef.current = Date.now() + 1000;
+      wasNearBottomRef.current = false;
+      setShowScrollButton(true);
+
       centerTargetInContainer(targetElement);
       await waitForNextFrame();
+
       if (targetElement.isConnected) {
         centerTargetInContainer(targetElement);
       }
@@ -1540,6 +1694,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleReactMessage = async (msg: Message, reactionType: string) => {
     if (!activeConversation?._id || !normalizedUserId || !msg.msg_id) return;
+
     try {
       await MessageService.reactToMessage(
         activeConversation._id,
@@ -1581,6 +1736,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (!forwardingMessage || !normalizedUserId || !activeConversation?._id) return;
 
     setIsForwarding(true);
+
     try {
       const response = await MessageService.forwardMessage(
         forwardingMessage.msg_id || forwardingMessage._id || "",
@@ -1656,6 +1812,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       }
 
       const systemMessage = pinResult?.systemMessage;
+
       if (systemMessage) {
         const rawSystemContent = Array.isArray(systemMessage.content)
           ? String(systemMessage.content[0] || "")
@@ -1678,11 +1835,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       await loadMessages();
       await loadPinnedMessages();
+
       window.dispatchEvent(
         new CustomEvent("chat:pinned-updated", {
           detail: { conversationId: activeConversation._id },
         }),
       );
+
     } catch (error) {
       console.error("Ghim/Bỏ ghim tin nhắn thất bại:", error);
 
@@ -1765,6 +1924,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       await loadMessages();
       await loadPinnedMessages();
+
       window.dispatchEvent(
         new CustomEvent("chat:pinned-updated", {
           detail: { conversationId: activeConversation._id },
@@ -1775,6 +1935,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       setPendingPinMessage(null);
     } catch (error) {
       console.error("Thay thế ghim thất bại:", error);
+
       const errorMessage =
         error instanceof Error ? error.message : "Không thể cập nhật ghim";
       alert(errorMessage);
@@ -1783,6 +1944,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleConfirmAction = async () => {
     const { action, message } = confirmModal;
+
     if (
       !action ||
       !message ||
@@ -1795,6 +1957,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     try {
       if (action === "delete-history") {
         await ParticipantService.deleteConversation(activeConversation._id, normalizedUserId);
+
         setConfirmModal({ isOpen: false, action: null, message: null });
 
         // Remove from list
@@ -1831,11 +1994,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
         await loadMessages();
         await loadPinnedMessages();
+
         window.dispatchEvent(
           new CustomEvent("chat:pinned-updated", {
             detail: { conversationId: activeConversation._id },
           }),
         );
+
       } else if (action === "delete") {
         const wasCurrentLastMessage =
           String(activeConversation?.last_message?.msg_id || "") ===
@@ -1858,6 +2023,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             activeConversation._id,
             deletedMessageId,
           );
+
           setLocallyRemovedPinnedMap((prev) => ({
             ...prev,
             [scopedKey]: {
@@ -1921,6 +2087,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
         await loadMessages();
         await loadPinnedMessages();
+
         window.dispatchEvent(
           new CustomEvent("chat:pinned-updated", {
             detail: { conversationId: activeConversation._id },
@@ -1978,13 +2145,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         // Auto-fill runs right after initial open for short histories.
         // Keep viewport anchored to newest message instead of jumping to top.
         const latestContainer = messagesContainerRef.current;
+
         if (latestContainer && wasNearBottomRef.current) {
           latestContainer.scrollTop = latestContainer.scrollHeight;
+
           window.requestAnimationFrame(() => {
             const finalContainer = messagesContainerRef.current;
             if (!finalContainer) return;
             finalContainer.scrollTop = finalContainer.scrollHeight;
           });
+
           setShowScrollButton(false);
         }
       } finally {
@@ -2000,6 +2170,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
    */
   const handleScroll = () => {
     const container = messagesContainerRef.current;
+
     if (!container) return;
 
     const currentScrollTop = container.scrollTop;
@@ -2040,7 +2211,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     ) {
       isLoadingNewerRef.current = true;
       suppressAutoScrollAfterNewerLoadRef.current = true;
+      newerLoadScrollTopRef.current = currentScrollTop;
       suppressBottomLoadUntilRef.current = Date.now() + 400;
+
       loadMessageContextAfterLast().finally(() => {
         isLoadingNewerRef.current = false;
         setShowScrollButton(true);
@@ -2101,12 +2274,34 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (!container) return;
 
     const currentMessageCount = messages.length;
-    const currentLastMessageId =
-      (messages[messages.length - 1]?.msg_id as string | undefined) ||
-      (messages[messages.length - 1]?._id as string | undefined) ||
-      null;
+    const currentLastMessageId = latestStableMsgId || null;
     const previousMessageCount = prevMessageCountRef.current;
     const previousLastMessageId = prevLastMessageIdRef.current;
+
+    // Loading newer messages below should extend the bottom only.
+    // Keep the viewport anchored exactly where the user was before the fetch.
+    if (suppressAutoScrollAfterNewerLoadRef.current) {
+      if (newerLoadScrollTopRef.current !== null) {
+        container.scrollTop = newerLoadScrollTopRef.current;
+      }
+
+      // After appending messages below, this viewport is no longer anchored to
+      // the bottom. Keep later layout changes from snapping it down.
+      wasNearBottomRef.current = false;
+      setShowScrollButton(true);
+      prevMessageCountRef.current = currentMessageCount;
+      prevLastMessageIdRef.current = currentLastMessageId;
+
+      lastLayoutScrollHeightRef.current = container.scrollHeight;
+      lastLayoutClientHeightRef.current = container.clientHeight;
+
+      if (!isLoadingNewerRef.current) {
+        suppressAutoScrollAfterNewerLoadRef.current = false;
+        newerLoadScrollTopRef.current = null;
+      }
+
+      return;
+    }
 
     if (forceScrollToBottomRef.current && messages.length > 0 && !loading) {
       if (initialScrollRafRef.current !== null) {
@@ -2165,17 +2360,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       // Cập nhật ref để tránh logic auto-scroll xuống dưới chạy đè lên
       prevMessageCountRef.current = messages.length;
-      return;
-    }
 
-    // When we just loaded messages below, keep viewport exactly where it is.
-    if (
-      suppressAutoScrollAfterNewerLoadRef.current &&
-      !isLoadingNewerRef.current
-    ) {
-      suppressAutoScrollAfterNewerLoadRef.current = false;
-      prevMessageCountRef.current = currentMessageCount;
-      prevLastMessageIdRef.current = currentLastMessageId;
       return;
     }
 
@@ -2186,25 +2371,89 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       currentLastMessageId !== previousLastMessageId;
 
     const wasNearBottom = wasNearBottomRef.current;
+    const isIncomingLatestMessage =
+      !!latestMessageSenderId &&
+      !!normalizedUserId &&
+      latestMessageSenderId !== String(normalizedUserId);
 
     if (
       !isLoadingMoreRef.current &&
       !isLoadingNewerRef.current &&
       !loading &&
       hasAppendedNewMessage &&
-      wasNearBottom
+      wasNearBottom &&
+      Date.now() > suppressAutoScrollUntilRef.current
     ) {
       requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight;
         wasNearBottomRef.current = true;
         setShowScrollButton(false); // Hide button when scrolling to bottom
+        
+        if (
+          isIncomingLatestMessage &&
+          latestCursorMsgId &&
+          latestMessageMatchesActiveConversation
+        ) {
+          markMessageSeenUpTo(latestCursorMsgId, { immediate: true });
+        }
         console.log("✓ Auto-scrolled to bottom (new message)");
       });
     }
 
     prevMessageCountRef.current = currentMessageCount;
     prevLastMessageIdRef.current = currentLastMessageId;
-  }, [messages, loading]);
+
+  }, [
+    messages.length,
+    latestStableMsgId,
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    latestMessageSenderId,
+    loading,
+    markMessageSeenUpTo,
+    normalizedUserId,
+    waitForInitialMediaToSettle,
+    waitForNextFrame,
+  ]);
+
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const previousHeight = lastLayoutScrollHeightRef.current;
+    const previousClientHeight = lastLayoutClientHeightRef.current;
+    const currentHeight = container.scrollHeight;
+    const currentClientHeight = container.clientHeight;
+    const heightChanged = previousHeight > 0 && currentHeight !== previousHeight;
+    const clientHeightChanged =
+      previousClientHeight > 0 && currentClientHeight !== previousClientHeight;
+
+    if (heightChanged || clientHeightChanged) {
+      const previousDistanceToBottom =
+        (previousHeight || currentHeight) -
+        container.scrollTop -
+        (previousClientHeight || currentClientHeight);
+      const shouldKeepBottom =
+        wasNearBottomRef.current || previousDistanceToBottom < 140;
+
+      if (
+        shouldKeepBottom &&
+        !isLoadingMoreRef.current &&
+        !isLoadingNewerRef.current &&
+        !isFirstLoadRef.current &&
+        !forceScrollToBottomRef.current &&
+        !suppressAutoScrollAfterNewerLoadRef.current &&
+        Date.now() > suppressAutoScrollUntilRef.current
+      ) {
+        container.scrollTop = container.scrollHeight;
+        wasNearBottomRef.current = true;
+        setShowScrollButton(false);
+      }
+    }
+
+    lastLayoutScrollHeightRef.current = container.scrollHeight;
+    lastLayoutClientHeightRef.current = container.clientHeight;
+  });
 
   // AI Smart Replies Logic
   useEffect(() => {
@@ -2231,14 +2480,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
           console.log("[AI Debug] Fetching smart replies for conversation:", aiConvId);
           const suggestions = await AiService.getSmartReplies(aiConvId);
+
           // Vì BE đã dùng JSON Mode và lọc kỹ, FE chỉ cần filter cơ bản
           setSmartReplies((suggestions || []).slice(0, 3));
+
         } catch (error) {
           console.error("Error fetching smart replies:", error);
         } finally {
           setIsSmartReplyLoading(false);
         }
       };
+
       fetchSuggestions();
     } else {
       setSmartReplies([]);
@@ -2293,6 +2545,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleSummarize = async () => {
     setIsSummarizing(true);
+
     try {
       const aiConvId = activeConversation._id.startsWith('VIRTUAL_CONV_')
         ? activeConversation._id.replace('VIRTUAL_CONV_', '')
@@ -2300,8 +2553,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       const summary = await AiService.summarizeConversation(aiConvId);
       setSummaryResult(summary);
+
     } catch (error) {
       console.error("Summarization error:", error);
+
     } finally {
       setIsSummarizing(false);
     }
@@ -2310,6 +2565,15 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const handleToggleTranslation = () => {
     setIsTranslating(!isTranslating);
   };
+
+  useEffect(() => {
+    return () => {
+      if (seenMarkTimerRef.current !== null) {
+        window.clearTimeout(seenMarkTimerRef.current);
+        seenMarkTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleScrollBottom = () => {
@@ -2365,6 +2629,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     };
 
     window.addEventListener("chat:jump", handler as EventListener);
+
     return () => {
       window.removeEventListener("chat:jump", handler as EventListener);
     };
@@ -2463,37 +2728,22 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       userId?: string;
     }) => {
       if (payload.conversationId !== activeConversation?._id) return;
+
       if (!payload.userId) return;
       unmarkTyping(payload.userId);
     };
 
-    const handleReadStatus = (payload: {
-      conversationId: string;
-      userId: string;
-      msgId: string;
-    }) => {
-      if (payload.conversationId !== activeConversation?._id) return;
-      if (String(payload.userId) === String(normalizedUserId || "")) return;
-
-      updateConversationParticipant(payload.conversationId, payload.userId, {
-        last_read_message_id: payload.msgId,
-      } as any);
-    };
-
     socketService.onTyping(handleTypingStart);
     socketService.onTypingStopped(handleTypingStop);
-    socketService.onReadStatus(handleReadStatus);
 
     return () => {
       socketService.offTyping(handleTypingStart);
       socketService.offTypingStopped(handleTypingStop);
-      socketService.offReadStatus(handleReadStatus);
     };
+
   }, [
     activeConversation?._id,
     normalizedUserId,
-    updateParticipant,
-    updateConversationParticipant,
   ]);
 
   useEffect(() => {
@@ -2586,10 +2836,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             ["overflowAnchor" as any]: "none",
           }}
           onScroll={handleScroll}
+          onMouseDown={() => markLatestMessageSeen(true)}
+          onTouchStart={() => markLatestMessageSeen(true)}
+          onWheel={() => markLatestMessageSeen(true)}
         >
           {primaryPinnedMessage && (
             <div
-              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
+               className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
               style={{
                 transform: "translate3d(0, 0, 0)",
                 willChange: "transform", // Báo trước cho trình duyệt để tối ưu
@@ -2626,7 +2879,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
                     <button
                     type="button"
-                    onClick={(event) => {
+                     onClick={(event) => {
                       event.stopPropagation();
                       void handlePinMessage(primaryPinnedMessage);
                     }}
@@ -2687,7 +2940,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                             }}
                             className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 mt-0.5"
                             title="Bỏ ghim"
-                          >
+                           >
                             <PinOff size={14} />
                           </button>
                         </div>
@@ -2698,14 +2951,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               </div>
             </div>
           )}
-          <div className="flex-1 min-h-0" />
+           <div className="flex-1 min-h-0" />
 
           {/* Loading indicator for older messages */}
           {loading && messages.length > 0 && (
             <div className="flex items-center justify-center gap-2 text-sm text-gray-500 py-1">
               <Loader2 size={14} className="animate-spin " />
               Đang tải tin nhắn cũ...
-            </div>
+             </div>
           )}
 
           {/* No more messages indicator */}
@@ -2726,34 +2979,35 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               <div className="relative group overflow-hidden bg-white/70 backdrop-blur-xl px-10 py-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-white flex flex-col items-center gap-6 max-w-sm transition-all hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
                 {/* Decorative background element */}
                 <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-100/30 rounded-full blur-3xl" />
-                <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-amber-100/30 rounded-full blur-3xl" />
+                 <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-amber-100/30 rounded-full blur-3xl" />
 
                 <div className="relative w-16 h-16 rounded-3xl bg-amber-50 flex items-center justify-center text-amber-500 shadow-inner">
                   <AlertTriangle size={32} strokeWidth={2} />
                 </div>
 
-                <div className="relative flex flex-col items-center gap-2">
+                 <div className="relative flex flex-col items-center gap-2">
                   <h3 className="text-[19px] font-bold text-slate-800 text-center leading-tight">
                     Nhóm đã được giải tán
                   </h3>
                   <p className="text-[14px] text-slate-500 text-center max-w-[240px] leading-relaxed">
-                    Trưởng nhóm đã đóng cuộc hội thoại này. Bạn vẫn có thể xem lại lịch sử tin nhắn.
-                  </p>
+                    Trưởng nhóm đã đóng cuộc hội thoại này.
+Bạn vẫn có thể xem lại lịch sử tin nhắn.
+</p>
                 </div>
 
                 <button
                   onClick={() => {
                     setConfirmModal({
                       isOpen: true,
-                      action: "delete-history" as any,
+                       action: "delete-history" as any,
                       message: { msg_id: "DUMMY_ID" } as any,
                     });
-                  }}
+}}
                   className="relative px-6 py-2.5 bg-primary-50 hover:bg-primary-100 text-primary-600 font-bold text-[15px] rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 shadow-sm"
                 >
                   <Trash2 size={16} />
                   Xóa trò chuyện
-                </button>
+                 </button>
               </div>
             </div>
 
@@ -2764,14 +3018,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               if (item.kind === "system-group") {
                 const isExpanded = !!expandedSystemGroups[item.key];
                 const shouldCollapseGroup = item.messages.length >= 2;
-                const visibleSystemMessages =
+                 const visibleSystemMessages =
                   shouldCollapseGroup && !isExpanded ? [] : item.messages;
 
                 return (
                   <React.Fragment key={item.key}>
                     {item.showTime && <ChatTimeSeparator time={item.time} />}
 
-                    {visibleSystemMessages.map((systemMsg) => {
+                     {visibleSystemMessages.map((systemMsg) => {
                       const notificationContent = Array.isArray(
                         systemMsg.content,
                       )
@@ -2780,7 +3034,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
                       return (
                         <div
-                          key={`system-${String(systemMsg.msg_id || systemMsg._id)}`}
+                           key={`system-${String(systemMsg.msg_id || systemMsg._id)}`}
                           id={`chat-msg-${systemMsg.msg_id || systemMsg._id}`}
                           data-message-id={String(
                             systemMsg.msg_id || systemMsg._id,
@@ -2796,7 +3050,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                           />
                         </div>
                       );
-                    })}
+})}
 
                     {shouldCollapseGroup &&
                       visibleSystemMessages.length === 0 && (
@@ -2805,36 +3059,37 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                             type="button"
                             onClick={() =>
                               setExpandedSystemGroups((prev) => ({
-                                ...prev,
+                               ...prev,
                                 [item.key]: !isExpanded,
                               }))
-                            }
+                             }
                             className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
                           >
-                            Xem {item.messages.length} thông báo
+                             Xem {item.messages.length} thông báo
                           </button>
                         </div>
                       )}
 
-                    {shouldCollapseGroup && isExpanded && (
+                    {shouldCollapseGroup && 
+isExpanded && (
                       <div className="flex justify-center mb-2">
                         <button
                           type="button"
-                          onClick={() =>
+                           onClick={() =>
                             setExpandedSystemGroups((prev) => ({
                               ...prev,
                               [item.key]: false,
-                            }))
+                             }))
                           }
                           className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
                         >
                           Thu gọn thông báo
                         </button>
                       </div>
-                    )}
+                     )}
                   </React.Fragment>
                 );
-              }
+}
 
               const msg = item.message;
               const index = item.index;
@@ -2850,18 +3105,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               );
               const isTopBoundary = index === firstUserMessageIndex;
               const isMe = msg.sender_id === normalizedUserId;
-
               const isFirstInSequence =
-                !prevMsg ||
-                prevIsSystem ||
+                !prevMsg || prevIsSystem ||
                 prevMsg.sender_id !== msg.sender_id ||
                 item.showTime;
               const isLastInSequence =
-                !nextMsg ||
-                nextIsSystem ||
+                !nextMsg || nextIsSystem ||
                 nextMsg.sender_id !== msg.sender_id ||
                 nextShowTime;
-
+              const stableMessageId = String(
+                msg.msg_id || msg._id || msg.local_client_id || "",
+              ).trim();
               return (
                 <React.Fragment key={item.key}>
                   {item.showTime && <ChatTimeSeparator time={item.time} />}
@@ -2877,48 +3131,52 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                         ...msg,
                         is_pinned:
                           Boolean(msg.is_pinned) ||
-                          pinnedMessageIdSet.has(
+                           pinnedMessageIdSet.has(
                             String(msg.msg_id || msg._id || ""),
                           ),
+                        __show_delivery_status:
+                           isMe &&
+                          Boolean(stableMessageId) &&
+                          stableMessageId === latestOwnMessageId,
                       }}
-                      isMe={isMe}
+                       isMe={isMe}
                       currentUserId={normalizedUserId}
                       isFirstInSequence={isFirstInSequence}
                       isLastInSequence={isLastInSequence}
-                      isTopBoundary={isTopBoundary}
+                       isTopBoundary={isTopBoundary}
                       onMediaClick={(imageIndex) =>
                         handleOpenMedia(msg._id, imageIndex)
                       }
                       onReply={handleReplyMessage}
-                      onReact={handleReactMessage}
+                       onReact={handleReactMessage}
                       onRevoke={handleRevokeMessage}
                       onDelete={handleDeleteMessage}
                       onPin={handlePinMessage}
-                      onForward={handleForwardMessage}
+                       onForward={handleForwardMessage}
                       conversation={activeConversation}
                       translatedText={translatedMessages[msg._id]}
                     />
                   </div>
-                </React.Fragment>
+                 </React.Fragment>
               );
-            })
+})
           )}
 
           {typingUsers.length > 0 && !isInvited && (
             <div className="flex items-center  gap-2 mt-1 mb-1 pl-0.5">
               {/* Phần Avatar giữ nguyên */}
               <div className="w-8 h-8 rounded-full overflow-hidden border border-white/80 shadow-sm bg-slate-300 shrink-0">
-                {typingUsers[0].avatar ? (
+                 {typingUsers[0].avatar ? (
                   <img
                     src={typingUsers[0].avatar}
                     alt={typingUsers[0].name}
                     className="w-full h-full object-cover"
-                    loading="lazy"
+                     loading="lazy"
                     decoding="async"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-[11px] font-semibold text-white bg-slate-500">
-                    {typingUsers[0].name.charAt(0).toUpperCase()}
+                     {typingUsers[0].name.charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
@@ -2930,17 +3188,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                   style={{ animationDelay: "0ms" }}
                 />
                 <span
-                  className="w-1 h-1 rounded-full bg-slate-400  animate-bounce-high"
+                   className="w-1 h-1 rounded-full bg-slate-400  animate-bounce-high"
                   style={{ animationDelay: "140ms" }}
                 />
                 <span
                   className="w-1 h-1 rounded-full bg-slate-400  animate-bounce-high"
-                  style={{ animationDelay: "280ms" }}
+                   style={{ animationDelay: "280ms" }}
                 />
                 {typingUsers.length > 1 && (
                   <span className="ml-1 text-[11px] font-medium text-slate-500">
                     +{typingUsers.length - 1}
-                  </span>
+                   </span>
                 )}
               </div>
             </div>
@@ -2959,7 +3217,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               <ChevronDown size={24} strokeWidth={2} />
             </button>
           )}
-        </div>
+         </div>
 
         {isParticipant && !isDissolved && !isInvited && relationshipStatus?.status !== "BLOCKED" ? (
           <>
@@ -2989,14 +3247,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                   >
                     <X size={18} />
                   </button>
-                </div>
+                 </div>
               </div>
             )}
 
             <div className="relative bg-white border-t border-slate-100">
               {/* Nút "Gợi ý AI" kiểu Pill - Hiện phía trên input bên phải */}
               {smartReplies.length > 0 && !isSmartReplyOpen && (
-                <button
+                 <button
                   onClick={() => setIsSmartReplyOpen(true)}
                   className="absolute -top-12 right-6 px-4 py-2 bg-white border border-primary-100 text-primary-600 rounded-full shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2 z-20 group animate-in fade-in slide-in-from-bottom-2"
                 >
@@ -3011,7 +3269,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               <div className="w-full">
                 <ChatInput
                   key={
-                    activeConversation.type === 'private' || activeConversation._id.startsWith('VIRTUAL_CONV_')
+                    activeConversation.type === 'private' ||
+                    activeConversation._id.startsWith('VIRTUAL_CONV_')
                       ? (activeConversation._id.startsWith('VIRTUAL_CONV_')
                         ? activeConversation._id.replace('VIRTUAL_CONV_', '')
                         : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
@@ -3052,7 +3311,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 </div>
               )}
               <p className="text-[14px] font-semibold">
-                {isDissolved
+                 {isDissolved
                   ? "Bạn không thể gửi tin nhắn vào nhóm được nữa"
                   : relationshipStatus?.status === "BLOCKED"
                     ? ((relationshipStatus.requester_id === normalizedUserId || relationshipStatus.requesterId === normalizedUserId)
@@ -3072,7 +3331,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         onClose={toggleSidebar}
       />
 
-      {/* Media Viewer Overlay */}
+       {/* Media Viewer Overlay */}
       {viewerOpen && (
         <MediaViewer
           isOpen={viewerOpen}
@@ -3084,7 +3343,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         />
       )}
 
-      {/* Confirm Modal */}
+       {/* Confirm Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={
@@ -3096,7 +3355,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           confirmModal.action === "revoke"
             ? "Tin nhắn này sẽ bị thu hồi với tất cả mọi người trong đoạn chat"
             : "Tin nhắn này sẽ bị xóa khỏi thiết bị của bạn, nhưng vẫn hiện thị với các thành viên khác trong đoạn chat."
-        }
+}
         confirmText={
           confirmModal.action === "revoke"
             ? "Thu Hồi"
@@ -3117,7 +3376,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       />
 
       <ConfirmModal
-        isOpen={removedMessageNotice.isOpen}
+         isOpen={removedMessageNotice.isOpen}
         title={removedMessageNotice.title}
         message={removedMessageNotice.message}
         confirmText="Đóng"
@@ -3127,7 +3386,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             ...prev,
             isOpen: false,
           }))
-        }
+         }
         onCancel={() =>
           setRemovedMessageNotice((prev) => ({
             ...prev,
@@ -3139,13 +3398,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       <ReplacePinnedModal
         isOpen={replacePinModalOpen}
         pinnedMessages={pinnedMessages}
-        pendingMessage={pendingPinMessage}
+         pendingMessage={pendingPinMessage}
         getSenderName={getPinnedSenderName}
         getPreviewText={getPinnedPreviewText}
         renderTypeVisual={renderPinnedTypeVisual}
         onClose={() => {
           setReplacePinModalOpen(false);
-          setPendingPinMessage(null);
+setPendingPinMessage(null);
         }}
         onConfirm={handleConfirmReplacePinned}
       />
@@ -3159,7 +3418,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         isSubmitting={isForwarding}
         onClose={() => {
           setForwardModalOpen(false);
-          setForwardingMessage(null);
+setForwardingMessage(null);
         }}
         onConfirm={handleConfirmForwardMessage}
       />
@@ -3179,7 +3438,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           isOpen={isGroupCallModalOpen}
           onClose={() => setIsGroupCallModalOpen(false)}
           onStart={handleGroupCallStart}
-          conversationId={activeConversation._id}
+           conversationId={activeConversation._id}
           initialCallType={initialCallTypeForGroup}
           currentUserId={normalizedUserId}
         />
@@ -3191,28 +3450,27 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         title="Tóm tắt hội thoại (AI)"
         message={
           <div className="text-left py-2">
-            <div className="bg-white rounded-2xl p-5 border border-primary-100 shadow-inner max-h-[60vh] overflow-y-auto space-y-4">
+             <div className="bg-white rounded-2xl p-5 border border-primary-100 shadow-inner max-h-[60vh] overflow-y-auto space-y-4">
               {summaryResult?.split('\n').map((line, i) => {
                 const cleanLine = line.trim();
                 if (!cleanLine) return null;
-                
-                const isBullet = cleanLine.startsWith('-') || cleanLine.startsWith('*');
+const isBullet = cleanLine.startsWith('-') || cleanLine.startsWith('*');
                 
                 return (
                   <div key={i} className={`flex items-start gap-3 ${isBullet ? 'pl-2' : ''}`}>
                     {isBullet ? (
                       <div className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-400 flex-shrink-0 shadow-sm" />
-                    ) : (
+                     ) : (
                       <div className="mt-1 p-1.5 bg-primary-50 text-primary-600 rounded-lg shadow-sm flex-shrink-0">
                         <Sparkles size={14} />
                       </div>
-                    )}
+                     )}
                     <p className={`text-sm leading-relaxed ${isBullet ? 'text-gray-700' : 'text-gray-800 font-medium'}`}>
                       {cleanLine.replace(/^[-*]\s*/, '')}
                     </p>
                   </div>
-                );
-              })}
+                 );
+})}
             </div>
           </div>
         }
