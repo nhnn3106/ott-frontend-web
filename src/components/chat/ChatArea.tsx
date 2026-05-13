@@ -128,15 +128,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const lastMarkedRef = useRef<string>("0");
   const lastDeliveredRef = useRef<string>("0");
   const seenMarkTimerRef = useRef<number | null>(null);
+  const allowInitialSeenRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
   const isLoadingNewerRef = useRef(false);
   const suppressAutoScrollAfterNewerLoadRef = useRef(false);
+  const newerLoadScrollTopRef = useRef<number | null>(null);
   const suppressTopLoadUntilRef = useRef(0);
   const suppressBottomLoadUntilRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const wasNearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
   const scrollHeightRef = useRef(0);
+  const lastLayoutScrollHeightRef = useRef(0);
+  const lastLayoutClientHeightRef = useRef(0);
   const isFirstLoadRef = useRef(true); // Track if this is first load for this conversation
   const initialScrollRafRef = useRef<number | null>(null);
   const prevMessageCountRef = useRef(0);
@@ -805,6 +809,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     const mergedByKey = new Map<string, Message>();
 
     [...messages, ...optimisticImageMessages].forEach((item) => {
+      const activeConversationId = String(activeConversation?._id || "");
+      const itemConversationId = String(
+        item?.conversation_id || (item as Message & { conversationId?: string })?.conversationId || "",
+      );
+
+      if (
+        activeConversationId &&
+        itemConversationId &&
+        itemConversationId !== activeConversationId
+      ) {
+        return;
+      }
+
       const stableId = String(item?.msg_id || item?._id || "").trim();
 
       if (!stableId) {
@@ -904,6 +921,25 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     });
   }, [extractContentValue, renderedMessages]);
 
+  const latestOwnMessageId = useMemo(() => {
+    for (let index = hydratedMessages.length - 1; index >= 0; index -= 1) {
+      const message = hydratedMessages[index];
+      const stableId = String(
+        message.msg_id || message._id || message.local_client_id || "",
+      ).trim();
+
+      if (
+        stableId &&
+        !isSystemLikeType(message.type) &&
+        String(message.sender_id || "") === String(normalizedUserId || "")
+      ) {
+        return stableId;
+      }
+    }
+
+    return "";
+  }, [hydratedMessages, normalizedUserId]);
+
   const timelineItems = useMemo(() => {
     const items: Array<
       | {
@@ -929,14 +965,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       const isSystemMsg = isSystemLikeType(currentMsg.type);
 
       if (!isSystemMsg) {
-        items.push({
-          kind: "message",
-          key: `message-${String(
-            currentMsg.local_client_id ||
+        const stableMessageKey = String(
+          currentMsg.local_client_id ||
             currentMsg.msg_id ||
             currentMsg._id ||
-            index,
-          )}-${index}`,
+            `index-${index}`,
+        );
+
+        items.push({
+          kind: "message",
+          key: `message-${stableMessageKey}`,
           message: currentMsg,
           showTime: shouldShowTimestamp(
             currentMsg.createdAt || "",
@@ -1217,6 +1255,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   useEffect(() => {
     lastMarkedRef.current = "0";
     lastDeliveredRef.current = "0";
+    allowInitialSeenRef.current = true;
     if (seenMarkTimerRef.current !== null) {
       window.clearTimeout(seenMarkTimerRef.current);
       seenMarkTimerRef.current = null;
@@ -1231,6 +1270,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     }
     prevMessageCountRef.current = 0;
     prevLastMessageIdRef.current = null;
+    lastLayoutScrollHeightRef.current = 0;
+    lastLayoutClientHeightRef.current = 0;
+    newerLoadScrollTopRef.current = null;
     forceScrollToBottomRef.current = false;
     suppressAutoScrollAfterNewerLoadRef.current = false;
     lastScrollTopRef.current = 0;
@@ -1244,73 +1286,137 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     primeMessageSenderCache(activeConversation?.participants);
   }, [activeConversation?.participants]);
 
+  const latestMessageForCursor = messages[messages.length - 1] as
+    | (ChatMessageType & { _id?: string; msg_id?: string; sender_id?: string })
+    | undefined;
+  const latestCursorMsgId = String(latestMessageForCursor?.msg_id || "").trim();
+  const latestStableMsgId = String(
+    latestMessageForCursor?.msg_id ||
+      latestMessageForCursor?._id ||
+      latestMessageForCursor?.local_client_id ||
+      "",
+  ).trim();
+  const latestMessageSenderId = String(
+    latestMessageForCursor?.sender_id || "",
+  ).trim();
+  const latestMessageConversationId = String(
+    latestMessageForCursor?.conversation_id ||
+      (latestMessageForCursor as
+        | (ChatMessageType & { conversationId?: string })
+        | undefined)?.conversationId ||
+      "",
+  ).trim();
+  const latestMessageMatchesActiveConversation =
+    !latestMessageConversationId ||
+    latestMessageConversationId === String(activeConversation?._id || "");
+
   useEffect(() => {
-    if (!messages.length || !normalizedUserId || !activeConversation?._id) {
+    if (
+      !latestCursorMsgId ||
+      !latestMessageMatchesActiveConversation ||
+      !normalizedUserId ||
+      !activeConversation?._id
+    ) {
       return;
     }
 
-    const lastMsg = messages[messages.length - 1];
-    const msgId = String(lastMsg.msg_id || "").trim();
-    if (!msgId || msgId === lastDeliveredRef.current) return;
+    if (latestCursorMsgId === lastDeliveredRef.current) return;
 
-    lastDeliveredRef.current = msgId;
+    lastDeliveredRef.current = latestCursorMsgId;
     updateParticipant(activeConversation._id, {
-      last_delivered_message_id: msgId,
+      last_delivered_message_id: latestCursorMsgId,
       last_delivered_at: new Date().toISOString(),
     });
 
     socketService.markMessagesDeliveredUpTo(
       activeConversation._id,
       normalizedUserId,
-      msgId,
+      latestCursorMsgId,
     );
-  }, [messages, normalizedUserId, activeConversation?._id, updateParticipant]);
+  }, [
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    normalizedUserId,
+    activeConversation?._id,
+    updateParticipant,
+  ]);
 
-  useEffect(() => {
-    if (!messages.length || !normalizedUserId || !activeConversation?._id) {
-      return;
-    }
+  const markMessageSeenUpTo = useCallback(
+    (msgId: string, options: { immediate?: boolean } = {}) => {
+      if (!msgId || !normalizedUserId || !activeConversation?._id) return;
+      if (msgId === lastMarkedRef.current) return;
 
-    const lastMsg = messages[messages.length - 1];
-    const msgId = String(lastMsg.msg_id || "").trim();
-    if (!msgId || msgId === lastMarkedRef.current) return;
-
-    if (seenMarkTimerRef.current !== null) {
-      window.clearTimeout(seenMarkTimerRef.current);
-    }
-
-    seenMarkTimerRef.current = window.setTimeout(() => {
-      lastMarkedRef.current = msgId;
-      seenMarkTimerRef.current = null;
-
-      const now = new Date().toISOString();
-      updateParticipant(activeConversation._id, {
-        last_delivered_message_id: msgId,
-        last_delivered_at: now,
-        last_read_message_id: msgId,
-        last_read_at: now,
-        unread_count: 0,
-      });
-
-      localStorage.setItem(
-        `read_${activeConversation._id}_${normalizedUserId}`,
-        msgId,
-      );
-
-      socketService.markMessageSeenUpTo(
-        activeConversation._id,
-        normalizedUserId,
-        msgId,
-      );
-    }, 250);
-
-    return () => {
       if (seenMarkTimerRef.current !== null) {
         window.clearTimeout(seenMarkTimerRef.current);
         seenMarkTimerRef.current = null;
       }
-    };
-  }, [messages, normalizedUserId, activeConversation?._id, updateParticipant]);
+
+      const markSeen = () => {
+        lastMarkedRef.current = msgId;
+        seenMarkTimerRef.current = null;
+
+        const now = new Date().toISOString();
+        updateParticipant(activeConversation._id, {
+          last_delivered_message_id: msgId,
+          last_delivered_at: now,
+          last_read_message_id: msgId,
+          last_read_at: now,
+          unread_count: 0,
+        });
+
+        socketService.markMessageSeenUpTo(
+          activeConversation._id,
+          normalizedUserId,
+          msgId,
+        );
+      };
+
+      if (options.immediate) {
+        markSeen();
+        return;
+      }
+
+      seenMarkTimerRef.current = window.setTimeout(markSeen, 120);
+    },
+    [activeConversation?._id, normalizedUserId, updateParticipant],
+  );
+
+  const markLatestMessageSeen = useCallback(
+    (requireNearBottom: boolean = true) => {
+      if (!latestCursorMsgId) return;
+      if (!latestMessageMatchesActiveConversation) return;
+
+      if (requireNearBottom) {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const distanceToBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceToBottom > 180) return;
+      }
+
+      markMessageSeenUpTo(latestCursorMsgId);
+    },
+    [
+      latestCursorMsgId,
+      latestMessageMatchesActiveConversation,
+      markMessageSeenUpTo,
+    ],
+  );
+
+  useEffect(() => {
+    if (!allowInitialSeenRef.current) return;
+    if (!latestCursorMsgId) return;
+    if (!latestMessageMatchesActiveConversation) return;
+    if (latestCursorMsgId === lastMarkedRef.current) return;
+
+    allowInitialSeenRef.current = false;
+    markMessageSeenUpTo(latestCursorMsgId, { immediate: true });
+  }, [
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    markMessageSeenUpTo,
+  ]);
 
   const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
     setSelectedMediaId(msgId);
@@ -2052,6 +2158,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     ) {
       isLoadingNewerRef.current = true;
       suppressAutoScrollAfterNewerLoadRef.current = true;
+      newerLoadScrollTopRef.current = currentScrollTop;
       suppressBottomLoadUntilRef.current = Date.now() + 400;
       loadMessageContextAfterLast().finally(() => {
         isLoadingNewerRef.current = false;
@@ -2113,12 +2220,33 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (!container) return;
 
     const currentMessageCount = messages.length;
-    const currentLastMessageId =
-      (messages[messages.length - 1]?.msg_id as string | undefined) ||
-      (messages[messages.length - 1]?._id as string | undefined) ||
-      null;
+    const currentLastMessageId = latestStableMsgId || null;
     const previousMessageCount = prevMessageCountRef.current;
     const previousLastMessageId = prevLastMessageIdRef.current;
+
+    // Loading newer messages below should extend the bottom only.
+    // Keep the viewport anchored exactly where the user was before the fetch.
+    if (suppressAutoScrollAfterNewerLoadRef.current) {
+      if (newerLoadScrollTopRef.current !== null) {
+        container.scrollTop = newerLoadScrollTopRef.current;
+      }
+
+      // After appending messages below, this viewport is no longer anchored to
+      // the bottom. Keep later layout changes from snapping it down.
+      wasNearBottomRef.current = false;
+      setShowScrollButton(true);
+      prevMessageCountRef.current = currentMessageCount;
+      prevLastMessageIdRef.current = currentLastMessageId;
+      lastLayoutScrollHeightRef.current = container.scrollHeight;
+      lastLayoutClientHeightRef.current = container.clientHeight;
+
+      if (!isLoadingNewerRef.current) {
+        suppressAutoScrollAfterNewerLoadRef.current = false;
+        newerLoadScrollTopRef.current = null;
+      }
+
+      return;
+    }
 
     if (forceScrollToBottomRef.current && messages.length > 0 && !loading) {
       if (initialScrollRafRef.current !== null) {
@@ -2180,17 +2308,6 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       return;
     }
 
-    // When we just loaded messages below, keep viewport exactly where it is.
-    if (
-      suppressAutoScrollAfterNewerLoadRef.current &&
-      !isLoadingNewerRef.current
-    ) {
-      suppressAutoScrollAfterNewerLoadRef.current = false;
-      prevMessageCountRef.current = currentMessageCount;
-      prevLastMessageIdRef.current = currentLastMessageId;
-      return;
-    }
-
     // Only auto-scroll when a brand-new message is appended at the end and user is near bottom.
     const hasAppendedNewMessage =
       currentMessageCount > previousMessageCount &&
@@ -2198,6 +2315,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       currentLastMessageId !== previousLastMessageId;
 
     const wasNearBottom = wasNearBottomRef.current;
+    const isIncomingLatestMessage =
+      !!latestMessageSenderId &&
+      !!normalizedUserId &&
+      latestMessageSenderId !== String(normalizedUserId);
 
     if (
       !isLoadingMoreRef.current &&
@@ -2210,13 +2331,69 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         container.scrollTop = container.scrollHeight;
         wasNearBottomRef.current = true;
         setShowScrollButton(false); // Hide button when scrolling to bottom
+        if (
+          isIncomingLatestMessage &&
+          latestCursorMsgId &&
+          latestMessageMatchesActiveConversation
+        ) {
+          markMessageSeenUpTo(latestCursorMsgId, { immediate: true });
+        }
         console.log("✓ Auto-scrolled to bottom (new message)");
       });
     }
 
     prevMessageCountRef.current = currentMessageCount;
     prevLastMessageIdRef.current = currentLastMessageId;
-  }, [messages, loading]);
+  }, [
+    messages.length,
+    latestStableMsgId,
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    latestMessageSenderId,
+    loading,
+    markMessageSeenUpTo,
+    normalizedUserId,
+    waitForInitialMediaToSettle,
+    waitForNextFrame,
+  ]);
+
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const previousHeight = lastLayoutScrollHeightRef.current;
+    const previousClientHeight = lastLayoutClientHeightRef.current;
+    const currentHeight = container.scrollHeight;
+    const currentClientHeight = container.clientHeight;
+    const heightChanged = previousHeight > 0 && currentHeight !== previousHeight;
+    const clientHeightChanged =
+      previousClientHeight > 0 && currentClientHeight !== previousClientHeight;
+
+    if (heightChanged || clientHeightChanged) {
+      const previousDistanceToBottom =
+        (previousHeight || currentHeight) -
+        container.scrollTop -
+        (previousClientHeight || currentClientHeight);
+      const shouldKeepBottom =
+        wasNearBottomRef.current || previousDistanceToBottom < 140;
+
+      if (
+        shouldKeepBottom &&
+        !isLoadingMoreRef.current &&
+        !isLoadingNewerRef.current &&
+        !isFirstLoadRef.current &&
+        !forceScrollToBottomRef.current &&
+        !suppressAutoScrollAfterNewerLoadRef.current
+      ) {
+        container.scrollTop = container.scrollHeight;
+        wasNearBottomRef.current = true;
+        setShowScrollButton(false);
+      }
+    }
+
+    lastLayoutScrollHeightRef.current = container.scrollHeight;
+    lastLayoutClientHeightRef.current = container.clientHeight;
+  });
 
   useEffect(() => {
     return () => {
@@ -2485,6 +2662,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             ["overflowAnchor" as any]: "none",
           }}
           onScroll={handleScroll}
+          onMouseDown={() => markLatestMessageSeen(true)}
+          onTouchStart={() => markLatestMessageSeen(true)}
+          onWheel={() => markLatestMessageSeen(true)}
         >
           {primaryPinnedMessage && (
             <div
@@ -2760,6 +2940,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 nextIsSystem ||
                 nextMsg.sender_id !== msg.sender_id ||
                 nextShowTime;
+              const stableMessageId = String(
+                msg.msg_id || msg._id || msg.local_client_id || "",
+              ).trim();
 
               return (
                 <React.Fragment key={item.key}>
@@ -2779,6 +2962,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                           pinnedMessageIdSet.has(
                             String(msg.msg_id || msg._id || ""),
                           ),
+                        __show_delivery_status:
+                          isMe &&
+                          Boolean(stableMessageId) &&
+                          stableMessageId === latestOwnMessageId,
                       }}
                       isMe={isMe}
                       currentUserId={normalizedUserId}

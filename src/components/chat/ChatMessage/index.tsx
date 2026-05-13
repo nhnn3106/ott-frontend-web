@@ -82,6 +82,7 @@ export const ChatMessage = memo(
           isTopBoundary={isTopBoundary}
           onDelete={onDelete}
           participants={conversation?.participants}
+          conversationType={conversation?.type}
         />
       );
     }
@@ -104,6 +105,8 @@ export const ChatMessage = memo(
           isFirstInSequence={isFirstInSequence}
           isLastInSequence={isLastInSequence}
           isTopBoundary={isTopBoundary}
+          participants={conversation?.participants}
+          conversationType={conversation?.type}
         />
       );
     }
@@ -127,6 +130,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
 
@@ -148,6 +152,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
 
@@ -170,6 +175,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
 
@@ -192,6 +198,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
 
@@ -211,6 +218,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
 
@@ -249,6 +257,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
 
@@ -269,6 +278,7 @@ export const ChatMessage = memo(
             onPin={onPin}
             onForward={onForward}
             participants={conversation?.participants}
+            conversationType={conversation?.type}
           />
         );
     }
@@ -278,12 +288,16 @@ export const ChatMessage = memo(
     const nextReactions = JSON.stringify(next.msg.reactions || []);
     const prevReplyTo = JSON.stringify(prev.msg.reply_to || null);
     const nextReplyTo = JSON.stringify(next.msg.reply_to || null);
-    const prevParticipantCursors = stringifyParticipantCursors(
-      prev.conversation?.participants,
-    );
-    const nextParticipantCursors = stringifyParticipantCursors(
-      next.conversation?.participants,
-    );
+    const shouldCompareParticipantCursors =
+      Boolean(prev.msg.__show_delivery_status) ||
+      Boolean(next.msg.__show_delivery_status);
+    const participantCursorsEqual =
+      !shouldCompareParticipantCursors ||
+      stringifyParticipantCursors(prev.conversation?.participants) ===
+        stringifyParticipantCursors(next.conversation?.participants);
+    const conversationTypeEqual =
+      !shouldCompareParticipantCursors ||
+      prev.conversation?.type === next.conversation?.type;
 
     return (
       prev.msg._id === next.msg._id &&
@@ -300,7 +314,9 @@ export const ChatMessage = memo(
       prev.msg.is_pinned === next.msg.is_pinned &&
       prev.msg.reply_to_msg_id === next.msg.reply_to_msg_id &&
       prevReplyTo === nextReplyTo &&
-      prevParticipantCursors === nextParticipantCursors &&
+      prev.msg.__show_delivery_status === next.msg.__show_delivery_status &&
+      participantCursorsEqual &&
+      conversationTypeEqual &&
       prev.currentUserId === next.currentUserId &&
       prev.isFirstInSequence === next.isFirstInSequence &&
       prev.isLastInSequence === next.isLastInSequence

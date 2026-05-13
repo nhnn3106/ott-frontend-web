@@ -250,41 +250,11 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       const loadedConversations =
         await ConversationService.getUserConversations(userId);
 
-      const currentUserId = userId;
-
-      setRawConversations((prev) => {
+      setRawConversations(() => {
         const baseFiltered = applyDissolutionLogic(loadedConversations, dissolvedSessionIds);
-
-        // Merge strategy: Keep optimistic items that might not be in the loaded list yet
         const merged = [...baseFiltered];
 
-        // Map and resolve last_read_message_id as before
-        return merged.map((newItem) => {
-          const convId = newItem.conversation._id;
-          const dbId = newItem.participant.last_read_message_id || "0";
-          const existing = prev.find((p) => p.conversation._id === convId);
-          const inMemId = existing?.participant.last_read_message_id || "0";
-          const lsId = localStorage.getItem(`read_${convId}_${currentUserId}`) || "0";
-
-          const candidates = [dbId, inMemId, lsId].filter((id) => id !== "0");
-
-          if (candidates.length === 0) return newItem;
-
-          const bestId = candidates.reduce(
-            (max, id) => (BigInt(id) > BigInt(max) ? id : max),
-            "0",
-          );
-
-          return BigInt(bestId) > BigInt(dbId) ?
-            {
-              ...newItem,
-              participant: {
-                ...newItem.participant,
-                last_read_message_id: bestId,
-              },
-            }
-            : newItem;
-        }).sort((a, b) => {
+        return merged.sort((a, b) => {
           // Re-sort by updatedAt to ensure new items are at top
           const timeA = new Date(a.conversation.updatedAt || a.conversation.createdAt).getTime();
           const timeB = new Date(b.conversation.updatedAt || b.conversation.createdAt).getTime();
@@ -498,19 +468,27 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     if (!conversationId || !userId) return;
 
     const participant = payload?.participant || {};
+    const isSeenReceipt =
+      payload?.receiptType === "seen" || payload?.status === "seen";
     const cursorUpdates = {
       last_delivered_message_id:
         participant.last_delivered_message_id || payload.last_delivered_message_id,
       last_delivered_at:
         participant.last_delivered_at || payload.last_delivered_at,
-      last_read_message_id:
-        participant.last_read_message_id || payload.last_read_message_id,
-      last_read_at:
-        participant.last_read_at || payload.last_read_at,
     };
 
+    const readCursorUpdates = isSeenReceipt
+      ? {
+          last_read_message_id:
+            participant.last_read_message_id || payload.last_read_message_id,
+          last_read_at: participant.last_read_at || payload.last_read_at,
+        }
+      : {};
+
     const conversationParticipantUpdates = Object.fromEntries(
-      Object.entries(cursorUpdates).filter(([, value]) => value !== undefined),
+      Object.entries({ ...cursorUpdates, ...readCursorUpdates }).filter(
+        ([, value]) => value !== undefined,
+      ),
     ) as Partial<ConversationParticipant>;
 
     updateConversationParticipant(
@@ -523,21 +501,16 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     const currentUserId = String(rawUser?.id || rawUser?.user_id || rawUser?._id || "").trim();
 
     if (currentUserId && userId === currentUserId) {
-      updateParticipant(conversationId, {
+      const participantUpdates = {
         ...(conversationParticipantUpdates as Partial<Participant>),
-        unread_count:
-          payload?.receiptType === "seen" || participant.last_read_message_id
-            ? 0
-            : undefined,
-      });
+      };
 
-      const readMsgId = participant.last_read_message_id || payload.msgId;
-      if (readMsgId && (payload?.receiptType === "seen" || participant.last_read_message_id)) {
-        localStorage.setItem(
-          `read_${conversationId}_${currentUserId}`,
-          String(readMsgId),
-        );
+      if (isSeenReceipt) {
+        participantUpdates.unread_count = 0;
       }
+
+      updateParticipant(conversationId, participantUpdates);
+
     }
   }, [updateConversationParticipant, updateParticipant, user]);
 

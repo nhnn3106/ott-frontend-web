@@ -36,6 +36,7 @@ export const LinkMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   isMe: boolean;
@@ -50,6 +51,7 @@ export const LinkMessage = ({
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: unknown[];
+  conversationType?: string;
 }) => {
   const text = Array.isArray(msg.content)
     ? msg.content.join("")
@@ -171,6 +173,7 @@ export const LinkMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div

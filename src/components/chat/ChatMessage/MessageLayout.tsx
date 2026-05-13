@@ -48,6 +48,7 @@ type MessageLayoutProps = {
   hideAvatar?: boolean;
   showActionsOnHover?: boolean;
   participants?: any[];
+  conversationType?: string;
   children: (borderRadius: string) => React.ReactNode;
 };
 
@@ -142,6 +143,26 @@ const isMessageCursorAtLeast = (cursor: unknown, msgId: unknown) => {
 const getParticipantUserId = (participant: any) =>
   String(participant?.user_id || participant?._id || "").trim();
 
+const getParticipantDisplayName = (participant: any) =>
+  String(
+    participant?.display_name ||
+      participant?.nickname ||
+      participant?.name ||
+      participant?.user?.name ||
+      participant?.user_id ||
+      "Người dùng",
+  ).trim();
+
+const getParticipantAvatar = (participant: any) =>
+  String(
+    participant?.avatar ||
+      participant?.avatar_url ||
+      participant?.profile_picture ||
+      participant?.user?.avatar ||
+      participant?.user?.avatar_url ||
+      "",
+  ).trim();
+
 const isJoinedParticipant = (participant: any) => {
   const membershipStatus = String(
     participant?.membership_status || participant?.participant_status || "",
@@ -152,14 +173,23 @@ const isJoinedParticipant = (participant: any) => {
 const getMessageDeliverySummary = ({
   msg,
   participants,
+  conversationType,
   currentUserId,
 }: {
   msg: any;
   participants?: any[];
+  conversationType?: string;
   currentUserId?: string;
 }) => {
   const currentMsgId = String(msg?.msg_id || "").trim();
   const currentUser = String(currentUserId || "").trim();
+  const normalizedConversationType = String(
+    conversationType || msg?.conversation_type || msg?.conversation?.type || "",
+  ).toLowerCase();
+  const isGroupConversation =
+    normalizedConversationType === "group" ||
+    normalizedConversationType === "nhom" ||
+    (!normalizedConversationType && (participants || []).length > 2);
   const recipients = (participants || []).filter((participant) => {
     const participantUserId = getParticipantUserId(participant);
     return (
@@ -176,8 +206,15 @@ const getMessageDeliverySummary = ({
   const seenCount = recipients.filter((participant) =>
     isMessageCursorAtLeast(participant.last_read_message_id, currentMsgId),
   ).length;
+  const seenParticipants = recipients.filter((participant) =>
+    isMessageCursorAtLeast(participant.last_read_message_id, currentMsgId),
+  );
 
-  if (recipientCount <= 1) {
+  if (recipientCount === 0) {
+    return { label: "Đã gửi", isSeen: false, seenParticipants };
+  }
+
+  if (!isGroupConversation && recipientCount <= 1) {
     return {
       label:
         seenCount === 1
@@ -186,32 +223,23 @@ const getMessageDeliverySummary = ({
             ? "Đã nhận"
             : "Đã gửi",
       isSeen: seenCount === 1,
+      seenParticipants,
     };
   }
 
   if (seenCount === recipientCount) {
-    return { label: "Tất cả đã xem", isSeen: true };
+    return { label: "Tất cả đã xem", isSeen: true, seenParticipants };
   }
 
   if (seenCount > 0) {
     return {
       label: `Đã xem ${seenCount}/${recipientCount}`,
       isSeen: true,
+      seenParticipants,
     };
   }
 
-  if (deliveredCount === recipientCount) {
-    return { label: "Tất cả đã nhận", isSeen: false };
-  }
-
-  if (deliveredCount > 0) {
-    return {
-      label: `Đã nhận ${deliveredCount}/${recipientCount}`,
-      isSeen: false,
-    };
-  }
-
-  return { label: "Đã gửi", isSeen: false };
+  return { label: "Đã gửi", isSeen: false, seenParticipants };
 };
 
 const normalizeReactionType = (value: string) => {
@@ -243,6 +271,7 @@ export const MessageLayout = ({
   hideAvatar = false,
   showActionsOnHover = true,
   participants,
+  conversationType,
   children,
 }: MessageLayoutProps) => {
   // --- STATE & REF CHO ACTION MENU (MoreVertical) ---
@@ -565,6 +594,33 @@ export const MessageLayout = ({
   const hasReactions = reactionGroups.length > 0;
   const isUploadInFlight =
     msg.local_status === "uploading" || msg.local_status === "error";
+  const deliverySummary = useMemo(
+    () =>
+      getMessageDeliverySummary({
+        msg,
+        participants,
+        conversationType,
+        currentUserId,
+      }),
+    [conversationType, currentUserId, msg, participants],
+  );
+  const showDeliveryStatus =
+    isMe &&
+    !isCentered &&
+    Boolean(msg.__show_delivery_status) &&
+    Boolean(msg.msg_id);
+  const seenAvatarParticipants = deliverySummary.seenParticipants || [];
+  const visibleSeenAvatars = seenAvatarParticipants.slice(0, 5);
+  const hiddenSeenAvatarCount = Math.max(
+    0,
+    seenAvatarParticipants.length - visibleSeenAvatars.length,
+  );
+  const seenAvatarTitle =
+    seenAvatarParticipants.length > 0
+      ? `Đã xem: ${seenAvatarParticipants
+          .map(getParticipantDisplayName)
+          .join(", ")}`
+      : deliverySummary.label;
   const containerMargin = isLast
     ? hasReactions
       ? "mb-5"
@@ -589,15 +645,6 @@ export const MessageLayout = ({
     !String(msg.type || "").startsWith("call_") &&
     !isUploadInFlight &&
     !!onForward;
-  const deliverySummary = useMemo(
-    () =>
-      getMessageDeliverySummary({
-        msg,
-        participants,
-        currentUserId,
-      }),
-    [currentUserId, msg, participants],
-  );
 
   // ==========================================
   // EFFECT 1: CLICK OUTSIDE CHO ACTION MENU
@@ -942,22 +989,13 @@ export const MessageLayout = ({
             </div>
           </div>
         )}
-        <div className="relative w-fit max-w-full">
+        <div
+          className={`relative w-fit max-w-full ${
+            hasReactions && showDeliveryStatus ? "mb-3" : ""
+          }`}
+        >
           {/* NỘI DUNG TIN NHẮN CHÍNH */}
           {children(borderRadius)}
-
-          {/* HIỂN THỊ TRẠNG THÁI TIN NHẮN (CHỈ CHO BẢN THÂN) */}
-          {isMe && !isCentered && isLast && msg.msg_id && (
-            <div className="flex justify-end mt-0.5">
-              <span
-                className={`text-[10px] font-medium px-1 rounded transition-colors ${
-                  deliverySummary.isSeen ? "text-blue-500" : "text-slate-400"
-                }`}
-              >
-                {deliverySummary.label}
-              </span>
-            </div>
-          )}
 
           {/* THANH ICON THAO TÁC (REPLY, REACT, MORE) */}
           {showActionsOnHover && (onReply ||
@@ -1191,6 +1229,62 @@ export const MessageLayout = ({
             </div>
           )}
         </div>
+
+        {/* TRẠNG THÁI TIN NHẮN: tách khỏi bubble/reaction để không làm méo layout */}
+        {showDeliveryStatus && (
+          <div className="mt-1 flex min-h-4 max-w-full items-center justify-end">
+            {visibleSeenAvatars.length > 0 ? (
+              <div
+                className="flex max-w-full items-center justify-end -space-x-1.5"
+                title={seenAvatarTitle}
+                aria-label={seenAvatarTitle}
+              >
+                {visibleSeenAvatars.map((participant) => {
+                  const participantUserId = getParticipantUserId(participant);
+                  const displayName = getParticipantDisplayName(participant);
+                  const avatarUrl = getParticipantAvatar(participant);
+
+                  return (
+                    <span
+                      key={participantUserId || displayName}
+                      className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white bg-slate-200 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-slate-200"
+                      style={{
+                        backgroundColor: avatarUrl
+                          ? undefined
+                          : getAvatarColor(displayName),
+                      }}
+                    >
+                      {avatarUrl ? (
+                        <img
+                          src={getFullUrl(avatarUrl)}
+                          alt={displayName}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        getAvatarLabel(displayName)
+                      )}
+                    </span>
+                  );
+                })}
+
+                {hiddenSeenAvatarCount > 0 && (
+                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full border border-white bg-slate-500 px-1 text-[8px] font-bold leading-none text-white shadow-sm ring-1 ring-slate-200">
+                    +{hiddenSeenAvatarCount}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span
+                className="block max-w-full truncate whitespace-nowrap rounded-full px-1.5 text-[10px] font-medium leading-4 text-slate-400"
+                title={deliverySummary.label}
+              >
+                {deliverySummary.label}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {showReactionDetails && (

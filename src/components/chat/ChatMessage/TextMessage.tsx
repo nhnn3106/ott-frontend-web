@@ -16,6 +16,7 @@ export const TextMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   isMe: boolean;
@@ -30,6 +31,7 @@ export const TextMessage = ({
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: any[];
+  conversationType?: string;
 }) => {
   const text = Array.isArray(msg.content)
     ? msg.content.join("")
@@ -50,6 +52,7 @@ export const TextMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div
