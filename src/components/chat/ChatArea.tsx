@@ -199,10 +199,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const fetchStatus = useCallback(async () => {
     if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
       const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-      
+
       // If participants list is not in activeConversation, try to find from members if it's a private chat
       // Actually, private conversations should have user_id if we fetch correctly.
-      
+
       if (otherParticipantId) {
         setIsRelationshipLoading(true);
         const status = await fetchRelationshipStatusViaChat(normalizedUserId, otherParticipantId);
@@ -226,9 +226,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       // If the update involves the current user and the other participant in this private chat
       if (activeConversation?.type === "private") {
         const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-        if (otherParticipantId && 
-            (String(payload.requester_id) === String(otherParticipantId) || 
-             String(payload.receiver_id) === String(otherParticipantId))) {
+        if (otherParticipantId &&
+          (String(payload.requester_id) === String(otherParticipantId) ||
+            String(payload.receiver_id) === String(otherParticipantId))) {
           console.log("ChatArea: Relationship status updated via socket:", payload.status);
           setRelationshipStatus(payload);
         }
@@ -258,7 +258,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const isDissolved = useMemo(() => {
     if (activeConversation?.status === "dissolved" || Boolean(activeConversation?.is_dissolved)) return true;
-    
+
     // Derived from messages
     return messages.some(
       (m) =>
@@ -968,9 +968,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       if (!isSystemMsg) {
         const stableMessageKey = String(
           currentMsg.local_client_id ||
-            currentMsg.msg_id ||
-            currentMsg._id ||
-            `index-${index}`,
+          currentMsg.msg_id ||
+          currentMsg._id ||
+          `index-${index}`,
         );
 
         items.push({
@@ -1105,7 +1105,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     const conversationId = activeConversation!._id;
     const windowName = `call_${conversationId}`;
     const channelName = `call_channel_${conversationId}`;
-    
+
     // Premium: Kiểm tra xem cửa sổ gọi cho cuộc hội thoại này đã mở chưa
     // Nếu đã mở thì chỉ focus, không tải lại (để không ngắt kết nối LiveKit)
     const bc = new BroadcastChannel(channelName);
@@ -1159,7 +1159,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleGroupCallStart = (selectedUserIds: string[], callType: "voice" | "video") => {
     setIsGroupCallModalOpen(false);
-    
+
     const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
     const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
 
@@ -1293,19 +1293,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const latestCursorMsgId = String(latestMessageForCursor?.msg_id || "").trim();
   const latestStableMsgId = String(
     latestMessageForCursor?.msg_id ||
-      latestMessageForCursor?._id ||
-      latestMessageForCursor?.local_client_id ||
-      "",
+    latestMessageForCursor?._id ||
+    latestMessageForCursor?.local_client_id ||
+    "",
   ).trim();
   const latestMessageSenderId = String(
     latestMessageForCursor?.sender_id || "",
   ).trim();
   const latestMessageConversationId = String(
     latestMessageForCursor?.conversation_id ||
-      (latestMessageForCursor as
-        | (ChatMessageType & { conversationId?: string })
-        | undefined)?.conversationId ||
-      "",
+    (latestMessageForCursor as
+      | (ChatMessageType & { conversationId?: string })
+      | undefined)?.conversationId ||
+    "",
   ).trim();
   const latestMessageMatchesActiveConversation =
     !latestMessageConversationId ||
@@ -2669,11 +2669,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         />
 
         {activeConversation?.type === "private" && !activeConversation.is_self_conversation && relationshipStatus?.status !== "ACCEPTED" && (
-          <FriendRequestBar 
+          <FriendRequestBar
             relationship={relationshipStatus}
             currentUserId={normalizedUserId || ""}
             otherUserId={activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id || ""}
-            onStatusChange={fetchStatus} 
+            onStatusChange={fetchStatus}
             isFetching={isRelationshipLoading}
           />
         )}
@@ -3075,9 +3075,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           <ChatInput
             key={
               activeConversation.type === 'private' || activeConversation._id.startsWith('VIRTUAL_CONV_')
-                ? (activeConversation._id.startsWith('VIRTUAL_CONV_') 
-                    ? activeConversation._id.replace('VIRTUAL_CONV_', '') 
-                    : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
+                ? (activeConversation._id.startsWith('VIRTUAL_CONV_')
+                  ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+                  : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
                 : activeConversation._id
             }
             conversationId={activeConversation._id}

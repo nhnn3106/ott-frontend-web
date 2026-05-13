@@ -26,21 +26,45 @@ const formatLastSeen = (date: Date | null): string => {
   const now = new Date();
   const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diff < 60) return "Vừa mới truy cập";
-  if (diff < 3600) return `Hoạt động ${Math.floor(diff / 60)} phút trước`;
-  if (diff < 86400) return `Hoạt động ${Math.floor(diff / 3600)} giờ trước`;
+  // < 1 phút
+  if (diff < 60) return "Vừa hoạt động";
   
+  // < 1 giờ
+  if (diff < 3600) return `Hoạt động ${Math.floor(diff / 60)} phút trước`;
+  
+  // < 24 giờ (trong cùng ngày)
+  const isSameDay = 
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+    
+  if (isSameDay) return `Hoạt động ${Math.floor(diff / 3600)} giờ trước`;
+
+  // Hôm qua
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  if (
+  const isYesterday = 
     date.getDate() === yesterday.getDate() &&
     date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear()
-  ) {
-    return "Hoạt động hôm qua";
+    date.getFullYear() === yesterday.getFullYear();
+    
+  if (isYesterday) return "Hoạt động hôm qua";
+
+  // < 7 ngày
+  if (diff < 7 * 86400) {
+    return `Hoạt động ${Math.floor(diff / 86400)} ngày trước`;
   }
 
-  return `Hoạt động ${date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`;
+  // Cùng năm hoặc khác năm
+  const d = date.getDate();
+  const m = date.getMonth() + 1;
+  const y = date.getFullYear();
+
+  if (y === now.getFullYear()) {
+    return `Hoạt động ${d} thg ${m}`;
+  }
+
+  return `Hoạt động ${d} thg ${m} ${y}`;
 };
 
 // ─── Helper: lấy userId của người kia trong 1-1 chat ────────────────────────
@@ -101,7 +125,10 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   let statusDot = false;
   let statusText = "";
 
-  if (conversation.type === "private" && otherUserId) {
+  if (conversation.is_self_conversation) {
+    statusDot = false;
+    statusText = "";
+  } else if (conversation.type === "private" && otherUserId) {
     statusDot = isUserOnline(otherUserId);
     if (statusDot) {
       statusText = "Đang hoạt động";
@@ -110,15 +137,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
       statusText = formatLastSeen(lastSeen);
     }
   } else if (conversation.type === "group") {
-    // Với nhóm: đếm số thành viên đang online
-    const participants = (conversation.participants ?? []) as any[];
-    const onlineCount = participants.filter((p: any) =>
-      isUserOnline(String(p.user_id ?? p._id))
-    ).length;
-    statusDot = onlineCount > 0;
-    statusText = onlineCount > 0
-      ? `${onlineCount} thành viên đang hoạt động`
-      : "Không có ai đang hoạt động";
+    const participants = conversation.participants ?? [];
+    statusDot = false; // Hide dot for group member count display
+    statusText = `${participants.length} thành viên`;
   }
 
   return (
@@ -136,15 +157,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             <h2 className="font-bold text-gray-800 text-lg line-clamp-1">
               {getConversationName()}
             </h2>
-            <div className="flex items-center gap-2">
-              <span
-                className={`w-2 h-2 rounded-full transition-colors duration-500 ${
-                  statusDot
-                    ? "bg-green-500 animate-pulse"
-                    : "bg-gray-300"
-                }`}
-              />
-              {statusText && (
+            {statusText && (
+              <div className="flex items-center gap-2">
+                {conversation.type !== "group" && (
+                  <span
+                    className={`w-2 h-2 rounded-full transition-colors duration-500 ${
+                      statusDot
+                        ? "bg-green-500 animate-pulse"
+                        : "bg-gray-300"
+                    }`}
+                  />
+                )}
                 <p
                   className={`text-xs font-medium transition-colors duration-500 ${
                     statusDot ? "text-green-600" : "text-gray-500"
@@ -152,8 +175,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 >
                   {statusText}
                 </p>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
