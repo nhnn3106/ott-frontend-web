@@ -30,6 +30,7 @@ export const VideoMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   url: string;
@@ -46,6 +47,7 @@ export const VideoMessage = ({
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: any[];
+  conversationType?: string;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -190,6 +192,7 @@ export const VideoMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div className="relative inline-block">

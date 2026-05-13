@@ -267,6 +267,48 @@ class SocketService {
     });
   }
 
+  markMessageDelivered(
+    conversationId: string,
+    userId: string,
+    msgId: string,
+    deviceId?: string,
+  ) {
+    this.emitWhenConnected("message_delivered", {
+      conversationId,
+      userId,
+      msgId,
+      deviceId,
+    });
+  }
+
+  markMessagesDeliveredUpTo(
+    conversationId: string,
+    userId: string,
+    msgId: string,
+    deviceId?: string,
+  ) {
+    this.emitWhenConnected("messages_delivered_up_to", {
+      conversationId,
+      userId,
+      msgId,
+      deviceId,
+    });
+  }
+
+  markMessageSeenUpTo(
+    conversationId: string,
+    userId: string,
+    msgId: string,
+    deviceId?: string,
+  ) {
+    this.emitWhenConnected("message_seen_up_to", {
+      conversationId,
+      userId,
+      msgId,
+      deviceId,
+    });
+  }
+
   onTyping(
     callback: (payload: { conversationId: string; userId: string }) => void,
   ) {
@@ -626,6 +668,69 @@ class SocketService {
     }
   }
 
+  onMessageStatusChanged(
+    callback: (payload: {
+      conversationId: string;
+      msgId: string;
+      status: "sent" | "delivered" | "seen";
+      deliveredCount: number;
+      seenCount: number;
+      recipientCount: number;
+      participant?: any;
+      userId?: string;
+      changedUserId?: string;
+    }) => void,
+  ) {
+    this.socket?.on("message_status_changed", callback);
+  }
+
+  offMessageStatusChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("message_status_changed", callback);
+    } else {
+      this.socket?.removeAllListeners("message_status_changed");
+    }
+  }
+
+  onParticipantCursorChanged(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+      receiptType: "delivered" | "seen";
+      participant?: any;
+    }) => void,
+  ) {
+    this.socket?.on("participant_cursor_changed", callback);
+  }
+
+  offParticipantCursorChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("participant_cursor_changed", callback);
+    } else {
+      this.socket?.removeAllListeners("participant_cursor_changed");
+    }
+  }
+
+  onConversationReadSynced(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+      participant?: any;
+    }) => void,
+  ) {
+    this.socket?.on("conversation_read_synced", callback);
+  }
+
+  offConversationReadSynced(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("conversation_read_synced", callback);
+    } else {
+      this.socket?.removeAllListeners("conversation_read_synced");
+    }
+  }
+
   /** User Info Synchronization */
   onUserInfoUpdated(
     callback: (payload: {
@@ -646,7 +751,56 @@ class SocketService {
       this.socket?.removeAllListeners("cap_nhat_thong_tin_ca_nhan");
     }
   }
+
+  // ── PRESENCE (User Online/Offline Status) ────────────────────────────────
+
+  /**
+   * Hỏi server trạng thái online của danh sách userId.
+   * Server sẽ trả về event "ket_qua_trang_thai_hoat_dong".
+   */
+  queryPresence(userIds: string[]) {
+    this.emitWhenConnected("hoi_trang_thai_hoat_dong", { userIds });
+  }
+
+  /**
+   * Nhận kết quả batch query presence từ server.
+   */
+  onPresenceResult(callback: (result: { userId: string; isOnline: boolean }[]) => void) {
+    this.socket?.on("ket_qua_trang_thai_hoat_dong", callback);
+  }
+
+  offPresenceResult(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("ket_qua_trang_thai_hoat_dong", callback);
+    } else {
+      this.socket?.removeAllListeners("ket_qua_trang_thai_hoat_dong");
+    }
+  }
+
+  /**
+   * Lắng nghe sự kiện thay đổi trạng thái hoạt động real-time.
+   * Event: "trang_thai_hoat_dong" từ server.
+   */
+  onPresenceChanged(
+    callback: (payload: {
+      userId: string;
+      isOnline: boolean;
+      lastSeenAt: string | null;
+    }) => void
+  ) {
+    this.socket?.on("trang_thai_hoat_dong", callback);
+  }
+
+  offPresenceChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("trang_thai_hoat_dong", callback);
+    } else {
+      this.socket?.removeAllListeners("trang_thai_hoat_dong");
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 }
 
 console.log("🚀 SocketService V2.0.1 Loaded");
 export const socketService = new SocketService();
+

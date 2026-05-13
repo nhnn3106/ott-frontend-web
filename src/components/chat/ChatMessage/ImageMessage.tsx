@@ -75,6 +75,7 @@ export const ImageMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   urls: string[];
@@ -91,6 +92,7 @@ export const ImageMessage = ({
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
   participants?: any[];
+  conversationType?: string;
 }) => {
   const GRID_WIDTH = 260;
   const GRID_LARGE_HEIGHT = 130;
@@ -551,6 +553,7 @@ export const ImageMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius: string) => (
         <div className="relative inline-block">

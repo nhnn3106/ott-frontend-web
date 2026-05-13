@@ -9,6 +9,7 @@ export const RevokedMessage = ({
   isTopBoundary,
   onDelete,
   participants,
+  conversationType,
 }: {
   msg: any;
   isMe: boolean;
@@ -18,6 +19,7 @@ export const RevokedMessage = ({
   isTopBoundary?: boolean;
   onDelete?: (msg: any) => void;
   participants?: any[];
+  conversationType?: string;
 }) => {
   const placeholder = isMe
     ? "Bạn đã thu hồi một tin nhắn"
@@ -43,6 +45,7 @@ export const RevokedMessage = ({
       isTopBoundary={isTopBoundary}
       onDelete={onDelete}
       participants={participants}
+      conversationType={conversationType}
     >
       {(borderRadius) => (
         <div
