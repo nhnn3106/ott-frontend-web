@@ -2160,6 +2160,42 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     void runAutoFill();
   }, [messages.length, hasMore, loading, loadOlderMessages]);
 
+  const shouldShowScrollToBottomButton = useCallback(
+    (container: HTMLDivElement | null = messagesContainerRef.current) => {
+      if (messages.length === 0) return false;
+      if (hasMoreAfter) return true;
+      if (!container) return false;
+
+      const hasScrollableOverflow =
+        container.scrollHeight > container.clientHeight + 8;
+      if (!hasScrollableOverflow) return false;
+
+      const distanceToBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+
+      return distanceToBottom >= 100;
+    },
+    [hasMoreAfter, messages.length],
+  );
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+
+    if (messages.length === 0) {
+      wasNearBottomRef.current = true;
+      setShowScrollButton(false);
+      return;
+    }
+
+    if (!container) return;
+    setShowScrollButton(shouldShowScrollToBottomButton(container));
+  }, [
+    activeConversation._id,
+    hasMoreAfter,
+    messages.length,
+    shouldShowScrollToBottomButton,
+  ]);
+
   /**
    * Handle scroll to load older messages (infinite scroll)
    */
@@ -2224,13 +2260,15 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       loadMessageContextAfterLast().finally(() => {
         isLoadingNewerRef.current = false;
-        setShowScrollButton(true);
+        setShowScrollButton(
+          shouldShowScrollToBottomButton(messagesContainerRef.current),
+        );
       });
     }
 
     // Show/hide scroll button based on scroll position
     wasNearBottomRef.current = isNearBottom;
-    setShowScrollButton(hasMoreAfter ? true : !isNearBottom);
+    setShowScrollButton(shouldShowScrollToBottomButton(container));
     lastScrollTopRef.current = currentScrollTop;
   };
 
@@ -2342,7 +2380,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       // After appending messages below, this viewport is no longer anchored to
       // the bottom. Keep later layout changes from snapping it down.
       wasNearBottomRef.current = false;
-      setShowScrollButton(true);
+      setShowScrollButton(shouldShowScrollToBottomButton(container));
       prevMessageCountRef.current = currentMessageCount;
       prevLastMessageIdRef.current = currentLastMessageId;
 
@@ -2370,7 +2408,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       scrollTopBeforeLoadMoreRef.current = 0;
       isFirstLoadRef.current = false;
       wasNearBottomRef.current = false;
-      setShowScrollButton(true);
+      setShowScrollButton(shouldShowScrollToBottomButton(container));
 
       // Cập nhật ref để tránh logic auto-scroll xuống dưới chạy đè lên
       prevMessageCountRef.current = messages.length;
@@ -2482,6 +2520,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     loading,
     markMessageSeenUpTo,
     normalizedUserId,
+    shouldShowScrollToBottomButton,
     waitForInitialMediaToSettle,
     waitForNextFrame,
   ]);
