@@ -1140,6 +1140,7 @@ export const MessageLayout = ({
           className={`relative w-fit max-w-full ${
             hasReactions && showDeliveryStatus ? "mb-3" : ""
           }`}
+          data-chat-message-bubble="true"
           onContextMenu={handleMessageContextMenu}
         >
           {/* NỘI DUNG TIN NHẮN CHÍNH */}
