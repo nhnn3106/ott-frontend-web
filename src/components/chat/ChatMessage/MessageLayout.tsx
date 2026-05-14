@@ -432,10 +432,12 @@ export const MessageLayout = ({
     useState(true);
   const [showReactionDetails, setShowReactionDetails] = useState(false);
   const [showDeliveryDetails, setShowDeliveryDetails] = useState(false);
+  const [showHoverTime, setShowHoverTime] = useState(false);
   const [activeReactionFilter, setActiveReactionFilter] = useState("all");
   const reactionTriggerRef = useRef<HTMLButtonElement>(null);
   const reactionDropdownRef = useRef<HTMLDivElement>(null);
   const reactionHoverTimeoutRef = useRef<number | null>(null);
+  const hoverTimeTimeoutRef = useRef<number | null>(null);
 
   const preloadedSender = useMemo(
     () => ({
@@ -765,7 +767,8 @@ export const MessageLayout = ({
   const shouldShowMessageTime =
     !isCentered && Boolean(messageTimeLabel) && isLast;
   const hasSeenAvatarMeta = visibleSeenAvatars.length > 0;
-  const inlineMetaLabel = shouldShowMessageTime ? messageTimeLabel : "";
+  const inlineMetaLabel =
+    shouldShowMessageTime || showHoverTime ? messageTimeLabel : "";
   const seenAvatarTitle =
     seenAvatarParticipants.length > 0
       ? `Đã xem: ${seenAvatarParticipants
@@ -1012,6 +1015,34 @@ export const MessageLayout = ({
     }, 0);
   };
 
+  const clearHoverTimeTimer = () => {
+    if (hoverTimeTimeoutRef.current !== null) {
+      window.clearTimeout(hoverTimeTimeoutRef.current);
+      hoverTimeTimeoutRef.current = null;
+    }
+  };
+
+  const handleMessageMouseEnter = () => {
+    clearHoverTimeTimer();
+    if (!messageTimeLabel || shouldShowMessageTime || isCentered) return;
+
+    hoverTimeTimeoutRef.current = window.setTimeout(() => {
+      setShowHoverTime(true);
+      hoverTimeTimeoutRef.current = null;
+    }, 650);
+  };
+
+  const handleMessageMouseLeave = () => {
+    clearHoverTimeTimer();
+    setShowHoverTime(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearHoverTimeTimer();
+    };
+  }, []);
+
   return (
     <div
       className={`flex w-full ${containerMargin} ${isCentered
@@ -1187,6 +1218,8 @@ export const MessageLayout = ({
             }`}
           data-chat-message-bubble="true"
           onContextMenu={handleMessageContextMenu}
+          onMouseEnter={handleMessageMouseEnter}
+          onMouseLeave={handleMessageMouseLeave}
         >
           {/* NỘI DUNG TIN NHẮN CHÍNH */}
           {children(borderRadius, renderMessageMeta)}

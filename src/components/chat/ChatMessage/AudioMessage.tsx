@@ -65,7 +65,13 @@ export const AudioMessage = ({
 
   const rawFileName =
     fileName || msg.fileName || getFileNameFromUrl(url, "audio");
-  const finalFileName = decodeURIComponent(rawFileName);
+  const finalFileName = (() => {
+    try {
+      return decodeURIComponent(rawFileName);
+    } catch {
+      return rawFileName;
+    }
+  })();
   const sizeLabel = size ? formatFileSize(size) : "";
   const isUploading = msg.local_status === "uploading";
   const isUploadSuccess = msg.local_status === "success";
@@ -129,20 +135,29 @@ export const AudioMessage = ({
     event.stopPropagation();
     event.preventDefault();
 
+    const normalizedUrl = getFullUrl(url);
+    const downloadFileName = finalFileName || `voice-${Date.now()}.mp3`;
+
     try {
-      const normalizedUrl = getFullUrl(url);
-      const fileName = finalFileName || `voice-${Date.now()}.mp3`;
-      const downloadUrl = `${API_CHAT_SERVER_URL}/media/download?fileUrl=${encodeURIComponent(normalizedUrl)}&fileName=${encodeURIComponent(fileName)}`;
+      const response = await fetch(normalizedUrl);
+      if (!response.ok) {
+        throw new Error("Không thể tải audio");
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = fileName;
+      link.href = blobUrl;
+      link.download = downloadFileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
+      URL.revokeObjectURL(blobUrl);
     } catch {
+      const downloadUrl = `${API_CHAT_SERVER_URL}/media/download?fileUrl=${encodeURIComponent(normalizedUrl)}&fileName=${encodeURIComponent(downloadFileName)}`;
       const link = document.createElement("a");
-      link.href = url;
-      link.download = finalFileName;
+      link.href = downloadUrl;
+      link.download = downloadFileName;
       link.rel = "noopener noreferrer";
       document.body.appendChild(link);
       link.click();

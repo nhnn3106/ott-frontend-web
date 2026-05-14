@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
+import { useToast } from "../../contexts/ToastContext";
 import { useChat } from "../../hooks/useChat";
 import { primeMessageSenderCache } from "../../hooks/useMessageSender";
 import {
@@ -75,11 +76,26 @@ interface ExtendedChatAreaProps extends ChatAreaProps {
 const isSystemLikeType = (type?: string) =>
   String(type || "").startsWith("system_");
 
+const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REVOKE_EXPIRED_MESSAGE =
+  "Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ";
+
+const isRevokeWindowExpired = (msg: Message) => {
+  const rawTime = msg.created_at || msg.createdAt;
+  if (!rawTime) return false;
+
+  const createdTime = new Date(rawTime).getTime();
+  if (Number.isNaN(createdTime)) return false;
+
+  return Date.now() - createdTime > REVOKE_WINDOW_MS;
+};
+
 const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   conversation,
   isSidebarOpen = false,
   onToggleSidebar,
 }) => {
+  const { showToast } = useToast();
   const { user: currentUser } = useAuth();
   const {
     conversations,
@@ -1781,6 +1797,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const handleRevokeMessage = async (msg: Message) => {
     if (!activeConversation?._id || !normalizedUserId || !msg.msg_id) return;
 
+    if (isRevokeWindowExpired(msg)) {
+      showToast(REVOKE_EXPIRED_MESSAGE, "warning", "Thông báo", 3000);
+      return;
+    }
+
     setConfirmModal({
       isOpen: true,
       action: "revoke",
@@ -2042,6 +2063,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       }
 
       if (action === "revoke") {
+        if (isRevokeWindowExpired(message)) {
+          showToast(REVOKE_EXPIRED_MESSAGE, "warning", "Thông báo", 3000);
+          return;
+        }
+
         const revokedResult = await MessageService.revokeMessage(
           activeConversation._id,
           message.msg_id,
@@ -2170,6 +2196,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         `${action === "revoke" ? "Thu hồi" : "Xóa"} tin nhắn thất bại:`,
         error,
       );
+      const errorMessage = error instanceof Error ? error.message : "";
+      if (
+        action === "revoke" &&
+        /24|thu hồi|thu hoi|revoke/i.test(errorMessage)
+      ) {
+        showToast(REVOKE_EXPIRED_MESSAGE, "warning", "Thông báo", 3000);
+      }
     } finally {
       setConfirmModal({
         isOpen: false,
