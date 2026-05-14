@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import NavigationItem from "./NavigationItem";
 import UserProfile from "./UserProfile";
+import NotificationMenu from "./NotificationMenu";
 import logo from "../../assets/logo_tach_nen.jpg";
 import type { NavigationItem as NavigationItemType } from "../../interfaces";
 interface NavigationSidebarProps {
@@ -78,8 +79,9 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
         ))}
       </div>
 
-      {/* Profile & Settings */}
+      {/* Profile & Settings & Notifications */}
       <div className="flex flex-col space-y-2">
+        <NotificationMenu />
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setShowSettingsMenu((value) => !value)}

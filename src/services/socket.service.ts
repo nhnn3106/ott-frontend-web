@@ -798,9 +798,20 @@ class SocketService {
       this.socket?.removeAllListeners("trang_thai_hoat_dong");
     }
   }
-  // ────────────────────────────────────────────────────────────────────────────
+
+  // ── IN-APP NOTIFICATIONS ────────────────────────────────
+  onNewNotification(callback: (notification: any) => void) {
+    this.socket?.on("thong_bao_moi", callback);
+  }
+
+  offNewNotification(callback?: (notification: any) => void) {
+    if (callback) {
+      this.socket?.off("thong_bao_moi", callback);
+    } else {
+      this.socket?.removeAllListeners("thong_bao_moi");
+    }
+  }
 }
 
-console.log("🚀 SocketService V2.0.1 Loaded");
 export const socketService = new SocketService();
-
+console.log("🚀 SocketService V2.0.1 Loaded");
