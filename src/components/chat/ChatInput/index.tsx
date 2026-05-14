@@ -193,13 +193,15 @@ type ConversationCreateResult = {
   };
 };
 
-const shouldConvertImageToWebp = (file: File) => {
+const shouldConvertImageToJpegForModeration = (file: File) => {
   const type = file.type.toLowerCase();
   return (
     type.startsWith("image/") &&
     type !== "image/gif" &&
     type !== "image/svg+xml" &&
-    type !== "image/webp"
+    type !== "image/png" &&
+    type !== "image/jpeg" &&
+    type !== "image/jpg"
   );
 };
 
@@ -207,7 +209,9 @@ const optimizeImageForUpload = (file: File) =>
   compressImageFile(file, {
     maxSizeMB: IMAGE_UPLOAD_MAX_SIZE_MB,
     maxWidthOrHeight: IMAGE_UPLOAD_MAX_EDGE,
-    fileType: shouldConvertImageToWebp(file) ? "image/webp" : file.type,
+    fileType: shouldConvertImageToJpegForModeration(file)
+      ? "image/jpeg"
+      : file.type,
     initialQuality: 0.82,
     useWebWorker: true,
   });

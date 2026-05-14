@@ -9,7 +9,12 @@ export type ImageCompressionOptions = {
 };
 
 const renameWithExtension = (fileName: string, fileType: string) => {
-    const extension = fileType === "image/webp" ? "webp" : fileName.split(".").pop() || "";
+    const extensionByType: Record<string, string> = {
+        "image/webp": "webp",
+        "image/jpeg": "jpg",
+        "image/png": "png",
+    };
+    const extension = extensionByType[fileType] || fileName.split(".").pop() || "";
     if (!extension) return fileName;
 
     const baseName = fileName.replace(/\.[^.]+$/, "");
