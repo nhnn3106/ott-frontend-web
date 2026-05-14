@@ -236,6 +236,7 @@ export const ChatInput = ({
   onCancelReply,
   conversationType,
   smartReplies = [],
+  isSmartReplyLoading = false,
   isSmartReplyOpen = false,
   onSmartReplyToggle,
   onSmartReplyClose,
@@ -1439,6 +1440,15 @@ export const ChatInput = ({
     !replyToMessage &&
     !showEmojiPicker &&
     !isUploading &&
+    !isRecordingVoice &&
+    !isSmartReplyLoading;
+  const shouldShowSmartReplyLoading =
+    isSmartReplyLoading &&
+    text.trim().length === 0 &&
+    pendingFiles.length === 0 &&
+    !replyToMessage &&
+    !showEmojiPicker &&
+    !isUploading &&
     !isRecordingVoice;
   const visibleSmartReplies = isSmartReplyOpen
     ? smartReplies.slice(0, 5)
@@ -1561,6 +1571,23 @@ export const ChatInput = ({
           >
             <X size={14} />
           </button>
+        </div>
+      )}
+
+      {shouldShowSmartReplyLoading && (
+        <div
+          className="mb-4 flex h-7 items-center gap-2 rounded-2xl bg-white px-2"
+          title="Đang tạo gợi ý trả lời"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary-500">
+            <Sparkles size={14} />
+          </span>
+          <div className="flex flex-1 items-center gap-2">
+            <Loader2 size={14} className="animate-spin text-primary-500" />
+            <div className="h-2 w-24 rounded-full bg-slate-100" />
+            <div className="h-2 w-16 rounded-full bg-slate-100" />
+            <div className="h-2 w-20 rounded-full bg-slate-100" />
+          </div>
         </div>
       )}
 

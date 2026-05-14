@@ -32,6 +32,7 @@ import {
   socketService,
   AiService,
 } from "../../services";
+import type { AiSummaryResult } from "../../services";
 import type { ChatAreaProps } from "../../interfaces";
 import type {
   ImageSendError,
@@ -172,6 +173,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const prevMessageCountRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
+  const lastSmartReplyMessageIdRef = useRef<string | null>(null);
   const autoFillOlderRef = useRef(false);
 
   const pendingCallParamsRef = useRef<{
@@ -230,12 +232,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const [relationshipStatus, setRelationshipStatus] = useState<any>(null);
   const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
-  const [, setIsSmartReplyLoading] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
+  const [isSmartReplyLoading, setIsSmartReplyLoading] = useState(false);
   const [isSmartReplyOpen, setIsSmartReplyOpen] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [summaryResult, setSummaryResult] = useState<string | null>(null);
-  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  const [summaryResult, setSummaryResult] = useState<AiSummaryResult | null>(null);
 
   const fetchStatus = useCallback(async () => {
     if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
@@ -2675,20 +2675,26 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   // AI Smart Replies Logic
   useEffect(() => {
-    const lastMessage = messages[messages.length - 1];
-
-    // Debug logic
-    if (lastMessage) {
-      console.log("[AI Debug] Last message sender:", lastMessage.sender_id);
-      console.log("[AI Debug] Current user ID:", normalizedUserId);
-      console.log("[AI Debug] Should trigger:", String(lastMessage.sender_id) !== String(normalizedUserId));
-    }
+    let cancelled = false;
+    const latestMessage = activeConversation.last_message;
+    const latestMessageId = String(latestMessage?.msg_id || "").trim();
+    const latestMessageType = String(latestMessage?.type || "");
+    const smartReplySourceKey = latestMessageId
+      ? `${activeConversation._id}:${latestMessageId}`
+      : "";
 
     if (
-      lastMessage &&
-      String(lastMessage.sender_id) !== String(normalizedUserId) &&
-      !isSystemLikeType(lastMessage.type)
+      latestMessage &&
+      latestMessageId &&
+      normalizedUserId &&
+      smartReplySourceKey !== lastSmartReplyMessageIdRef.current &&
+      String(latestMessage.sender_id) !== String(normalizedUserId) &&
+      (latestMessageType === "text" || latestMessageType === "link") &&
+      !isSystemLikeType(latestMessageType)
     ) {
+      lastSmartReplyMessageIdRef.current = smartReplySourceKey;
+      setSmartReplies([]);
+
       const fetchSuggestions = async () => {
         setIsSmartReplyLoading(true);
         try {
@@ -2696,65 +2702,44 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             ? activeConversation._id.replace('VIRTUAL_CONV_', '')
             : activeConversation._id;
 
-          console.log("[AI Debug] Fetching smart replies for conversation:", aiConvId);
-          const suggestions = await AiService.getSmartReplies(aiConvId);
-
-          // Vì BE đã dùng JSON Mode và lọc kỹ, FE chỉ cần filter cơ bản
-          setSmartReplies((suggestions || []).slice(0, 3));
+          const suggestions = await AiService.getSmartReplies(aiConvId, normalizedUserId);
+          if (!cancelled) {
+            setSmartReplies(suggestions || []);
+          }
 
         } catch (error) {
           console.error("Error fetching smart replies:", error);
         } finally {
-          setIsSmartReplyLoading(false);
+          if (!cancelled) {
+            setIsSmartReplyLoading(false);
+          }
         }
       };
 
       fetchSuggestions();
     } else {
       setSmartReplies([]);
+      setIsSmartReplyLoading(false);
+      if (smartReplySourceKey) {
+        lastSmartReplyMessageIdRef.current = smartReplySourceKey;
+      }
     }
-  }, [messages.length, messages[messages.length - 1]?._id, activeConversation._id, normalizedUserId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeConversation._id,
+    activeConversation.last_message?.msg_id,
+    activeConversation.last_message?.sender_id,
+    activeConversation.last_message?.type,
+    normalizedUserId,
+  ]);
 
   // Tự động đóng gợi ý khi chuyển cuộc hội thoại
   useEffect(() => {
     setIsSmartReplyOpen(false);
   }, [activeConversation._id]);
-
-  // AI Translation Logic - Auto translate new messages
-  useEffect(() => {
-    if (!isTranslating) return;
-
-    // Dịch 3 tin nhắn gần nhất nếu chưa được dịch
-    const recentMessages = messages.slice(-3);
-
-    recentMessages.forEach(async (msg) => {
-      if (
-        msg &&
-        msg.type === "text" &&
-        String(msg.sender_id) !== String(normalizedUserId) &&
-        !translatedMessages[msg._id]
-      ) {
-        const rawContent = msg.content;
-        let textToTranslate = "";
-
-        if (Array.isArray(rawContent)) {
-          const first = rawContent[0];
-          textToTranslate = typeof first === "string" ? first : (first as any)?.text || "";
-        } else {
-          textToTranslate = typeof rawContent === "string" ? rawContent : (rawContent as any)?.text || "";
-        }
-
-        if (!textToTranslate) return;
-
-        try {
-          const translated = await AiService.translateText(textToTranslate);
-          setTranslatedMessages(prev => ({ ...prev, [msg._id]: translated }));
-        } catch (error) {
-          console.error("Translation error for message:", msg._id, error);
-        }
-      }
-    });
-  }, [messages.length, isTranslating, normalizedUserId]);
 
   const handleSelectSmartReply = (reply: string) => {
     setSmartReplies([]);
@@ -2769,7 +2754,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         ? activeConversation._id.replace('VIRTUAL_CONV_', '')
         : activeConversation._id;
 
-      const summary = await AiService.summarizeConversation(aiConvId);
+      const summary = await AiService.summarizeConversation(aiConvId, normalizedUserId);
       setSummaryResult(summary);
 
     } catch (error) {
@@ -2778,10 +2763,6 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     } finally {
       setIsSummarizing(false);
     }
-  };
-
-  const handleToggleTranslation = () => {
-    setIsTranslating(!isTranslating);
   };
 
   useEffect(() => {
@@ -3026,8 +3007,6 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           onToggleSidebar={toggleSidebar}
           onSummarize={handleSummarize}
           isSummarizing={isSummarizing}
-          isTranslating={isTranslating}
-          onToggleTranslation={handleToggleTranslation}
           hideCallActions={
             Boolean(activeConversation?.is_self_conversation) ||
             !isParticipant ||
@@ -3372,7 +3351,6 @@ isExpanded && (
                       onPin={handlePinMessage}
                        onForward={handleForwardMessage}
                       conversation={activeConversation}
-                      translatedText={translatedMessages[msg._id]}
                     />
                   </div>
                  </React.Fragment>
@@ -3461,10 +3439,11 @@ isExpanded && (
                   onUploadSuccess={handleImageSendSuccess}
                   onUploadError={handleImageSendError}
                   onConversationCreated={(newConv) => {
+                    const createdConversation = newConv as any;
                     window.dispatchEvent(new CustomEvent("chat:open-conversation", {
                       detail: {
-                        conversationId: newConv.conversation?._id || newConv._id,
-                        conversation: newConv.conversation || newConv
+                        conversationId: createdConversation.conversation?._id || createdConversation._id,
+                        conversation: createdConversation.conversation || createdConversation
                       }
                     }));
                   }}
@@ -3472,6 +3451,7 @@ isExpanded && (
                   onCancelReply={() => setReplyToMessage(null)}
                   conversationType={activeConversation?.type}
                   smartReplies={smartReplies}
+                  isSmartReplyLoading={isSmartReplyLoading}
                   isSmartReplyOpen={isSmartReplyOpen}
                   onSmartReplyToggle={() => setIsSmartReplyOpen((open) => !open)}
                   onSmartReplyClose={() => setIsSmartReplyOpen(false)}
@@ -3636,7 +3616,7 @@ setForwardingMessage(null);
         message={
           <div className="text-left py-2">
              <div className="bg-white rounded-2xl p-5 border border-primary-100 shadow-inner max-h-[60vh] overflow-y-auto space-y-4">
-              {summaryResult?.split('\n').map((line, i) => {
+              {summaryResult?.summary.split('\n').map((line, i) => {
                 const cleanLine = line.trim();
                 if (!cleanLine) return null;
 const isBullet = cleanLine.startsWith('-') || cleanLine.startsWith('*');
@@ -3656,11 +3636,59 @@ const isBullet = cleanLine.startsWith('-') || cleanLine.startsWith('*');
                   </div>
                  );
 })}
+              {summaryResult?.highlights?.length ? (
+                <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                  <div className="mb-2 text-[12px] font-bold uppercase text-slate-500">
+                    Ý chính
+                  </div>
+                  <div className="space-y-2">
+                    {summaryResult.highlights.map((item, index) => (
+                      <div key={`highlight-${index}`} className="flex items-start gap-2">
+                        <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-400" />
+                        <p className="text-sm leading-relaxed text-slate-700">{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {summaryResult?.actionItems?.length ? (
+                <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                  <div className="mb-2 text-[12px] font-bold uppercase text-amber-700">
+                    Việc cần làm
+                  </div>
+                  <div className="space-y-2">
+                    {summaryResult.actionItems.map((item, index) => (
+                      <div key={`action-${index}`} className="text-sm leading-relaxed text-slate-700">
+                        <span className="font-semibold text-slate-800">{item.owner || "Chưa rõ"}: </span>
+                        {item.task}
+                        {item.due ? <span className="text-amber-700"> ({item.due})</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {summaryResult?.questions?.length ? (
+                <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
+                  <div className="mb-2 text-[12px] font-bold uppercase text-sky-700">
+                    Còn bỏ ngỏ
+                  </div>
+                  <div className="space-y-2">
+                    {summaryResult.questions.map((item, index) => (
+                      <p key={`question-${index}`} className="text-sm leading-relaxed text-slate-700">
+                        {item}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         }
         confirmText="Đóng"
         hideCancelButton
+        maxWidthClassName="max-w-lg"
         onConfirm={() => setSummaryResult(null)}
         onCancel={() => setSummaryResult(null)}
       />

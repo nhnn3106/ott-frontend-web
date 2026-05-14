@@ -145,6 +145,7 @@ export interface ChatInputProps {
   conversationType?: string;
   onConversationCreated?: (newConversation: unknown) => void;
   smartReplies?: string[];
+  isSmartReplyLoading?: boolean;
   isSmartReplyOpen?: boolean;
   onSmartReplyToggle?: () => void;
   onSmartReplyClose?: () => void;
