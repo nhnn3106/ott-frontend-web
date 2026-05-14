@@ -15,8 +15,19 @@ import {
 
 type IncomingCallPayload = {
   conversationId: string;
+  callId?: string;
   callerId: string;
   callType: "voice" | "video";
+  isGroup?: boolean;
+};
+
+type CallOutcomeMessagePayload = {
+  type?: string;
+  conversation_id?: string;
+  system_meta?: {
+    callId?: string;
+    call_id?: string;
+  } | null;
 };
 
 /* ─── Reusable Modal (style khớp app) ─────────────────────────────── */
@@ -96,8 +107,12 @@ const ChatContent: React.FC = () => {
     displayName: string;
     displayAvatar: string;
   } | null>(null);
+  const declinedIncomingCallRef = useRef<string | null>(null);
 
-  useEffect(() => { setAvatarBroken(false); }, [incomingCall?.conversationId]);
+  useEffect(() => {
+    setAvatarBroken(false);
+    declinedIncomingCallRef.current = null;
+  }, [incomingCall?.conversationId, incomingCall?.callId]);
 
   const handleConversationSelect = (item: ConversationWithParticipant) => {
     setSelectedConversation(item.conversation);
@@ -113,6 +128,12 @@ const ChatContent: React.FC = () => {
       // Tránh truyền base64 quá dài gây lỗi HTTP 431
       avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
     });
+    if (payload.callId) {
+      params.set("callId", payload.callId);
+    }
+    if (payload.isGroup) {
+      params.set("isGroup", "true");
+    }
 
     const callWindow = window.open(
       `/call?${params.toString()}`,
@@ -222,17 +243,29 @@ const ChatContent: React.FC = () => {
 
   const handleDeclineIncomingCall = () => {
     if (!incomingCall || !normalizedUserId) return;
-    socketService.declineCall(incomingCall.conversationId, normalizedUserId, incomingCall.callerId);
+    const declineKey = incomingCall.callId || incomingCall.conversationId;
+    if (declinedIncomingCallRef.current === declineKey) return;
+
+    declinedIncomingCallRef.current = declineKey;
+    socketService.declineCall(
+      incomingCall.conversationId,
+      normalizedUserId,
+      incomingCall.callerId,
+      incomingCall.callId,
+    );
     setIncomingCall(null);
   };
 
   useEffect(() => {
     if (!normalizedUserId) return;
-    const onCallEnded = (payload: { conversationId: string }) => {
+    const onCallEnded = (payload: { conversationId: string; callId?: string }) => {
       console.log("onCallEnded received:", payload);
       setIncomingCall((prev) => {
         if (!prev) return null;
-        if (String(prev.conversationId) === String(payload.conversationId)) {
+        if (
+          String(prev.conversationId) === String(payload.conversationId) &&
+          (!prev.callId || (payload.callId && String(prev.callId) === String(payload.callId)))
+        ) {
           console.log("Matching incoming call found, closing modal.");
           return null;
         }
@@ -247,11 +280,16 @@ const ChatContent: React.FC = () => {
     };
 
     // Fail-safe: Nếu nhận được tin nhắn báo cuộc gọi kết thúc/nhỡ -> đóng modal ngay
-    const onNewMessage = (message: any) => {
-      if (["call_end", "call_missed", "call_busy"].includes(message.type)) {
+    const onNewMessage = (message: CallOutcomeMessagePayload) => {
+      if (["call_end", "call_missed", "call_cancel", "call_no_answer", "call_busy"].includes(String(message.type || ""))) {
         setIncomingCall((prev) => {
           if (!prev) return null;
-          if (String(prev.conversationId) === String(message.conversation_id)) {
+          const messageCallId =
+            message.system_meta?.callId || message.system_meta?.call_id || "";
+          if (
+            String(prev.conversationId) === String(message.conversation_id) &&
+            (!prev.callId || (messageCallId && String(prev.callId) === String(messageCallId)))
+          ) {
             console.log("Fail-safe: Received call notification message, closing modal.");
             return null;
           }
@@ -261,8 +299,13 @@ const ChatContent: React.FC = () => {
     };
 
     // Đảm bảo lắng nghe cả sự kiện người dùng từ chối (cho trường hợp đồng bộ nhiều tab)
-    const onCallDeclined = (payload: { conversationId: string }) => {
-      setIncomingCall((prev) => (String(prev?.conversationId) === String(payload.conversationId) ? null : prev));
+    const onCallDeclined = (payload: { conversationId: string; callId?: string }) => {
+      setIncomingCall((prev) =>
+        String(prev?.conversationId) === String(payload.conversationId) &&
+        (!prev?.callId || (payload.callId && String(prev.callId) === String(payload.callId)))
+          ? null
+          : prev,
+      );
     };
 
     socketService.onIncomingCall(onIncomingCall);

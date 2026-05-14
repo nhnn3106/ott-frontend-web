@@ -77,6 +77,9 @@ interface ExtendedChatAreaProps extends ChatAreaProps {
 const isSystemLikeType = (type?: string) =>
   String(type || "").startsWith("system_");
 
+const isCallMessageType = (type?: string) =>
+  String(type || "").startsWith("call_");
+
 const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REVOKE_EXPIRED_MESSAGE =
   "Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ";
@@ -1021,6 +1024,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       if (
         stableId &&
         !isSystemLikeType(message.type) &&
+        !isCallMessageType(message.type) &&
         String(message.sender_id || "") === String(normalizedUserId || "")
       ) {
         return stableId;
@@ -1190,7 +1194,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     action: "start" | "join",
     displayName: string,
     displayAvatar: string,
-    invitedUserIds?: string[]
+    invitedUserIds?: string[],
+    callId?: string,
   ) => {
     const conversationId = activeConversation!._id;
     const windowName = `call_${conversationId}`;
@@ -1225,6 +1230,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
         if (activeConversation?.type === "group") {
           params.append("isGroup", "true");
+        }
+
+        if (callId) {
+          params.append("callId", callId);
         }
 
         if (invitedUserIds && invitedUserIds.length > 0) {
@@ -1266,7 +1275,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (activeConversation.is_calling && activeConversation.type === "group") {
       const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
       const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
-      doOpenCallWindow(type, "join", displayName, displayAvatar);
+      doOpenCallWindow(
+        activeConversation.active_call_type || type,
+        "join",
+        displayName,
+        displayAvatar,
+        undefined,
+        activeConversation.active_call_id,
+      );
       return;
     }
 
@@ -3313,6 +3329,7 @@ isExpanded && (
               const stableMessageId = String(
                 msg.msg_id || msg._id || msg.local_client_id || "",
               ).trim();
+              const isCallMessage = isCallMessageType(msg.type);
               return (
                 <React.Fragment key={item.key}>
                   {item.showTime && <ChatTimeSeparator time={item.time} />}
@@ -3333,6 +3350,7 @@ isExpanded && (
                           ),
                         __show_delivery_status:
                            isMe &&
+                          !isCallMessage &&
                           Boolean(stableMessageId) &&
                           stableMessageId === latestOwnMessageId,
                       }}

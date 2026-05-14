@@ -11,8 +11,6 @@ import {
   VideoOff,
   PhoneOff,
   MonitorUp,
-  Eye,
-  EyeOff,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -150,6 +148,7 @@ const CallPage: React.FC = () => {
   const { user: currentUser } = useAuth();
 
   const conversationId = searchParams.get("conversationId") || "";
+  const urlCallId = searchParams.get("callId") || "";
   const callType = normalizeCallType(searchParams.get("type"));
   const action = searchParams.get("action") || "start";
   const conversationName = searchParams.get("name") || "Cuoc goi";
@@ -160,7 +159,7 @@ const CallPage: React.FC = () => {
   ).trim();
   const myAvatar = String(currentUser?.avatarUrl || "").trim();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isLocalPreviewVisible, setIsLocalPreviewVisible] = useState(true);
+  const [isLocalPreviewVisible] = useState(true);
   const [isLocalVideoCollapsed, setIsLocalVideoCollapsed] = useState(false);
   const [isRemoteVideoActive, setIsRemoteVideoActive] = useState(false);
   const [isRemoteAvatarBroken, setIsRemoteAvatarBroken] = useState(false);
@@ -188,6 +187,7 @@ const CallPage: React.FC = () => {
     busyUserIds,
     isGroup,
     livekitToken,
+    currentCallId,
     startCall,
     joinExistingCall,
     endCall,
@@ -217,7 +217,7 @@ const CallPage: React.FC = () => {
         opener.postMessage({ type: "call-target-busy", name: remoteDisplayName }, "*");
       }
       // Đóng cửa sổ gọi
-      endCall();
+      void endCall(false);
       setTimeout(() => {
         window.close();
         window.location.href = "about:blank";
@@ -261,7 +261,7 @@ const CallPage: React.FC = () => {
     const isGroupUrl = searchParams.get("isGroup") === "true";
 
     if (action === "join") {
-      joinExistingCall(callType, isGroupUrl).catch((error) => {
+      joinExistingCall(callType, isGroupUrl, urlCallId).catch((error) => {
         console.error("Khong the tham gia cuoc goi:", error);
       });
       return;
@@ -280,6 +280,7 @@ const CallPage: React.FC = () => {
     joinExistingCall,
     normalizedUserId,
     startCall,
+    urlCallId,
   ]);
 
   useEffect(() => {
@@ -320,9 +321,14 @@ const CallPage: React.FC = () => {
 
     const onDeclined = (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
     }) => {
       if (payload.conversationId !== conversationId) return;
+      const activeCallId = currentCallId || urlCallId;
+      if (activeCallId && (!payload.callId || String(payload.callId) !== String(activeCallId))) {
+        return;
+      }
 
       const isGroupFromUrl = searchParams.get("isGroup") === "true";
       const actualIsGroup = isGroup || isGroupFromUrl;
@@ -333,7 +339,7 @@ const CallPage: React.FC = () => {
       if (!actualIsGroup) {
         console.log("[CALL] 1:1 call declined, ending...");
         isClosingByCancelRef.current = true;
-        endCall();
+        void endCall(false);
       } else {
         console.log(`[CALL] Group member ${payload.userId} declined, staying in call.`);
       }
@@ -341,16 +347,21 @@ const CallPage: React.FC = () => {
 
     const onCallEnded = (payload: {
       conversationId: string;
+      callId?: string;
       endedBy?: string | null;
     }) => {
       if (payload.conversationId !== conversationId) return;
+      const activeCallId = currentCallId || urlCallId;
+      if (activeCallId && (!payload.callId || String(payload.callId) !== String(activeCallId))) {
+        return;
+      }
       console.log(`[CALL] Received onCallEnded (ket_thuc_phong_goi) event from server. EndedBy: ${payload.endedBy}`);
 
       if (!hasRemoteAnsweredRef.current) {
         isClosingByNoAnswerRef.current = true;
       }
 
-      endCall();
+      void endCall(false);
     };
 
     socketService.onCallDeclined(onDeclined);
@@ -359,10 +370,10 @@ const CallPage: React.FC = () => {
       socketService.offCallDeclined(onDeclined);
       socketService.offCallEnded(onCallEnded);
     };
-  }, [conversationId, endCall, normalizedUserId, isGroup]);
+  }, [conversationId, currentCallId, endCall, normalizedUserId, isGroup, urlCallId]);
 
-  const handleExit = () => {
-    endCall();
+  const handleExit = async () => {
+    await endCall();
     // window.opener chỉ tồn tại khi window được mở bằng window.open — an toàn để close
     if (window.opener) {
       window.close();
@@ -469,6 +480,7 @@ const CallPage: React.FC = () => {
         avatar={remoteAvatarSrc}
         conversationId={conversationId}
         userId={normalizedUserId}
+        callId={currentCallId || urlCallId}
       />
     );
   }

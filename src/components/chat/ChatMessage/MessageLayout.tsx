@@ -747,6 +747,7 @@ export const MessageLayout = ({
   const showDeliveryStatus =
     isMe &&
     !isCentered &&
+    !String(msg.type || "").startsWith("call_") &&
     Boolean(msg.__show_delivery_status) &&
     Boolean(msg.msg_id);
   const seenAvatarParticipants = deliverySummary.seenParticipants || [];

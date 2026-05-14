@@ -1,7 +1,43 @@
 import { Phone, PhoneMissed, PhoneOff, Video } from "lucide-react";
-import type { Message } from "../../../types";
+import type { Conversation, Message } from "../../../types";
 import { MessageLayout } from "./MessageLayout";
 import { getConversationDisplayAvatar, getConversationDisplayName } from "../../../utils";
+
+const formatCallDuration = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds || 0)));
+  const minutes = Math.floor(safeSeconds / 60);
+  const secs = safeSeconds % 60;
+
+  if (minutes > 0) {
+    return `${minutes} phút ${secs} giây`;
+  }
+
+  return `${secs} giây`;
+};
+
+const getRawContent = (msg: Message) => {
+  const content = Array.isArray(msg.content)
+    ? msg.content.filter(Boolean).join(" ")
+    : msg.content;
+
+  return String(content || "").trim();
+};
+
+const getCallDurationLabel = (msg: Message, rawText: string) => {
+  const explicitLabel = rawText.split(/\s+-\s+/).slice(1).join(" - ").trim();
+  if (explicitLabel) return explicitLabel;
+
+  const meta = (msg as Message & {
+    system_meta?: { durationSeconds?: number; duration_seconds?: number };
+  }).system_meta;
+  const durationSeconds = Number(
+    meta?.durationSeconds ?? meta?.duration_seconds ?? NaN,
+  );
+
+  return Number.isFinite(durationSeconds)
+    ? formatCallDuration(durationSeconds)
+    : rawText;
+};
 
 const getCallMeta = (type: string) => {
   switch (type) {
@@ -35,21 +71,28 @@ export const CallMessage = ({
   isLastInSequence: boolean;
   isTopBoundary?: boolean;
   onDelete?: (msg: Message) => void;
-  conversation?: any;
+  conversation?: Conversation;
 }) => {
-  const rawText = Array.isArray(msg.content)
-    ? msg.content.join("")
-    : String(msg.content || "");
+  const rawText = getRawContent(msg);
   const normalizedType = String(msg.type || "").toLowerCase();
   if (normalizedType === "call_start" || normalizedType === "call_join") {
     return null;
   }
 
-  const isVideoCall = /video/i.test(rawText);
+  const meta = (msg as Message & {
+    system_meta?: { callType?: string; call_type?: string };
+  }).system_meta;
+  const metaCallType = String(
+    meta?.callType || meta?.call_type || "",
+  ).toLowerCase();
+  const isVideoCall = metaCallType
+    ? metaCallType === "video"
+    : /video/i.test(rawText);
   const isMissedCall =
     normalizedType === "call_missed" ||
     normalizedType === "call_cancel" ||
     normalizedType === "call_no_answer";
+  const durationLabel = getCallDurationLabel(msg, rawText);
   const messageTime = new Date(
     String(msg.createdAt || (msg as { created_at?: string }).created_at || ""),
   );
@@ -104,7 +147,7 @@ export const CallMessage = ({
       {(borderRadius) => (
         <div
           className={`min-w-56 max-w-[320px] p-3 text-[13px] shadow-sm  transition-all ${isMe
-              ? "bg-[var(--color-chat-me)] text-[var(--color-chat-me-text)] ]"
+              ? "bg-[var(--color-chat-me)] text-[var(--color-chat-me-text)]"
               : "bg-[var(--color-chat-other)] text-[var(--color-chat-other-text)] shadow-lg border-[var(--color-chat-other-border)]"
             } ${borderRadius}`}
         >
@@ -127,7 +170,7 @@ export const CallMessage = ({
                   : `Cuộc gọi ${isVideoCall ? "video" : "thoại"}`}
               </div>
               <div className="mt-1 text-[12px] opacity-70 font-medium">
-                {isMissedCall ? callTimeLabel : (rawText.split(" - ")[1] || rawText || label)}
+                {isMissedCall ? callTimeLabel : (durationLabel || label)}
               </div>
             </div>
           </div>

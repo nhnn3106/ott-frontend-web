@@ -496,6 +496,8 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     updateConversation(convId, {
       is_calling: payload.isCalling,
       call_participant_count: payload.participantCount,
+      active_call_id: payload.isCalling ? payload.callId : undefined,
+      active_call_type: payload.isCalling ? payload.callType : undefined,
     });
   }, [updateConversation]);
 

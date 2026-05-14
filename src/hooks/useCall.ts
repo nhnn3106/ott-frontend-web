@@ -5,6 +5,7 @@ export type CallType = "voice" | "video";
 
 interface IncomingCall {
   conversationId: string;
+  callId?: string;
   callerId: string;
   callType: CallType;
   isGroup?: boolean;
@@ -46,6 +47,55 @@ const buildRtcConfig = (): RTCConfiguration => {
 };
 
 const rtcConfig: RTCConfiguration = buildRtcConfig();
+const FAKE_MEDIA_STORAGE_KEY = "riff_call_use_fake_media";
+
+type WebkitAudioWindow = Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+
+const shouldUseFakeCallMedia = () => {
+  const envValue = String(
+    import.meta.env.VITE_CALL_FAKE_MEDIA || "",
+  ).toLowerCase();
+  const storageValue = String(
+    localStorage.getItem(FAKE_MEDIA_STORAGE_KEY) || "",
+  ).toLowerCase();
+  const queryValue = new URLSearchParams(window.location.search)
+    .get("fakeMedia")
+    ?.toLowerCase();
+
+  return [envValue, storageValue, queryValue].some((value) =>
+    ["1", "true", "yes", "on"].includes(value || ""),
+  );
+};
+
+const stopTrack = (track?: MediaStreamTrack | null) => {
+  if (track && track.readyState !== "ended") {
+    track.stop();
+  }
+};
+
+const patchTrackStop = (
+  track: MediaStreamTrack | null,
+  cleanup: () => void,
+) => {
+  if (!track) return;
+
+  const originalStop = track.stop.bind(track);
+  let cleaned = false;
+  const runCleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    cleanup();
+  };
+
+  track.stop = () => {
+    runCleanup();
+    originalStop();
+  };
+  track.addEventListener("ended", runCleanup, { once: true });
+};
 
 const ensureTransceivers = (pc: RTCPeerConnection, mode: CallType) => {
   const transceivers = pc.getTransceivers();
@@ -77,6 +127,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
   >({});
   const [isGroup, setIsGroup] = useState(false);
   const [livekitToken, setLivekitToken] = useState<string | null>(null);
+  const [currentCallId, setCurrentCallId] = useState<string | null>(null);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -85,11 +136,68 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     new Map(),
   );
   const activeConversationRef = useRef<string | null>(null);
+  const activeCallIdRef = useRef<string | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
   const cameraTrackBeforeShareRef = useRef<MediaStreamTrack | null>(null);
   const cameraOffBeforeShareRef = useRef(false);
+  const isGroupRef = useRef(false);
+  const closeCallLocallyRef = useRef<(() => void) | null>(null);
+  const peerDisconnectTimersRef = useRef<Map<string, number>>(new Map());
+  const hasRemoteConnectedRef = useRef(false);
+  const callConnectedAtRef = useRef<number | null>(null);
+  const hasEmittedCallEndRef = useRef(false);
+  const hasDeclinedIncomingCallRef = useRef(false);
+  const userIdRef = useRef(userId);
+  const callTypeRef = useRef<CallType | null>(callType);
 
   const canHandleCall = Boolean(conversationId && userId);
+
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
+  useEffect(() => {
+    callTypeRef.current = callType;
+  }, [callType]);
+
+  const setActiveCallId = useCallback((nextCallId?: string | null) => {
+    const normalizedCallId = String(nextCallId || "").trim();
+    activeCallIdRef.current = normalizedCallId || null;
+    setCurrentCallId(normalizedCallId || null);
+  }, []);
+
+  const isPayloadForActiveCall = useCallback(
+    (payload: { conversationId?: string; callId?: string | null }) => {
+      if (
+        !activeConversationRef.current ||
+        payload.conversationId !== activeConversationRef.current
+      ) {
+        return false;
+      }
+
+      const activeCallId = activeCallIdRef.current;
+      const payloadCallId = String(payload.callId || "").trim();
+
+      if (activeCallId && !payloadCallId) {
+        return false;
+      }
+
+      if (activeCallId && payloadCallId && payloadCallId !== activeCallId) {
+        return false;
+      }
+
+      if (!activeCallId && payloadCallId) {
+        setActiveCallId(payloadCallId);
+      }
+
+      return true;
+    },
+    [setActiveCallId],
+  );
+
+  useEffect(() => {
+    isGroupRef.current = isGroup;
+  }, [isGroup]);
 
   const resetCallState = useCallback(() => {
     setIsInCall(false);
@@ -103,23 +211,48 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     setIsScreenSharing(false);
     setRemoteCameraStates({});
     setIsGroup(false);
+    isGroupRef.current = false;
     setLivekitToken(null);
     remoteMediaStreamRef.current.clear();
     pendingIceCandidatesRef.current.clear();
     activeConversationRef.current = null;
+    activeCallIdRef.current = null;
+    setCurrentCallId(null);
     screenTrackRef.current = null;
     cameraTrackBeforeShareRef.current = null;
     cameraOffBeforeShareRef.current = false;
+    hasRemoteConnectedRef.current = false;
+    callConnectedAtRef.current = null;
+    hasEmittedCallEndRef.current = false;
+    hasDeclinedIncomingCallRef.current = false;
   }, []);
 
   const stopLocalStream = useCallback(() => {
-    if (!localStreamRef.current) return;
+    const currentScreenTrack = screenTrackRef.current;
+    if (currentScreenTrack) {
+      currentScreenTrack.onended = null;
+      stopTrack(currentScreenTrack);
+      screenTrackRef.current = null;
+    }
 
-    localStreamRef.current.getTracks().forEach((track) => track.stop());
+    stopTrack(cameraTrackBeforeShareRef.current);
+    cameraTrackBeforeShareRef.current = null;
+    cameraOffBeforeShareRef.current = false;
+
+    localStreamRef.current?.getTracks().forEach(stopTrack);
     localStreamRef.current = null;
   }, []);
 
+  const clearPeerDisconnectTimer = useCallback((targetUserId: string) => {
+    const timerId = peerDisconnectTimersRef.current.get(targetUserId);
+    if (timerId !== undefined) {
+      window.clearTimeout(timerId);
+      peerDisconnectTimersRef.current.delete(targetUserId);
+    }
+  }, []);
+
   const cleanupPeer = useCallback((targetUserId: string) => {
+    clearPeerDisconnectTimer(targetUserId);
     const existing = peerConnectionsRef.current.get(targetUserId);
     if (!existing) return;
 
@@ -141,7 +274,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     setRemoteStreams((prev) =>
       prev.filter((item) => item.userId !== targetUserId),
     );
-  }, []);
+  }, [clearPeerDisconnectTimer]);
 
   const cleanupAllPeers = useCallback(() => {
     Array.from(peerConnectionsRef.current.keys()).forEach((targetUserId) => {
@@ -149,14 +282,29 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     });
   }, [cleanupPeer]);
 
+  const markRemoteConnected = useCallback(() => {
+    hasRemoteConnectedRef.current = true;
+    if (!callConnectedAtRef.current) {
+      callConnectedAtRef.current = Date.now();
+    }
+  }, []);
+
   const createFakeStream = useCallback((name: string, mode: CallType): MediaStream => {
     const canvas = document.createElement("canvas");
     canvas.width = 640;
     canvas.height = 480;
     const ctx = canvas.getContext("2d");
+    let animationId: number | null = null;
+    let videoTrack: MediaStreamTrack | null = null;
+
     if (ctx) {
       // Vẽ nền gradient tối
-      const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      const gradient = ctx.createLinearGradient(
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
       gradient.addColorStop(0, "#1e293b");
       gradient.addColorStop(1, "#0f172a");
       ctx.fillStyle = gradient;
@@ -169,40 +317,80 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       ctx.textBaseline = "middle";
       ctx.fillText(name || "User", canvas.width / 2, canvas.height / 2);
       ctx.font = "20px sans-serif";
-      ctx.fillText("(Camera Simulation)", canvas.width / 2, canvas.height / 2 + 50);
+      ctx.fillText(
+        "(Camera Simulation)",
+        canvas.width / 2,
+        canvas.height / 2 + 50,
+      );
 
       // Animation đơn giản
       let offset = 0;
       const animate = () => {
-        if (mode === "video") {
-          ctx.fillStyle = gradient;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#38bdf8";
-          ctx.font = "bold 40px sans-serif";
-          ctx.fillText(name || "User", canvas.width / 2, canvas.height / 2 + Math.sin(offset) * 10);
-          ctx.font = "20px sans-serif";
-          ctx.fillText("(Camera Simulation)", canvas.width / 2, canvas.height / 2 + 50);
-          offset += 0.1;
-          requestAnimationFrame(animate);
-        }
+        if (mode !== "video" || videoTrack?.readyState === "ended") return;
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#38bdf8";
+        ctx.font = "bold 40px sans-serif";
+        ctx.fillText(
+          name || "User",
+          canvas.width / 2,
+          canvas.height / 2 + Math.sin(offset) * 10,
+        );
+        ctx.font = "20px sans-serif";
+        ctx.fillText(
+          "(Camera Simulation)",
+          canvas.width / 2,
+          canvas.height / 2 + 50,
+        );
+        offset += 0.1;
+        animationId = requestAnimationFrame(animate);
       };
-      if (mode === "video") requestAnimationFrame(animate);
+      if (mode === "video") animationId = requestAnimationFrame(animate);
     }
 
     const stream = canvas.captureStream(30);
+    videoTrack = stream.getVideoTracks()[0] || null;
+    patchTrackStop(videoTrack, () => {
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+    });
     
     // Tạo silent audio track
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as WebkitAudioWindow).webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      return videoTrack ? new MediaStream([videoTrack]) : new MediaStream();
+    }
+
+    const audioCtx = new AudioContextCtor();
     const oscillator = audioCtx.createOscillator();
-    const dst = oscillator.connect(audioCtx.createMediaStreamDestination()) as any;
+    const destination = audioCtx.createMediaStreamDestination();
+    oscillator.connect(destination);
     oscillator.start();
-    const silentAudioTrack = dst.stream.getAudioTracks()[0];
+    const silentAudioTrack = destination.stream.getAudioTracks()[0];
+    patchTrackStop(silentAudioTrack, () => {
+      try {
+        oscillator.stop();
+      } catch {
+        // Oscillator may already be stopped by the browser.
+      }
+      audioCtx.close().catch(() => undefined);
+    });
     
     if (mode === "voice") {
       return new MediaStream([silentAudioTrack]);
     }
     
-    return new MediaStream([stream.getVideoTracks()[0], silentAudioTrack]);
+    return new MediaStream(
+      [videoTrack, silentAudioTrack].filter(
+        (track): track is MediaStreamTrack => Boolean(track),
+      ),
+    );
   }, []);
 
   const ensureLocalStream = useCallback(async (mode: CallType) => {
@@ -215,8 +403,16 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
         return existing;
       }
 
-      existing.getTracks().forEach((track) => track.stop());
+      existing.getTracks().forEach(stopTrack);
       localStreamRef.current = null;
+    }
+
+    if (shouldUseFakeCallMedia()) {
+      const fakeStream = createFakeStream(userId || "User", mode);
+      localStreamRef.current = fakeStream;
+      setIsMuted(false);
+      setIsCameraOff(mode === "voice");
+      return fakeStream;
     }
 
     try {
@@ -262,6 +458,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
         socketService.sendIceCandidate(
           activeConversationRef.current,
+          activeCallIdRef.current,
           userId,
           targetUserId,
           event.candidate.toJSON(),
@@ -269,6 +466,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       };
 
       pc.ontrack = (event) => {
+        markRemoteConnected();
         const [firstStream] = event.streams;
         const existingStream = remoteMediaStreamRef.current.get(targetUserId);
         const stream = existingStream || firstStream || new MediaStream();
@@ -304,7 +502,29 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       };
 
       pc.onconnectionstatechange = () => {
-        if (["failed", "closed"].includes(pc.connectionState)) {
+        if (pc.connectionState === "connected") {
+          clearPeerDisconnectTimer(targetUserId);
+          return;
+        }
+
+        if (
+          pc.connectionState === "disconnected" ||
+          pc.connectionState === "failed"
+        ) {
+          if (!peerDisconnectTimersRef.current.has(targetUserId)) {
+            const timerId = window.setTimeout(() => {
+              cleanupPeer(targetUserId);
+              if (!isGroupRef.current) {
+                closeCallLocallyRef.current?.();
+              }
+            }, 6000);
+            peerDisconnectTimersRef.current.set(targetUserId, timerId);
+          }
+          return;
+        }
+
+        if (pc.connectionState === "closed") {
+          clearPeerDisconnectTimer(targetUserId);
           cleanupPeer(targetUserId);
         }
       };
@@ -313,7 +533,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       setCallType(mode);
       return pc;
     },
-    [cleanupPeer, userId],
+    [cleanupPeer, clearPeerDisconnectTimer, markRemoteConnected, userId],
   );
 
   const createOfferFor = useCallback(
@@ -329,6 +549,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
       socketService.sendOffer(
         activeConversationRef.current,
+        activeCallIdRef.current,
         userId,
         targetUserId,
         offer,
@@ -368,15 +589,95 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
   const replaceOutgoingVideoTrack = useCallback(
     (nextTrack: MediaStreamTrack | null) => {
       peerConnectionsRef.current.forEach((pc) => {
-        const sender = pc
-          .getSenders()
-          .find((item) => item.track?.kind === "video" || item.track === null);
+        const sender =
+          pc
+            .getTransceivers()
+            .find(
+              (item) =>
+                item.sender.track?.kind === "video" ||
+                item.receiver.track?.kind === "video",
+            )?.sender ||
+          pc.getSenders().find((item) => item.track?.kind === "video");
 
         if (sender && typeof sender.replaceTrack === "function") {
           sender.replaceTrack(nextTrack).catch((error) => {
             console.error("Khong the cap nhat video track:", error);
           });
         }
+      });
+    },
+    [],
+  );
+
+  const acquireVideoTrack = useCallback(async () => {
+    if (shouldUseFakeCallMedia()) {
+      const fakeStream = createFakeStream(userId || "User", "video");
+      fakeStream.getAudioTracks().forEach(stopTrack);
+      return fakeStream.getVideoTracks()[0] || null;
+    }
+
+    try {
+      const media = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+      const [videoTrack] = media.getVideoTracks();
+      media.getAudioTracks().forEach(stopTrack);
+      return videoTrack || null;
+    } catch (error) {
+      console.warn("Khong the bat camera that, dung camera gia lap:", error);
+      const fakeStream = createFakeStream(userId || "User", "video");
+      fakeStream.getAudioTracks().forEach(stopTrack);
+      return fakeStream.getVideoTracks()[0] || null;
+    }
+  }, [createFakeStream, userId]);
+
+  const releaseLocalVideoTracks = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+
+    stream.getVideoTracks().forEach((track) => {
+      stream.removeTrack(track);
+      stopTrack(track);
+    });
+    replaceOutgoingVideoTrack(null);
+  }, [replaceOutgoingVideoTrack]);
+
+  const closeCallLocally = useCallback(() => {
+    cleanupAllPeers();
+    stopLocalStream();
+    resetCallState();
+    setIncomingCall(null);
+  }, [cleanupAllPeers, resetCallState, stopLocalStream]);
+
+  useEffect(() => {
+    closeCallLocallyRef.current = closeCallLocally;
+  }, [closeCallLocally]);
+
+  const emitEndCallOnce = useCallback(
+    (activeConversationId: string) => {
+      const activeUserId = userIdRef.current;
+
+      if (!activeUserId || hasEmittedCallEndRef.current) {
+        return Promise.resolve(false);
+      }
+
+      hasEmittedCallEndRef.current = true;
+      const durationSeconds = callConnectedAtRef.current
+        ? Math.max(
+            0,
+            Math.floor((Date.now() - callConnectedAtRef.current) / 1000),
+          )
+        : 0;
+
+      return socketService.endCall(activeConversationId, activeUserId, {
+        callId: activeCallIdRef.current,
+        callType: callTypeRef.current || undefined,
+        wasConnected: hasRemoteConnectedRef.current,
+        durationSeconds,
+      }).catch((error) => {
+        console.error("Khong the gui tin hieu ket thuc cuoc goi:", error);
+        return false;
       });
     },
     [],
@@ -396,10 +697,37 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
         activeConversationRef.current = conversationId;
         setCallType(mode);
+        isGroupRef.current = !!isGroupCall;
+        setIsGroup(!!isGroupCall);
         setIsInCall(true);
 
-        socketService.joinCall(conversationId, userId, mode);
-        socketService.startCall(conversationId, userId, mode, invitedUserIds);
+        const response = await socketService.startCall(
+          conversationId,
+          userId,
+          mode,
+          invitedUserIds,
+        );
+
+        if (!response?.ok && response?.reason === "busy" && response.targetUserId) {
+          setBusyUserIds([response.targetUserId]);
+          setIsInCall(false);
+          stopLocalStream();
+          return;
+        }
+
+        if (!response?.ok) {
+          throw new Error(response?.reason || "start_call_failed");
+        }
+
+        if (response?.callId) {
+          setActiveCallId(response.callId);
+        }
+        if (response?.participants) {
+          setParticipants(response.participants);
+        }
+        if (response?.livekitToken) {
+          setLivekitToken(response.livekitToken);
+        }
       } catch (error) {
         console.error("Không thể bắt đầu cuộc gọi:", error);
         resetCallState();
@@ -413,13 +741,14 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       conversationId,
       ensureLocalStream,
       resetCallState,
+      setActiveCallId,
       stopLocalStream,
       userId,
     ],
   );
 
   const joinExistingCall = useCallback(
-    async (mode: CallType, isGroupCall?: boolean) => {
+    async (mode: CallType, isGroupCall?: boolean, callId?: string | null) => {
       if (!canHandleCall || !conversationId || !userId) return;
 
       try {
@@ -432,9 +761,33 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
         activeConversationRef.current = conversationId;
         setCallType(mode);
+        isGroupRef.current = !!isGroupCall;
+        setIsGroup(!!isGroupCall);
         setIsInCall(true);
+        if (callId) {
+          setActiveCallId(callId);
+        }
 
-        socketService.joinCall(conversationId, userId, mode);
+        const response = await socketService.joinCall(
+          conversationId,
+          userId,
+          mode,
+          callId || activeCallIdRef.current,
+        );
+
+        if (!response?.ok) {
+          throw new Error(response?.reason || "join_call_failed");
+        }
+
+        if (response?.callId) {
+          setActiveCallId(response.callId);
+        }
+        if (response?.participants) {
+          setParticipants(response.participants);
+        }
+        if (response?.livekitToken) {
+          setLivekitToken(response.livekitToken);
+        }
       } catch (error) {
         console.error("Không thể tham gia cuộc gọi:", error);
         resetCallState();
@@ -448,6 +801,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       conversationId,
       ensureLocalStream,
       resetCallState,
+      setActiveCallId,
       stopLocalStream,
       userId,
     ],
@@ -462,14 +816,31 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
       activeConversationRef.current = incomingCall.conversationId;
       setCallType(incomingCall.callType);
+      isGroupRef.current = !!incomingCall.isGroup;
       setIsGroup(!!incomingCall.isGroup);
       setIsInCall(true);
+      setActiveCallId(incomingCall.callId || null);
 
-      socketService.joinCall(
+      const response = await socketService.joinCall(
         incomingCall.conversationId,
         userId,
         incomingCall.callType,
+        incomingCall.callId,
       );
+
+      if (!response?.ok) {
+        throw new Error(response?.reason || "accept_call_failed");
+      }
+
+      if (response?.callId) {
+        setActiveCallId(response.callId);
+      }
+      if (response?.participants) {
+        setParticipants(response.participants);
+      }
+      if (response?.livekitToken) {
+        setLivekitToken(response.livekitToken);
+      }
 
       setIncomingCall(null);
     } catch (error) {
@@ -484,43 +855,43 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     ensureLocalStream,
     incomingCall,
     resetCallState,
+    setActiveCallId,
     stopLocalStream,
     userId,
   ]);
 
   const declineIncomingCall = useCallback(() => {
     if (!incomingCall || !userId) return;
+    if (hasDeclinedIncomingCallRef.current) return;
 
+    hasDeclinedIncomingCallRef.current = true;
     socketService.declineCall(
       incomingCall.conversationId,
       userId,
       incomingCall.callerId,
+      incomingCall.callId,
     );
     setIncomingCall(null);
   }, [incomingCall, userId]);
 
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async (notifyRemote = true) => {
     const activeConversationId = activeConversationRef.current;
-    if (activeConversationId && userId) {
-      if (isGroup) {
-        socketService.leaveCall(activeConversationId, userId);
+    let endSignalPromise = Promise.resolve(false);
+
+    if (notifyRemote && activeConversationId && userId) {
+      if (isGroupRef.current) {
+        endSignalPromise = socketService
+          .leaveCall(activeConversationId, userId, activeCallIdRef.current)
+          .then((response) => response?.ok === true)
+          .catch(() => false);
       } else {
-        socketService.endCall(activeConversationId, userId);
+        endSignalPromise = emitEndCallOnce(activeConversationId);
       }
     }
 
-    cleanupAllPeers();
-
-    const currentScreenTrack = screenTrackRef.current;
-    if (currentScreenTrack) {
-      currentScreenTrack.onended = null;
-      currentScreenTrack.stop();
-      screenTrackRef.current = null;
-    }
-
-    stopLocalStream();
-    resetCallState();
-  }, [cleanupAllPeers, resetCallState, stopLocalStream, userId]);
+    closeCallLocally();
+    await endSignalPromise;
+  }, [closeCallLocally, emitEndCallOnce, userId]);
 
   const toggleMic = useCallback(() => {
     const stream = localStreamRef.current;
@@ -540,18 +911,60 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     const stream = localStreamRef.current;
     if (!stream) return;
 
-    stream.getVideoTracks().forEach((track) => {
-      track.enabled = !track.enabled;
-    });
-
-    setIsCameraOff((prev) => {
-      const nextState = !prev;
-      if (activeConversationRef.current && userId) {
-        socketService.emitCameraState(activeConversationRef.current, userId, nextState);
+      if (!isCameraOff) {
+        releaseLocalVideoTracks();
+        setIsCameraOff(true);
+        if (activeConversationRef.current && userId) {
+          socketService.emitCameraState(
+            activeConversationRef.current,
+            userId,
+            true,
+            activeCallIdRef.current,
+          );
+        }
+        return;
       }
-      return nextState;
-    });
-  }, [callType, isScreenSharing, userId]);
+
+    void (async () => {
+      const nextTrack = await acquireVideoTrack();
+      if (!nextTrack) {
+        setIsCameraOff(true);
+        if (activeConversationRef.current && userId) {
+          socketService.emitCameraState(
+            activeConversationRef.current,
+            userId,
+            true,
+            activeCallIdRef.current,
+          );
+        }
+        return;
+      }
+
+      stream.getVideoTracks().forEach((track) => {
+        stream.removeTrack(track);
+        stopTrack(track);
+      });
+      stream.addTrack(nextTrack);
+      replaceOutgoingVideoTrack(nextTrack);
+      setIsCameraOff(false);
+      if (activeConversationRef.current && userId) {
+        socketService.emitCameraState(
+          activeConversationRef.current,
+          userId,
+          false,
+          activeCallIdRef.current,
+        );
+      }
+    })();
+  }, [
+    acquireVideoTrack,
+    callType,
+    isCameraOff,
+    isScreenSharing,
+    releaseLocalVideoTracks,
+    replaceOutgoingVideoTrack,
+    userId,
+  ]);
 
   const stopScreenShare = useCallback(async () => {
     if (callType !== "video") return;
@@ -566,18 +979,14 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     activeScreenTrack.onended = null;
     stream.removeTrack(activeScreenTrack);
-    activeScreenTrack.stop();
+    stopTrack(activeScreenTrack);
     screenTrackRef.current = null;
 
     let restoreTrack = cameraTrackBeforeShareRef.current;
 
     if (!restoreTrack || restoreTrack.readyState !== "live") {
       try {
-        const media = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
-        [restoreTrack] = media.getVideoTracks();
+        restoreTrack = await acquireVideoTrack();
       } catch (error) {
         console.error("Khong the khoi phuc camera sau khi dung share:", error);
         restoreTrack = null;
@@ -597,7 +1006,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     cameraTrackBeforeShareRef.current = null;
     cameraOffBeforeShareRef.current = false;
     setIsScreenSharing(false);
-  }, [callType, replaceOutgoingVideoTrack]);
+  }, [acquireVideoTrack, callType, replaceOutgoingVideoTrack]);
 
   const startScreenShare = useCallback(async () => {
     if (callType !== "video" || isScreenSharing) return;
@@ -661,18 +1070,24 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleCallJoined = async (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       participants: string[];
       callType: CallType;
       isGroup?: boolean;
       livekitToken?: string;
     }) => {
-      if (!userId || payload.conversationId !== activeConversationRef.current)
+      if (!userId || !isPayloadForActiveCall(payload))
         return;
 
       setParticipants(payload.participants);
       setCallType(payload.callType);
       setIsGroup(!!payload.isGroup);
+      if (
+        payload.participants.some((id) => String(id) !== String(userId || ""))
+      ) {
+        markRemoteConnected();
+      }
       if (payload.livekitToken && String(payload.userId) === String(userId)) {
         setLivekitToken(payload.livekitToken);
       }
@@ -703,13 +1118,13 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleOffer = async (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       offer: RTCSessionDescriptionInit;
       callType: CallType;
     }) => {
       if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current ||
+        !isPayloadForActiveCall(payload) ||
         !userId
       ) {
         return;
@@ -724,6 +1139,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
         socketService.sendAnswer(
           payload.conversationId,
+          activeCallIdRef.current,
           userId,
           payload.fromUserId,
           answer,
@@ -735,13 +1151,11 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleAnswer = async (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       answer: RTCSessionDescriptionInit;
     }) => {
-      if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current
-      ) {
+      if (!isPayloadForActiveCall(payload)) {
         return;
       }
 
@@ -760,13 +1174,11 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleIceCandidate = async (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       candidate: RTCIceCandidateInit;
     }) => {
-      if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current
-      ) {
+      if (!isPayloadForActiveCall(payload)) {
         return;
       }
 
@@ -785,13 +1197,11 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleCallLeft = (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       participants: string[];
     }) => {
-      if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current
-      ) {
+      if (!isPayloadForActiveCall(payload)) {
         return;
       }
 
@@ -801,29 +1211,22 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleCallEnded = (payload: {
       conversationId: string;
+      callId?: string;
       endedBy?: string | null;
     }) => {
-      if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current
-      ) {
+      if (!isPayloadForActiveCall(payload)) {
         return;
       }
 
-      cleanupAllPeers();
-      stopLocalStream();
-      resetCallState();
-      setIncomingCall(null);
+      void endCall(false);
     };
 
     const handleCallDeclined = (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
     }) => {
-      if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current
-      ) {
+      if (!isPayloadForActiveCall(payload)) {
         return;
       }
 
@@ -851,13 +1254,11 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleCameraStateChanged = (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       isCameraOff: boolean;
     }) => {
-      if (
-        !activeConversationRef.current ||
-        payload.conversationId !== activeConversationRef.current
-      ) {
+      if (!isPayloadForActiveCall(payload)) {
         return;
       }
       setRemoteCameraStates((prev) => ({
@@ -868,15 +1269,20 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
 
     const handleStartCallSuccess = (payload: {
       conversationId: string;
+      callId?: string;
       callType: CallType;
       isGroup?: boolean;
       livekitToken?: string;
     }) => {
-      if (payload.conversationId !== activeConversationRef.current) return;
+      if (!isPayloadForActiveCall(payload)) return;
+      if (payload.callId) {
+        setActiveCallId(payload.callId);
+      }
       if (payload.livekitToken) {
         setLivekitToken(payload.livekitToken);
       }
       if (payload.isGroup) {
+        isGroupRef.current = true;
         setIsGroup(true);
       }
     };
@@ -907,28 +1313,41 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       socketService.offCameraStateChanged(handleCameraStateChanged);
     };
   }, [
-    cleanupAllPeers,
+    closeCallLocally,
     cleanupPeer,
     createOfferFor,
+    endCall,
     flushPendingIceCandidates,
     getOrCreatePeer,
+    isPayloadForActiveCall,
+    isInCall,
+    markRemoteConnected,
     queueIceCandidate,
-    resetCallState,
-    stopLocalStream,
+    setActiveCallId,
     userId,
   ]);
 
   useEffect(() => {
     return () => {
       const activeConversationId = activeConversationRef.current;
-      if (activeConversationId && userId) {
-        socketService.leaveCall(activeConversationId, userId);
+      const activeUserId = userIdRef.current;
+
+      if (activeConversationId && activeUserId) {
+        if (isGroupRef.current) {
+          void socketService.leaveCall(
+            activeConversationId,
+            activeUserId,
+            activeCallIdRef.current,
+          );
+        } else {
+          void emitEndCallOnce(activeConversationId);
+        }
       }
 
       cleanupAllPeers();
       stopLocalStream();
     };
-  }, [cleanupAllPeers, stopLocalStream, userId]);
+  }, [cleanupAllPeers, emitEndCallOnce, stopLocalStream]);
 
   const localStream = localStreamRef.current;
 
@@ -948,6 +1367,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
       remoteCameraStates,
       isGroup,
       livekitToken,
+      currentCallId,
       startCall,
       joinExistingCall,
       acceptIncomingCall,
@@ -961,6 +1381,7 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
     [
       acceptIncomingCall,
       callType,
+      currentCallId,
       declineIncomingCall,
       endCall,
       incomingCall,

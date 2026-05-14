@@ -3,6 +3,18 @@ import { SOCKET_CHAT_SERVER_URL } from "../config/api.config";
 
 type CallType = "voice" | "video";
 
+type CallSessionAck = {
+  ok?: boolean;
+  reason?: string;
+  conversationId?: string;
+  callId?: string;
+  callType?: CallType;
+  isGroup?: boolean;
+  livekitToken?: string | null;
+  participants?: string[];
+  targetUserId?: string;
+};
+
 class SocketService {
   private socket: Socket | null = null;
   private userRoomId: string | null = null;
@@ -27,6 +39,55 @@ class SocketService {
     } else {
       socket.once("connect", emit);
     }
+  }
+
+  private emitWithAck<T = unknown>(
+    event: string,
+    payload: unknown,
+    timeoutMs = 1000,
+  ): Promise<T | null> {
+    const socket = this.ensureSocket();
+
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const finish = (value: T | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const emit = () => {
+        try {
+          socket.timeout(timeoutMs).emit(
+            event,
+            payload,
+            (error: Error | null, response: T) => {
+              if (error) {
+                finish(null);
+                return;
+              }
+
+              finish(response ?? null);
+            },
+          );
+        } catch {
+          socket.emit(event, payload);
+          window.setTimeout(() => finish(null), 100);
+        }
+      };
+
+      if (socket.connected) {
+        emit();
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+      socket.once("connect", () => {
+        window.clearTimeout(timeoutId);
+        emit();
+      });
+    });
   }
 
   connect(): Socket {
@@ -382,34 +443,73 @@ class SocketService {
     return this.socket;
   }
 
-  startCall(conversationId: string, callerId: string, callType: CallType, invitedUserIds?: string[]) {
-    this.emitWhenConnected("bat_dau_goi", {
+  startCall(
+    conversationId: string,
+    callerId: string,
+    callType: CallType,
+    invitedUserIds?: string[],
+  ): Promise<CallSessionAck | null> {
+    return this.emitWithAck<CallSessionAck>("bat_dau_goi", {
       conversationId,
       callerId,
       callType,
       invitedUserIds,
-    });
+    }, 3000);
   }
 
-  joinCall(conversationId: string, userId: string, callType: CallType) {
-    this.emitWhenConnected("tham_gia_cuoc_goi", {
+  joinCall(
+    conversationId: string,
+    userId: string,
+    callType: CallType,
+    callId?: string | null,
+  ): Promise<CallSessionAck | null> {
+    return this.emitWithAck<CallSessionAck>("tham_gia_cuoc_goi", {
       conversationId,
+      callId,
       userId,
       callType,
-    });
+    }, 3000);
   }
 
-  leaveCall(conversationId: string, userId: string) {
-    this.emitWhenConnected("roi_cuoc_goi", { conversationId, userId });
+  leaveCall(conversationId: string, userId: string, callId?: string | null) {
+    return this.emitWithAck<CallSessionAck>("roi_cuoc_goi", {
+      conversationId,
+      callId,
+      userId,
+    }, 1500);
   }
 
-  endCall(conversationId: string, userId: string) {
-    this.emitWhenConnected("ket_thuc_goi", { conversationId, userId });
+  async endCall(
+    conversationId: string,
+    userId: string,
+    metadata?: {
+      callId?: string | null;
+      callType?: CallType;
+      wasConnected?: boolean;
+      durationSeconds?: number;
+    },
+  ): Promise<boolean> {
+    const response = await this.emitWithAck<{ ok?: boolean }>(
+      "ket_thuc_goi",
+      {
+        conversationId,
+        userId,
+        ...(metadata || {}),
+      },
+      3000,
+    );
+    return response?.ok === true;
   }
 
-  declineCall(conversationId: string, userId: string, callerId: string) {
+  declineCall(
+    conversationId: string,
+    userId: string,
+    callerId: string,
+    callId?: string | null,
+  ) {
     this.emitWhenConnected("tu_choi_goi", {
       conversationId,
+      callId,
       userId,
       callerId,
     });
@@ -433,9 +533,15 @@ class SocketService {
     }
   }
 
-  emitCameraState(conversationId: string, userId: string, isCameraOff: boolean) {
+  emitCameraState(
+    conversationId: string,
+    userId: string,
+    isCameraOff: boolean,
+    callId?: string | null,
+  ) {
     this.emitWhenConnected("trang_thai_camera", {
       conversationId,
+      callId,
       userId,
       isCameraOff,
     });
@@ -443,6 +549,7 @@ class SocketService {
 
   sendOffer(
     conversationId: string,
+    callId: string | null | undefined,
     fromUserId: string,
     targetUserId: string,
     offer: RTCSessionDescriptionInit,
@@ -450,6 +557,7 @@ class SocketService {
   ) {
     this.emitWhenConnected("gui_offer", {
       conversationId,
+      callId,
       fromUserId,
       targetUserId,
       offer,
@@ -459,12 +567,14 @@ class SocketService {
 
   sendAnswer(
     conversationId: string,
+    callId: string | null | undefined,
     fromUserId: string,
     targetUserId: string,
     answer: RTCSessionDescriptionInit,
   ) {
     this.emitWhenConnected("gui_answer", {
       conversationId,
+      callId,
       fromUserId,
       targetUserId,
       answer,
@@ -473,12 +583,14 @@ class SocketService {
 
   sendIceCandidate(
     conversationId: string,
+    callId: string | null | undefined,
     fromUserId: string,
     targetUserId: string,
     candidate: RTCIceCandidateInit,
   ) {
     this.emitWhenConnected("gui_ice_candidate", {
       conversationId,
+      callId,
       fromUserId,
       targetUserId,
       candidate,
@@ -488,6 +600,7 @@ class SocketService {
   onStartCallSuccess(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       callType: CallType;
       isGroup?: boolean;
       livekitToken?: string;
@@ -507,6 +620,7 @@ class SocketService {
   onIncomingCall(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       callerId: string;
       callType: CallType;
       startedAt?: string;
@@ -528,6 +642,7 @@ class SocketService {
   onCallJoined(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       participants: string[];
       callType: CallType;
@@ -549,8 +664,10 @@ class SocketService {
   onCallLeft(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       participants: string[];
+      reason?: string;
     }) => void,
   ) {
     this.socket?.on("nguoi_dung_roi_goi", callback);
@@ -567,6 +684,7 @@ class SocketService {
   onOffer(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       offer: RTCSessionDescriptionInit;
       callType: CallType;
@@ -586,6 +704,7 @@ class SocketService {
   onAnswer(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       answer: RTCSessionDescriptionInit;
     }) => void,
@@ -604,6 +723,7 @@ class SocketService {
   onIceCandidate(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       candidate: RTCIceCandidateInit;
     }) => void,
@@ -622,7 +742,9 @@ class SocketService {
   onCallEnded(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       endedBy?: string | null;
+      reason?: string;
     }) => void,
   ) {
     this.socket?.on("ket_thuc_phong_goi", callback);
@@ -637,7 +759,7 @@ class SocketService {
   }
 
   onCallDeclined(
-    callback: (payload: { conversationId: string; userId: string }) => void,
+    callback: (payload: { conversationId: string; callId?: string; userId: string }) => void,
   ) {
     this.socket?.on("nguoi_dung_tu_choi_goi", callback);
   }
@@ -670,6 +792,7 @@ class SocketService {
   onCameraStateChanged(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       isCameraOff: boolean;
     }) => void,

@@ -5,18 +5,17 @@ import {
   useTracks,
   ParticipantTile,
   type TrackReferenceOrPlaceholder,
-  useRoomContext,
   useParticipantInfo,
   ConnectionQualityIndicator,
   useLocalParticipant,
   useParticipants,
   VideoTrack,
 } from "@livekit/components-react";
-import { Track, RoomEvent } from "livekit-client";
+import { Track } from "livekit-client";
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff,
-  MonitorUp, Users, Settings, Share2, MessageSquare,
-  MoreVertical, UserPlus, X, Search, Check
+  MonitorUp, Settings, Share2,
+  UserPlus, X, Search, Check
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ParticipantService, socketService } from "../../services";
@@ -32,6 +31,7 @@ interface LiveKitGroupCallProps {
   avatar?: string;
   conversationId?: string;
   userId?: string;
+  callId?: string;
 }
 
 /**
@@ -46,6 +46,7 @@ const LiveKitGroupCall: React.FC<LiveKitGroupCallProps> = ({
   avatar = "",
   conversationId,
   userId,
+  callId,
 }) => {
   return (
     <div className="h-screen w-screen bg-[#121212] text-white overflow-hidden flex flex-col font-body selection:bg-primary-500/30 relative">
@@ -91,6 +92,7 @@ const LiveKitGroupCall: React.FC<LiveKitGroupCallProps> = ({
           avatar={avatar}
           conversationId={conversationId}
           userId={userId}
+          callId={callId}
         />
         <RoomAudioRenderer />
       </LiveKitRoom>
@@ -104,7 +106,8 @@ const GroupCallContent = ({
   name,
   avatar,
   conversationId,
-  userId
+  userId,
+  callId,
 }: {
   onLeave: () => void;
   video: boolean;
@@ -112,6 +115,7 @@ const GroupCallContent = ({
   avatar: string;
   conversationId?: string;
   userId?: string;
+  callId?: string;
 }) => {
   const participants = useParticipants();
   const participantCount = participants.length;
@@ -150,6 +154,7 @@ const GroupCallContent = ({
           onClose={() => setIsAddMemberOpen(false)}
           conversationId={conversationId}
           currentUserId={userId}
+          callId={callId}
         />
       )}
     </div>
@@ -420,13 +425,15 @@ interface AddMemberCallModalProps {
   onClose: () => void;
   conversationId: string;
   currentUserId: string;
+  callId?: string;
 }
 
 const AddMemberCallModal: React.FC<AddMemberCallModalProps> = ({
   isOpen,
   onClose,
   conversationId,
-  currentUserId
+  currentUserId,
+  callId
 }) => {
   const [members, setMembers] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -469,6 +476,7 @@ const AddMemberCallModal: React.FC<AddMemberCallModalProps> = ({
 
     socketService.emit("moi_them_thanh_vien_goi", {
       conversationId,
+      callId,
       targetUserIds: selectedIds,
       callerId: currentUserId
     });
