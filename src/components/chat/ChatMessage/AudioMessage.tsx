@@ -11,13 +11,13 @@ import {
   Download,
 } from "lucide-react";
 import type { Message } from "../../../types";
-import { API_CHAT_SERVER_URL } from "../../../config/api.config";
 import { MessageLayout } from "./MessageLayout";
-import { formatFileSize, getFileNameFromUrl, getFullUrl } from "../../../utils";
+import { formatFileSize, getFileNameFromUrl } from "../../../utils";
 import {
   registerAudioPlaybackHandler,
   resetOtherAudioPlaybacks,
 } from "../../../utils/audioPlaybackManagerUtils";
+import { downloadChatMedia } from "./downloadMedia";
 
 export const AudioMessage = ({
   msg,
@@ -53,7 +53,7 @@ export const AudioMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
-  participants?: any[];
+  participants?: unknown[];
   conversationType?: string;
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -135,33 +135,13 @@ export const AudioMessage = ({
     event.stopPropagation();
     event.preventDefault();
 
-    const normalizedUrl = getFullUrl(url);
     const downloadFileName = finalFileName || `voice-${Date.now()}.mp3`;
 
     try {
-      const response = await fetch(normalizedUrl);
-      if (!response.ok) {
-        throw new Error("Không thể tải audio");
-      }
-
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = downloadFileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      const downloadUrl = `${API_CHAT_SERVER_URL}/media/download?fileUrl=${encodeURIComponent(normalizedUrl)}&fileName=${encodeURIComponent(downloadFileName)}`;
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = downloadFileName;
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      await downloadChatMedia(url, downloadFileName);
+    } catch (error) {
+      console.error("Lỗi tải audio:", error);
+      alert("Không thể tải audio này. Vui lòng thử lại.");
     }
   };
 
