@@ -11,13 +11,13 @@ import {
   Download,
 } from "lucide-react";
 import type { Message } from "../../../types";
-import { API_CHAT_SERVER_URL } from "../../../config/api.config";
 import { MessageLayout } from "./MessageLayout";
-import { formatFileSize, getFileNameFromUrl, getFullUrl } from "../../../utils";
+import { formatFileSize, getFileNameFromUrl } from "../../../utils";
 import {
   registerAudioPlaybackHandler,
   resetOtherAudioPlaybacks,
 } from "../../../utils/audioPlaybackManagerUtils";
+import { downloadChatMedia } from "./downloadMedia";
 
 export const AudioMessage = ({
   msg,
@@ -53,7 +53,7 @@ export const AudioMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
-  participants?: any[];
+  participants?: unknown[];
   conversationType?: string;
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -65,7 +65,13 @@ export const AudioMessage = ({
 
   const rawFileName =
     fileName || msg.fileName || getFileNameFromUrl(url, "audio");
-  const finalFileName = decodeURIComponent(rawFileName);
+  const finalFileName = (() => {
+    try {
+      return decodeURIComponent(rawFileName);
+    } catch {
+      return rawFileName;
+    }
+  })();
   const sizeLabel = size ? formatFileSize(size) : "";
   const isUploading = msg.local_status === "uploading";
   const isUploadSuccess = msg.local_status === "success";
@@ -129,24 +135,13 @@ export const AudioMessage = ({
     event.stopPropagation();
     event.preventDefault();
 
+    const downloadFileName = finalFileName || `voice-${Date.now()}.mp3`;
+
     try {
-      const normalizedUrl = getFullUrl(url);
-      const fileName = finalFileName || `voice-${Date.now()}.mp3`;
-      const downloadUrl = `${API_CHAT_SERVER_URL}/media/download?fileUrl=${encodeURIComponent(normalizedUrl)}&fileName=${encodeURIComponent(fileName)}`;
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = finalFileName;
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      await downloadChatMedia(url, downloadFileName);
+    } catch (error) {
+      console.error("Lỗi tải audio:", error);
+      alert("Không thể tải audio này. Vui lòng thử lại.");
     }
   };
 

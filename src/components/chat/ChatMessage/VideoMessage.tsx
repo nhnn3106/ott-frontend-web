@@ -13,6 +13,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { Message } from "../../../types";
 import { MessageLayout } from "./MessageLayout";
+import { downloadChatMedia } from "./downloadMedia";
 
 export const VideoMessage = ({
   msg,
@@ -46,7 +47,7 @@ export const VideoMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
-  participants?: any[];
+  participants?: unknown[];
   conversationType?: string;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -63,6 +64,9 @@ export const VideoMessage = ({
   const isUploadSuccess = msg.local_status === "success";
   const isUploadError = msg.local_status === "error";
   const hasUploadState = isUploading || isUploadSuccess || isUploadError;
+  const isFlagged = (msg.system_meta?.media_warnings || []).some(
+    (warning) => Number(warning.index || 0) === 0,
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -152,28 +156,10 @@ export const VideoMessage = ({
     event.preventDefault();
 
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error("Không thể tải video");
-      }
-
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = msg.fileName || "video.mp4";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = msg.fileName || "video.mp4";
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      await downloadChatMedia(url, msg.fileName || "video.mp4");
+    } catch (error) {
+      console.error("Lỗi tải video:", error);
+      alert("Không thể tải video này. Vui lòng thử lại.");
     }
   };
 
@@ -203,7 +189,9 @@ export const VideoMessage = ({
             <video
               ref={videoRef}
               src={url}
-              className="w-full h-full object-cover max-h-100"
+              className={`w-full h-full object-cover max-h-100 transition duration-200 ${
+                isFlagged ? "blur-md scale-105" : ""
+              }`}
               controls={false}
               playsInline
               preload="metadata"

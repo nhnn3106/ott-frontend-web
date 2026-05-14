@@ -16,6 +16,7 @@ import {
   getFileNameFromUrl,
   getFileTypeData,
 } from "../../../utils";
+import { downloadChatMedia } from "./downloadMedia";
 
 export const FileMessage = ({
   msg,
@@ -51,7 +52,7 @@ export const FileMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
-  participants?: any[];
+  participants?: unknown[];
   conversationType?: string;
 }) => {
   const isUploading = msg.local_status === "uploading";
@@ -79,28 +80,10 @@ export const FileMessage = ({
     event?.preventDefault();
 
     try {
-      const response = await fetch(previewUrl);
-      if (!response.ok) {
-        throw new Error("Không thể tải file");
-      }
-
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = finalFileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      const link = document.createElement("a");
-      link.href = previewUrl;
-      link.download = finalFileName;
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      await downloadChatMedia(previewUrl, finalFileName);
+    } catch (error) {
+      console.error("Lỗi tải file:", error);
+      alert("Không thể tải file này. Vui lòng thử lại.");
     }
   };
 
