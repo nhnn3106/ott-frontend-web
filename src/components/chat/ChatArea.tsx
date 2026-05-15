@@ -151,6 +151,52 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   } = useChat(activeConversation?._id, normalizedUserId);
 
   const isInitialLoading = loading && messages.length === 0;
+  const latestSmartReplySource = useMemo(() => {
+    const conversationId = String(activeConversation?._id || "").trim();
+    if (!conversationId) return null;
+
+    const createSource = (message?: Partial<Message> | null) => {
+      if (!message) return null;
+
+      const type = String((message as any).type || "").toLowerCase();
+      const messageId = String(
+        (message as any).msg_id || (message as any)._id || "",
+      ).trim();
+      if (
+        !messageId ||
+        isSystemLikeType(type) ||
+        isCallMessageType(type) ||
+        type === "poll" ||
+        type === "system_poll"
+      ) {
+        return null;
+      }
+
+      const senderId = String(
+        (message as any).sender_id || (message as any).senderId || "",
+      ).trim();
+      return {
+        conversationId,
+        messageId,
+        senderId,
+        type,
+        key: `${conversationId}:${messageId}:${senderId}:${type}`,
+      };
+    };
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const source = createSource(messages[index]);
+      if (source) return source;
+    }
+
+    return createSource(activeConversation?.last_message as any);
+  }, [
+    activeConversation?._id,
+    activeConversation?.last_message?.msg_id,
+    activeConversation?.last_message?.sender_id,
+    activeConversation?.last_message?.type,
+    messages,
+  ]);
 
   const [callBlockModal, setCallBlockModal] = useState<{
     title: string;
@@ -2784,24 +2830,22 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   // AI Smart Replies Logic
   useEffect(() => {
     let cancelled = false;
-    const latestMessage = activeConversation.last_message;
-    const latestMessageId = String(latestMessage?.msg_id || "").trim();
-    const latestMessageType = String(latestMessage?.type || "");
-    const smartReplySourceKey = latestMessageId
-      ? `${activeConversation._id}:${latestMessageId}`
-      : "";
+    const source = latestSmartReplySource;
+    const smartReplySourceKey = source?.key || "";
+    const isEligibleIncomingSmartReplySource =
+      Boolean(source) &&
+      Boolean(normalizedUserId) &&
+      Boolean(smartReplySourceKey) &&
+      String(source?.senderId || "") !== String(normalizedUserId) &&
+      (source?.type === "text" || source?.type === "link");
+    const shouldFetchSmartReplies =
+      isEligibleIncomingSmartReplySource &&
+      smartReplySourceKey !== lastSmartReplyMessageIdRef.current;
 
-    if (
-      latestMessage &&
-      latestMessageId &&
-      normalizedUserId &&
-      smartReplySourceKey !== lastSmartReplyMessageIdRef.current &&
-      String(latestMessage.sender_id) !== String(normalizedUserId) &&
-      (latestMessageType === "text" || latestMessageType === "link") &&
-      !isSystemLikeType(latestMessageType)
-    ) {
+    if (shouldFetchSmartReplies) {
       lastSmartReplyMessageIdRef.current = smartReplySourceKey;
       setSmartReplies([]);
+      setIsSmartReplyOpen(false);
 
       const fetchSuggestions = async () => {
         setIsSmartReplyLoading(true);
@@ -2825,12 +2869,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       };
 
       fetchSuggestions();
-    } else {
+    } else if (!isEligibleIncomingSmartReplySource) {
       setSmartReplies([]);
       setIsSmartReplyLoading(false);
-      if (smartReplySourceKey) {
-        lastSmartReplyMessageIdRef.current = smartReplySourceKey;
-      }
     }
 
     return () => {
@@ -2838,15 +2879,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     };
   }, [
     activeConversation._id,
-    activeConversation.last_message?.msg_id,
-    activeConversation.last_message?.sender_id,
-    activeConversation.last_message?.type,
+    latestSmartReplySource,
     normalizedUserId,
   ]);
 
   // Tự động đóng gợi ý khi chuyển cuộc hội thoại
   useEffect(() => {
     setIsSmartReplyOpen(false);
+    setSmartReplies([]);
+    setIsSmartReplyLoading(false);
+    lastSmartReplyMessageIdRef.current = null;
   }, [activeConversation._id]);
 
   const handleSelectSmartReply = (reply: string) => {
@@ -3567,6 +3609,7 @@ isExpanded && (
                   onCancelReply={() => setReplyToMessage(null)}
                   conversationType={activeConversation?.type}
                   smartReplies={smartReplies}
+                  smartReplyContextKey={latestSmartReplySource?.key || ""}
                   isSmartReplyLoading={isSmartReplyLoading}
                   isSmartReplyOpen={isSmartReplyOpen}
                   onSmartReplyToggle={() => setIsSmartReplyOpen((open) => !open)}

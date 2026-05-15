@@ -5,6 +5,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
 } from "react";
 import type { ReactNode } from "react";
@@ -17,6 +18,62 @@ import type {
 } from "../types";
 import { ConversationService, CategoryService, socketService } from "../services";
 import { useAuth } from "./AuthContext";
+
+const APP_TITLE = "Riff - Chat";
+const TAB_MESSAGE_PREVIEW_MS = 6000;
+const TAB_TITLE_BLINK_MS = 900;
+
+const isTabNotifiableMessageType = (type?: string) => {
+  const normalizedType = String(type || "").toLowerCase();
+  if (!normalizedType) return false;
+  return (
+    !normalizedType.startsWith("system") &&
+    !normalizedType.startsWith("call") &&
+    normalizedType !== "poll"
+  );
+};
+
+const extractMessageText = (content: unknown) => {
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const value = item as { text?: string; content?: string; url?: string; name?: string };
+          return value.text || value.content || value.name || value.url || "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (content && typeof content === "object") {
+    const value = content as { text?: string; content?: string; url?: string; name?: string };
+    return value.text || value.content || value.name || value.url || "";
+  }
+
+  return String(content || "");
+};
+
+const getMessagePreviewContent = (message: any) => {
+  switch (String(message?.type || "").toLowerCase()) {
+    case "image":
+      return "đã gửi một hình ảnh";
+    case "video":
+      return "đã gửi một video";
+    case "audio":
+      return "đã gửi một tin nhắn thoại";
+    case "file":
+      return "đã gửi một tệp tin";
+    case "link":
+      return extractMessageText(message?.content) || "đã gửi một liên kết";
+    default: {
+      const text = extractMessageText(message?.content).trim();
+      return text.length > 40 ? `${text.slice(0, 40).trim()}...` : text;
+    }
+  }
+};
 
 interface ConversationsContextType {
   // State
@@ -78,7 +135,86 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
   const [error, setError] = useState<string | null>(null);
   const initialLoadDoneRef = useRef<string | null>(null);
   const deliveredOnLoadRef = useRef<Set<string>>(new Set());
+  const tabPreviewTimerRef = useRef<number | null>(null);
+  const tabBlinkTimerRef = useRef<number | null>(null);
+  const conversationsRef = useRef<ConversationWithParticipant[]>([]);
+  const [tabMessagePreview, setTabMessagePreview] = useState<string | null>(null);
+  const [tabTitleBlinkOn, setTabTitleBlinkOn] = useState(false);
   const { isAuthenticated, user } = useAuth();
+
+  const totalUnreadMessages = useMemo(
+    () =>
+      conversations.reduce(
+        (total, item) => total + Math.max(0, Number(item.participant.unread_count || 0)),
+        0,
+      ),
+    [conversations],
+  );
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    const unreadPrefix =
+      isAuthenticated && totalUnreadMessages > 0
+        ? `(${totalUnreadMessages > 99 ? "99+" : totalUnreadMessages}) `
+        : "";
+    const baseTitle = `${unreadPrefix}${APP_TITLE}`;
+
+    document.title = isAuthenticated && tabMessagePreview && tabTitleBlinkOn
+      ? `${unreadPrefix}${tabMessagePreview}`
+      : baseTitle;
+  }, [isAuthenticated, tabMessagePreview, tabTitleBlinkOn, totalUnreadMessages]);
+
+  useEffect(() => {
+    return () => {
+      if (tabPreviewTimerRef.current !== null) {
+        window.clearTimeout(tabPreviewTimerRef.current);
+      }
+      if (tabBlinkTimerRef.current !== null) {
+        window.clearInterval(tabBlinkTimerRef.current);
+      }
+      document.title = APP_TITLE;
+    };
+  }, []);
+
+  const showTabMessagePreview = useCallback((message: any, conversation?: Conversation) => {
+    if (!isTabNotifiableMessageType(message?.type)) return;
+
+    const senderName = String(
+      message?.sender_name ||
+      message?.senderName ||
+      conversation?.last_message?.sender_name ||
+      "Tin nhắn mới",
+    ).trim();
+    const content = getMessagePreviewContent(message);
+    const previewTitle = content ? `${senderName}: ${content}` : `${senderName} đã gửi tin nhắn`;
+
+    setTabMessagePreview(previewTitle);
+    setTabTitleBlinkOn(true);
+
+    if (tabPreviewTimerRef.current !== null) {
+      window.clearTimeout(tabPreviewTimerRef.current);
+    }
+    if (tabBlinkTimerRef.current !== null) {
+      window.clearInterval(tabBlinkTimerRef.current);
+    }
+
+    tabBlinkTimerRef.current = window.setInterval(() => {
+      setTabTitleBlinkOn((current) => !current);
+    }, TAB_TITLE_BLINK_MS);
+
+    tabPreviewTimerRef.current = window.setTimeout(() => {
+      setTabMessagePreview(null);
+      setTabTitleBlinkOn(false);
+      if (tabBlinkTimerRef.current !== null) {
+        window.clearInterval(tabBlinkTimerRef.current);
+        tabBlinkTimerRef.current = null;
+      }
+      tabPreviewTimerRef.current = null;
+    }, TAB_MESSAGE_PREVIEW_MS);
+  }, []);
 
   const isMessageCursorAtLeast = useCallback((cursor?: string, target?: string) => {
     const left = String(cursor || "0").trim();
@@ -320,6 +456,10 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       String(message.sender_id || "") !== currentUserId
     ) {
       socketService.markMessageDelivered(convId, currentUserId, msgId);
+      const existingConversation = conversationsRef.current.find(
+        (item) => item.conversation._id === convId,
+      )?.conversation;
+      showTabMessagePreview(message, existingConversation);
     }
 
     setConversations((prev) => {
@@ -393,7 +533,7 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       newList.unshift(updated);
       return newList;
     });
-  }, [user, refreshConversations]);
+  }, [user, refreshConversations, showTabMessagePreview]);
 
   const handleRevokedMessage = useCallback((payload: any) => {
     const convId = payload.conversation_id?.toString();
