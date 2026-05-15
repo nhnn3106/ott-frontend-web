@@ -44,6 +44,8 @@ export interface Conversation {
   background: string;
   is_calling?: boolean;
   call_participant_count?: number;
+  active_call_id?: string;
+  active_call_type?: "voice" | "video";
   createdAt: string;
   updatedAt: string;
   __v?: number;

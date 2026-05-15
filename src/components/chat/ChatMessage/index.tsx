@@ -104,7 +104,7 @@ export const ChatMessage = memo(
           msg={{
             ...msg,
             type: "text",
-            content: [placeholder],
+            content: [placeholder] as unknown as Message["content"],
             reply_to: null,
             reply_to_msg_id: null,
             reactions: [],
@@ -319,6 +319,7 @@ export const ChatMessage = memo(
       prev.msg.local_upload_progress === next.msg.local_upload_progress &&
       JSON.stringify(prev.msg.local_preview_urls || []) ===
         JSON.stringify(next.msg.local_preview_urls || []) &&
+      prev.msg.type === next.msg.type &&
       prev.msg.content === next.msg.content &&
       prevReactions === nextReactions &&
       prev.msg.is_deleted === next.msg.is_deleted &&

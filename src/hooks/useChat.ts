@@ -88,14 +88,22 @@ export const useChat = (conversationId: string, userId?: string) => {
 
       setMessages((prev) => {
         const incomingMsgId = String(normalized.msg_id || normalized._id || "");
-        if (
-          incomingMsgId &&
-          prev.some(
+        if (incomingMsgId) {
+          const existingIndex = prev.findIndex(
             (item: Message & { _id?: string; msg_id?: string }) =>
               String(item.msg_id || item._id || "") === incomingMsgId,
-          )
-        ) {
-          return prev;
+          );
+
+          if (existingIndex !== -1) {
+            const nextMessages = [...prev];
+            nextMessages[existingIndex] = {
+              ...(prev[existingIndex] as Message),
+              ...(normalized as Message),
+            };
+
+            messagesRef.current = nextMessages;
+            return nextMessages;
+          }
         }
 
         const nextMessages = [...prev, normalized as Message];
