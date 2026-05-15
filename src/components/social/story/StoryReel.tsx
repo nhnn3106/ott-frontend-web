@@ -134,9 +134,10 @@ const StoryReel: React.FC<Props> = ({
 
               if (item.type === "story") {
                 storyIndex += 1;
+                const latestUpdate = Math.max(...item.group.stories.map(s => s.lastUpdated || 0));
                 return (
                   <StoryGroupCard
-                    key={uniqueKey}
+                    key={`${uniqueKey}-${latestUpdate}`}
                     group={item.group}
                     gradientClass={GRADIENTS[storyIndex % GRADIENTS.length]}
                     onOpenUserStories={onOpenUserStories}

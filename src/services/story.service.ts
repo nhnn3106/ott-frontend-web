@@ -1,4 +1,4 @@
-import { API_MEDIA_SERVER_URL } from "../config/api.config";
+import { API_MEDIA_SERVER_URL, URL_S3 } from "../config/api.config";
 import type {
     StoryItem,
     StoryReelData,
@@ -128,20 +128,31 @@ export function mapStory(story: ApiStory): StoryItem {
         isBirthday: false,
         userId,
         avatarUrl: story.accountAvatarUrl ?? undefined,
-        items: (story.storyItems || []).map((item: ApiStoryItemResponse) => ({
-            id: item.id || Math.random().toString(36).substring(2, 9),
-            type: item.type === "TEXT_ITEM" ? "TEXT" : item.type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO",
-            url: item.imageItem?.url || item.videoItem?.url || undefined,
-            textContent: item.textItem?.content || undefined,
-            textBackgroundColor: item.textBackgroundColor || item.textItem?.backgroundColor || undefined,
-            positionX: item.positionX ?? 0.5,
-            positionY: item.positionY ?? 0.5,
-            scale: item.scale ?? 1,
-            rotation: item.rotation ?? 0,
-            zIndex: item.zIndex ?? 1
-        })),
+        items: (story.storyItems || []).map((item: ApiStoryItemResponse) => {
+            let url = item.imageItem?.url || item.videoItem?.url || undefined;
+            if (url && !url.startsWith("http") && !url.startsWith("blob:")) {
+                url = `${URL_S3}${url.startsWith("/") ? url.substring(1) : url}`;
+            }
+            return {
+                id: item.id || Math.random().toString(36).substring(2, 9),
+                type: item.type === "TEXT_ITEM" ? "TEXT" : item.type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO",
+                url,
+                textContent: item.textItem?.content || undefined,
+                textBackgroundColor: item.textBackgroundColor || item.textItem?.backgroundColor || undefined,
+                positionX: item.positionX ?? 0.5,
+                positionY: item.positionY ?? 0.5,
+                scale: item.scale ?? 1,
+                rotation: item.rotation ?? 0,
+                zIndex: item.zIndex ?? 1
+            };
+        }),
         expireAt: story.expireAt,
-        visibility: story.visibility
+        visibility: story.visibility,
+        // Legacy support: detect contentType if missing
+        contentType: (story.storyItems && story.storyItems.length > 0) 
+            ? (story.storyItems[0].type === "TEXT_ITEM" ? "TEXT" : story.storyItems[0].type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO")
+            : "UNKNOWN",
+        lastUpdated: Date.now()
     };
 }
 
@@ -191,15 +202,21 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
                     firstRenderableItem.textItem?.backgroundColor ?? undefined
                     : undefined;
 
-            const imageUrl =
+            let imageUrl =
                 firstRenderableItem?.type === "IMAGE_ITEM" ?
                     firstRenderableItem.imageItem?.url ?? undefined
                     : undefined;
+            if (imageUrl && !imageUrl.startsWith("http") && !imageUrl.startsWith("blob:")) {
+                imageUrl = `${URL_S3}${imageUrl.startsWith("/") ? imageUrl.substring(1) : imageUrl}`;
+            }
 
-            const videoUrl =
+            let videoUrl =
                 firstRenderableItem?.type === "VIDEO_ITEM" ?
                     firstRenderableItem.videoItem?.url ?? undefined
                     : undefined;
+            if (videoUrl && !videoUrl.startsWith("http") && !videoUrl.startsWith("blob:")) {
+                videoUrl = `${URL_S3}${videoUrl.startsWith("/") ? videoUrl.substring(1) : videoUrl}`;
+            }
 
             return {
                 id: story.id,
@@ -216,18 +233,24 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
                 textBackgroundColor,
                 imageUrl,
                 videoUrl,
-                items: (story.storyItems || []).map((item: ApiStoryItemResponse) => ({
-                    id: item.id || Math.random().toString(36).substring(2, 9),
-                    type: item.type === "TEXT_ITEM" ? "TEXT" : item.type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO",
-                    url: item.imageItem?.url || item.videoItem?.url || undefined,
-                    textContent: item.textItem?.content || undefined,
-                    textBackgroundColor: item.textBackgroundColor || item.textItem?.backgroundColor || undefined,
-                    positionX: item.positionX ?? 0.5,
-                    positionY: item.positionY ?? 0.5,
-                    scale: item.scale ?? 1,
-                    rotation: item.rotation ?? 0,
-                    zIndex: item.zIndex ?? 1
-                })),
+                items: (story.storyItems || []).map((item: ApiStoryItemResponse) => {
+                    let url = item.imageItem?.url || item.videoItem?.url || undefined;
+                    if (url && !url.startsWith("http") && !url.startsWith("blob:")) {
+                        url = `${URL_S3}${url.startsWith("/") ? url.substring(1) : url}`;
+                    }
+                    return {
+                        id: item.id || Math.random().toString(36).substring(2, 9),
+                        type: item.type === "TEXT_ITEM" ? "TEXT" : item.type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO",
+                        url,
+                        textContent: item.textItem?.content || undefined,
+                        textBackgroundColor: item.textBackgroundColor || item.textItem?.backgroundColor || undefined,
+                        positionX: item.positionX ?? 0.5,
+                        positionY: item.positionY ?? 0.5,
+                        scale: item.scale ?? 1,
+                        rotation: item.rotation ?? 0,
+                        zIndex: item.zIndex ?? 1
+                    };
+                }),
                 totalViews: story.totalViews,
                 musics: story.musics,
             };
