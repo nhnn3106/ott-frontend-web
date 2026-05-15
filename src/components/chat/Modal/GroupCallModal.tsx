@@ -118,7 +118,7 @@ const GroupCallModal: React.FC<GroupCallModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
       <div
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+        className="absolute inset-0 bg-slate-950/45  transition-opacity animate-in fade-in duration-200"
         onClick={onClose}
       />
 
@@ -163,10 +163,6 @@ const GroupCallModal: React.FC<GroupCallModalProps> = ({
             />
           </div>
 
-          <div className="flex h-11 items-center justify-center gap-2 rounded-lg bg-white text-sm font-bold text-primary-700 ring-1 ring-primary-100">
-            <Video size={17} />
-            Gọi video nhóm
-          </div>
 
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-slate-600">
@@ -185,13 +181,13 @@ const GroupCallModal: React.FC<GroupCallModalProps> = ({
           </div>
 
           {selectedMembers.length > 0 && (
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex items-center gap-2 overflow-x-auto p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {selectedMembers.map((member) => (
                 <button
                   key={member.user_id}
                   type="button"
                   onClick={() => toggleSelect(member.user_id)}
-                  className="group relative shrink-0"
+                  className="group relative shrink-0 cursor-pointer"
                   title={`Bỏ chọn ${member.user?.name || "Người dùng"}`}
                 >
                   <Avatar

@@ -489,15 +489,50 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     );
   }, []);
 
-  const handleGroupCallUpdated = useCallback((payload: any) => {
+  const applyGroupCallState = useCallback((payload: any) => {
     const convId = String(payload?.conversationId || "");
     if (!convId) return;
 
+    const isCalling = Boolean(payload?.isCalling);
+    const participantCount = Number(payload?.participantCount || 0);
+
     updateConversation(convId, {
-      is_calling: payload.isCalling,
-      call_participant_count: payload.participantCount,
-      active_call_id: payload.isCalling ? payload.callId : undefined,
-      active_call_type: payload.isCalling ? payload.callType : undefined,
+      is_calling: isCalling,
+      call_participant_count: isCalling ? participantCount : 0,
+      active_call_id: isCalling ? payload.callId : undefined,
+      active_call_type: isCalling ? payload.callType : undefined,
+    });
+  }, [updateConversation]);
+
+  const handleGroupCallUpdated = useCallback((payload: any) => {
+    applyGroupCallState(payload);
+  }, [applyGroupCallState]);
+
+  const handleStartCallSuccess = useCallback((payload: any) => {
+    if (!payload?.isGroup) return;
+
+    applyGroupCallState({
+      conversationId: payload.conversationId,
+      callId: payload.callId,
+      callType: payload.callType || "video",
+      isCalling: true,
+      participantCount: Array.isArray(payload.participants)
+        ? payload.participants.length
+        : 1,
+    });
+  }, [applyGroupCallState]);
+
+  const handleCallRoomEnded = useCallback((payload: any) => {
+    const convId = String(payload?.conversationId || "");
+    if (!convId) return;
+    const reason = String(payload?.reason || "");
+    if (reason === "declined" || reason === "timeout") return;
+
+    updateConversation(convId, {
+      is_calling: false,
+      call_participant_count: 0,
+      active_call_id: undefined,
+      active_call_type: undefined,
     });
   }, [updateConversation]);
 
@@ -589,6 +624,8 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     socket?.on("tin_nhan_thu_hoi", handleRevokedMessage);
     socket?.on("cap_nhat_phan_loai", handleCategoryUpdated);
     socketService.onGroupCallUpdated(handleGroupCallUpdated);
+    socketService.onStartCallSuccess(handleStartCallSuccess);
+    socketService.onCallEnded(handleCallRoomEnded);
     socketService.onReadStatus(applyParticipantCursorPayload);
     socketService.onMessageStatusChanged(applyParticipantCursorPayload);
     socketService.onParticipantCursorChanged(applyParticipantCursorPayload);
@@ -601,6 +638,8 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
       cleanupSocket?.off("cap_nhat_phan_loai", handleCategoryUpdated);
       cleanupSocket?.off("them_nguoi_moi", handleMemberAdded);
       socketService.offGroupCallUpdated(handleGroupCallUpdated);
+      socketService.offStartCallSuccess(handleStartCallSuccess);
+      socketService.offCallEnded(handleCallRoomEnded);
       socketService.offReadStatus(applyParticipantCursorPayload);
       socketService.offMessageStatusChanged(applyParticipantCursorPayload);
       socketService.offParticipantCursorChanged(applyParticipantCursorPayload);
@@ -611,7 +650,9 @@ export const ConversationsProvider: React.FC<ConversationsProviderProps> = ({
     handleIncomingMessage,
     handleRevokedMessage,
     handleCategoryUpdated,
+    handleCallRoomEnded,
     handleGroupCallUpdated,
+    handleStartCallSuccess,
     handleMemberAdded,
     isAuthenticated,
   ]);

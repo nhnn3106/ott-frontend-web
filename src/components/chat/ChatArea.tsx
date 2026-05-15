@@ -75,7 +75,8 @@ interface ExtendedChatAreaProps extends ChatAreaProps {
 }
 
 const isSystemLikeType = (type?: string) =>
-  String(type || "").startsWith("system_");
+  String(type || "").startsWith("system_") ||
+  String(type || "").toLowerCase() === "call_join";
 
 const isCallMessageType = (type?: string) =>
   String(type || "").startsWith("call_");
@@ -83,6 +84,7 @@ const isCallMessageType = (type?: string) =>
 const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REVOKE_EXPIRED_MESSAGE =
   "Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ";
+const GROUP_CALL_PENDING_LOCK_MS = 15000;
 
 const isRevokeWindowExpired = (msg: Message) => {
   const rawTime = msg.created_at || msg.createdAt;
@@ -107,6 +109,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     updateParticipant,
   } = useConversations();
   const normalizedUserId = currentUser?.id;
+  const [isOpeningCall, setIsOpeningCall] = useState(false);
+  const [
+    pendingGroupCallConversationId,
+    setPendingGroupCallConversationId,
+  ] = useState<string | null>(null);
 
   const activeConversation = useMemo(() => {
     const matched = conversations.find(
@@ -114,6 +121,22 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     )?.conversation;
     return matched || conversation;
   }, [conversations, conversation]);
+  const isPendingGroupCallStart =
+    activeConversation?.type === "group" &&
+    pendingGroupCallConversationId === activeConversation._id;
+  const messageConversation = useMemo(() => {
+    if (!activeConversation || !isPendingGroupCallStart) {
+      return activeConversation;
+    }
+
+    return {
+      ...activeConversation,
+      is_calling: true,
+    };
+  }, [activeConversation, isPendingGroupCallStart]);
+  const disableGroupRecallCall =
+    activeConversation?.type === "group" &&
+    (isPendingGroupCallStart || Boolean(activeConversation.is_calling));
 
   const {
     messages,
@@ -129,7 +152,6 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const isInitialLoading = loading && messages.length === 0;
 
-  const [isOpeningCall, setIsOpeningCall] = useState(false);
   const [callBlockModal, setCallBlockModal] = useState<{
     title: string;
     message: string;
@@ -185,6 +207,52 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     displayName: string;
     displayAvatar: string;
   } | null>(null);
+  const pendingGroupCallTimerRef = useRef<number | null>(null);
+
+  const clearPendingGroupCallLock = useCallback(() => {
+    if (pendingGroupCallTimerRef.current !== null) {
+      window.clearTimeout(pendingGroupCallTimerRef.current);
+      pendingGroupCallTimerRef.current = null;
+    }
+    setPendingGroupCallConversationId(null);
+  }, []);
+
+  const lockPendingGroupCall = useCallback((conversationId: string) => {
+    if (pendingGroupCallTimerRef.current !== null) {
+      window.clearTimeout(pendingGroupCallTimerRef.current);
+    }
+
+    setPendingGroupCallConversationId(conversationId);
+    pendingGroupCallTimerRef.current = window.setTimeout(() => {
+      setPendingGroupCallConversationId((currentConversationId) =>
+        currentConversationId === conversationId ? null : currentConversationId,
+      );
+      pendingGroupCallTimerRef.current = null;
+    }, GROUP_CALL_PENDING_LOCK_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pendingGroupCallTimerRef.current !== null) {
+        window.clearTimeout(pendingGroupCallTimerRef.current);
+        pendingGroupCallTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      activeConversation?.is_calling &&
+      pendingGroupCallConversationId === activeConversation._id
+    ) {
+      clearPendingGroupCallLock();
+    }
+  }, [
+    activeConversation?._id,
+    activeConversation?.is_calling,
+    clearPendingGroupCallLock,
+    pendingGroupCallConversationId,
+  ]);
 
   // State quản lý Media Viewer & Tin nhắn
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -1197,6 +1265,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     callId?: string,
   ) => {
     const conversationId = activeConversation!._id;
+    const effectiveType =
+      activeConversation?.type === "group" ? "video" : type;
     const windowName = `call_${conversationId}`;
     const channelName = `call_channel_${conversationId}`;
 
@@ -1221,7 +1291,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       if (!isHandled) {
         const params = new URLSearchParams({
           conversationId,
-          type,
+          type: effectiveType,
           action,
           name: displayName,
           avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
@@ -1229,6 +1299,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
         if (activeConversation?.type === "group") {
           params.append("isGroup", "true");
+          params.append("transport", "livekit");
         }
 
         if (callId) {
@@ -1256,7 +1327,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   };
 
   const handleGroupCallStart = (selectedUserIds: string[]) => {
+    if (!activeConversation?._id) return;
+
     setIsGroupCallModalOpen(false);
+    lockPendingGroupCall(activeConversation._id);
 
     const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
     const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
@@ -1270,12 +1344,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   ) => {
     if (!activeConversation?._id) return;
 
+    if (
+      activeConversation.type === "group" &&
+      isPendingGroupCallStart &&
+      !activeConversation.is_calling
+    ) {
+      return;
+    }
+
     // Nếu cuộc gọi đang diễn ra -> Chuyển sang join luôn, không hiện modal chọn người
     if (activeConversation.is_calling && activeConversation.type === "group") {
       const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
       const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
       doOpenCallWindow(
-        activeConversation.active_call_type || type,
+        "video",
         "join",
         displayName,
         displayAvatar,
@@ -1335,6 +1417,18 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       activeConversation._id,
       normalizedUserId as string,
     );
+  };
+
+  const handleRecallFromCallMessage = (type: "voice" | "video") => {
+    if (!activeConversation?._id) return;
+
+    if (activeConversation.type === "group") {
+      if (activeConversation.is_calling || isPendingGroupCallStart) return;
+      openCallWindow("video");
+      return;
+    }
+
+    openCallWindow(type);
   };
 
   useEffect(() => {
@@ -3016,7 +3110,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           currentUserId={normalizedUserId}
           onStartVoiceCall={() => openCallWindow("voice")}
           onStartVideoCall={() => openCallWindow("video")}
-          disableCallActions={isOpeningCall}
+          disableCallActions={
+            isOpeningCall ||
+            isPendingGroupCallStart ||
+            (activeConversation?.type === "group" && Boolean(activeConversation.is_calling))
+          }
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
           onSummarize={handleSummarize}
@@ -3366,7 +3464,9 @@ isExpanded && (
                       onDelete={handleDeleteMessage}
                       onPin={handlePinMessage}
                        onForward={handleForwardMessage}
-                      conversation={activeConversation}
+                      onRecallCall={handleRecallFromCallMessage}
+                      disableRecallCall={disableGroupRecallCall}
+                      conversation={messageConversation}
                     />
                   </div>
                  </React.Fragment>
