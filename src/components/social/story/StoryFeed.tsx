@@ -38,6 +38,7 @@ export const StoryFeed: React.FC<Props> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const [editingStory, setEditingStory] = useState<StoryItem | null>(null);
+  const lastLocalUpdateRef = useRef<number>(0);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isViewersModalOpen, setIsViewersModalOpen] = useState(false);
@@ -56,10 +57,38 @@ export const StoryFeed: React.FC<Props> = ({
   const loadStories = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await fetchStoryGroups(currentUserId);
-      if (!isMountedRef.current) return;
-      setStoryGroups(data);
+      const groups = await fetchStoryGroups(currentUserId);
+      setStoryGroups(prev => {
+        // Create a map of IDs we want to keep from local state (if recently updated)
+        const recentlyUpdatedIds = new Set();
+        const localUserGroup = prev.find(g => g.userId === currentUserId);
+        
+        if (Date.now() - lastLocalUpdateRef.current < 3000 && localUserGroup) {
+          localUserGroup.stories.forEach(s => recentlyUpdatedIds.add(s.id));
+        }
 
+        // Merge logic: For each group from server, filter out stories that we are protecting locally
+        const mergedGroups = groups.map(g => {
+          if (g.userId === currentUserId && recentlyUpdatedIds.size > 0) {
+            // Keep local version for current user if protecting
+            return localUserGroup!;
+          }
+          return g;
+        });
+
+        // Final safety check: ensure NO duplicate story IDs across ALL groups
+        const seenIds = new Set();
+        return mergedGroups.map(group => ({
+          ...group,
+          stories: group.stories.filter(s => {
+            if (seenIds.has(s.id)) return false;
+            seenIds.add(s.id);
+            return true;
+          })
+        })).filter(g => g.stories.length > 0);
+      });
+
+      const data = groups;
       if (data.length < 5) {
         const suggestLimit = 5 - data.length;
         const suggestData = await fetchSuggestedUsers(
@@ -221,36 +250,49 @@ export const StoryFeed: React.FC<Props> = ({
   const handleStoryCreated = useCallback((apiStory: any) => {
     if (!apiStory) return;
     const newStory = mapStory(apiStory);
+    lastLocalUpdateRef.current = Date.now();
     
     setStoryGroups((prev) => {
-      const userGroupIndex = prev.findIndex((g) => g.userId === currentUserId);
+      const targetUserId = newStory.userId || currentUserId;
+      
+      // Filter out any existing story with the same ID to prevent duplication
+      const filteredGroups = prev.map(group => ({
+        ...group,
+        stories: group.stories.filter(s => s.id !== newStory.id)
+      }));
+
+      const userGroupIndex = filteredGroups.findIndex((g) => g.userId === targetUserId);
       if (userGroupIndex !== -1) {
-        const newGroups = [...prev];
+        const newGroups = [...filteredGroups];
         const group = newGroups[userGroupIndex];
-        const storyIndex = group.stories.findIndex((s) => s.id === newStory.id);
         
-        if (storyIndex !== -1) {
-          const newStories = [...group.stories];
-          newStories[storyIndex] = newStory;
-          newGroups[userGroupIndex] = { ...group, stories: newStories };
-        } else {
-          newGroups[userGroupIndex] = {
-            ...group,
-            stories: [newStory, ...group.stories],
-          };
-        }
+        newGroups[userGroupIndex] = {
+          ...group,
+          stories: [newStory, ...group.stories.filter(s => s.id !== newStory.id)],
+        };
         return newGroups;
       } else {
         return [
           {
-            userId: currentUserId,
-            name: currentUserName,
-            avatarUrl: currentUserAvatar,
+            userId: targetUserId!,
+            name: newStory.name || currentUserName,
+            avatarUrl: newStory.avatarUrl || currentUserAvatar,
             stories: [newStory],
           },
-          ...prev,
+          ...filteredGroups,
         ];
       }
+    });
+
+    // Update current viewer state if it's showing the user's stories
+    setSelectedUserStories((prev) => {
+      const storyIndex = prev.findIndex((s) => s.id === newStory.id);
+      if (storyIndex !== -1) {
+        const next = [...prev];
+        next[storyIndex] = newStory;
+        return next;
+      }
+      return prev;
     });
     
     // Refresh background data

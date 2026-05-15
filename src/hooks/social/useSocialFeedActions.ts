@@ -101,9 +101,21 @@ export const useSocialFeedActions = ({
                 accessControls,
             );
             if (result.post) {
+                // Patch media URLs with local blob URLs to avoid "S3 upload lag" (broken images)
+                const patchedPost = { ...result.post };
+                if (patchedPost.media && patchedPost.media.length > 0) {
+                    patchedPost.media = patchedPost.media.map((m, idx) => {
+                        const local = media[idx];
+                        if (local && local.url?.startsWith("blob:")) {
+                            return { ...m, url: local.url };
+                        }
+                        return m;
+                    });
+                }
+
                 // Immediate update
                 setPosts((prev) =>
-                    prev.map((p) => (p.id === postId ? result.post! : p)),
+                    prev.map((p) => (p.id === postId ? patchedPost : p)),
                 );
                 return { ok: true };
             }
@@ -136,6 +148,20 @@ export const useSocialFeedActions = ({
             );
 
             if (result.post) {
+                // Patch media URLs with local blob URLs to avoid "S3 upload lag" (broken images)
+                const patchedPost = { ...result.post };
+                if (patchedPost.media && patchedPost.media.length > 0) {
+                    patchedPost.media = patchedPost.media.map((m, idx) => {
+                        const local = media[idx];
+                        if (local && local.url?.startsWith("blob:")) {
+                            return { ...m, url: local.url };
+                        }
+                        return m;
+                    });
+                }
+
+                // Immediate update
+                setPosts((prev) => [patchedPost, ...prev]);
                 return { ok: true };
             }
             return { ok: false, error: result.error };

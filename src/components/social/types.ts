@@ -63,6 +63,8 @@ export interface StoryItem {
     items?: StoryContentItem[];
     expireAt?: string;
     visibility?: string;
+    accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[];
+    lastUpdated?: number;
 }
 
 export interface StoryUserGroup {

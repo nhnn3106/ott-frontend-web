@@ -8,7 +8,7 @@
  *   DELETE /posts/{id}       – xoá bài
  */
 
-import { API_MEDIA_SERVER_URL } from "../config/api.config";
+import { API_MEDIA_SERVER_URL, URL_S3 } from "../config/api.config";
 import type { Post, PostUser, PostMediaItem } from "../components/social/types";
 import { authFetch } from "./api/fetchClient";
 
@@ -80,12 +80,18 @@ export function mapMedia(medias: ApiMedia[] | null): PostMediaItem[] {
 
     return list
         .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((m) => ({
-            type: m.type === "VIDEO_MEDIA" ? "video" : "image",
-            url: m.url,
-            id: m.id,
-            caption: m.caption,
-        }));
+        .map((m) => {
+            let url = m.url;
+            if (url && !url.startsWith("http") && !url.startsWith("blob:")) {
+                url = `${URL_S3}${url.startsWith("/") ? url.substring(1) : url}`;
+            }
+            return {
+                type: m.type === "VIDEO_MEDIA" ? "video" : "image",
+                url,
+                id: m.id,
+                caption: m.caption,
+            };
+        });
 }
 
 /** ApiPost → Post (frontend model) */
