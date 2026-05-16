@@ -61,11 +61,12 @@ interface MemberInviteModalProps {
   activeIdentitySet: Set<string>;
   currentUserId?: string;
   isSubmitting: boolean;
+  maxSelectable: number;
   onClose: () => void;
   onInvite: (userIds: string[]) => void;
 }
 
-const MAX_INVITE_SELECTION = 7;
+const MAX_GROUP_CALL_PARTICIPANTS = 8;
 const INITIAL_MEDIA_PENDING_MS = 2500;
 const DEVICE_ACTION_TIMEOUT_MS = 5000;
 const SCREEN_SHARE_ACTION_TIMEOUT_MS = 60000;
@@ -74,6 +75,21 @@ const getMemberName = (member?: GroupMember) =>
   (member?.nickname || "").trim() ||
   (member?.user?.name || "").trim() ||
   "Người dùng";
+
+const getParticipantMetadata = (participant: Participant) => {
+  const rawMetadata = String(participant.metadata || "").trim();
+  if (!rawMetadata) return null;
+
+  try {
+    const parsed = JSON.parse(rawMetadata);
+    const name = String(parsed?.name || "").trim();
+    const avatar = String(parsed?.avatar || "").trim();
+    if (!name && !avatar) return null;
+    return { name, avatar };
+  } catch {
+    return null;
+  }
+};
 
 const getParticipantName = (
   participant: Participant,
@@ -87,14 +103,22 @@ const getParticipantName = (
   const memberName = getMemberName(memberById.get(participant.identity));
   if (memberName !== "Người dùng") return memberName;
 
-  return participant.name || `User ${participant.identity.slice(-4)}`;
+  const metadata = getParticipantMetadata(participant);
+  return (
+    metadata?.name ||
+    participant.name ||
+    `User ${participant.identity.slice(-4)}`
+  );
 };
 
 const getParticipantAvatar = (
   participant: Participant,
   memberById: Map<string, GroupMember>,
 ) => {
-  const avatar = memberById.get(participant.identity)?.user?.avatar || "";
+  const avatar =
+    memberById.get(participant.identity)?.user?.avatar ||
+    getParticipantMetadata(participant)?.avatar ||
+    "";
   return avatar ? getFullUrl(avatar) : "";
 };
 
@@ -186,6 +210,7 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
   activeIdentitySet,
   currentUserId,
   isSubmitting,
+  maxSelectable,
   onClose,
   onInvite,
 }) => {
@@ -211,6 +236,8 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
   };
 
   const inviteableMembers = useMemo(() => {
+    if (maxSelectable <= 0) return [];
+
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
     return members
@@ -228,7 +255,7 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
         if (!normalizedQuery) return true;
         return getMemberName(member).toLowerCase().includes(normalizedQuery);
       });
-  }, [activeIdentitySet, currentUserId, members, searchQuery]);
+  }, [activeIdentitySet, currentUserId, maxSelectable, members, searchQuery]);
 
   const toggleSelect = (userId: string) => {
     setSelectedIds((prev) => {
@@ -237,7 +264,7 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
         return prev.filter((id) => id !== userId);
       }
 
-      if (prev.length >= MAX_INVITE_SELECTION) {
+      if (prev.length >= maxSelectable) {
         setShowLimitHint(true);
         return prev;
       }
@@ -294,7 +321,7 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
             <span className="text-slate-600">
               Đã chọn{" "}
               <span className="font-bold text-primary-700">
-                {selectedIds.length}/{MAX_INVITE_SELECTION}
+                {selectedIds.length}/{Math.max(maxSelectable, 0)}
               </span>
             </span>
             {selectedIds.length > 0 && (
@@ -310,19 +337,26 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
 
           {showLimitHint && (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-              Chỉ có thể mời tối đa {MAX_INVITE_SELECTION} thành viên mỗi lần.
+              Cuộc gọi nhóm tối đa {MAX_GROUP_CALL_PARTICIPANTS} người. Chỉ có thể mời thêm {maxSelectable} người.
             </div>
           )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-          {inviteableMembers.length > 0 ? (
+          {maxSelectable <= 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-slate-500">
+              <Users size={28} />
+              <p className="text-sm font-semibold">
+                Cuộc gọi nhóm đã đủ {MAX_GROUP_CALL_PARTICIPANTS} người tham gia.
+              </p>
+            </div>
+          ) : inviteableMembers.length > 0 ? (
             <div className="space-y-1">
               {inviteableMembers.map((member) => {
                 const userId = String(member.user_id);
                 const isSelected = selectedIds.includes(userId);
                 const isLimitDisabled =
-                  !isSelected && selectedIds.length >= MAX_INVITE_SELECTION;
+                  !isSelected && selectedIds.length >= maxSelectable;
 
                 return (
                   <button
@@ -371,7 +405,7 @@ const MemberInviteModal: React.FC<MemberInviteModalProps> = ({
         <div className="border-t border-slate-100 bg-white p-4">
           <button
             type="button"
-            disabled={selectedIds.length === 0 || isSubmitting}
+            disabled={selectedIds.length === 0 || isSubmitting || maxSelectable <= 0}
             onClick={handleSubmit}
             className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary-700 px-4 text-sm font-bold text-white shadow-lg shadow-primary-700/20 transition-colors hover:bg-primary-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
           >
@@ -639,6 +673,11 @@ const GroupCallStage: React.FC<GroupCallStageProps> = ({
     () => new Set(participants.map((participant) => participant.identity)),
     [participants],
   );
+  const remainingInviteSlots = Math.max(
+    0,
+    MAX_GROUP_CALL_PARTICIPANTS - activeIdentitySet.size,
+  );
+  const canInviteMembers = remainingInviteSlots > 0;
   const hasRemoteAnswered = useMemo(
     () =>
       participants.some(
@@ -736,7 +775,7 @@ const GroupCallStage: React.FC<GroupCallStageProps> = ({
     videoTracks[0];
 
   const handleInviteMembers = async (targetUserIds: string[]) => {
-    if (!conversationId || !userId || targetUserIds.length === 0) return;
+    if (!conversationId || !userId || targetUserIds.length === 0 || !canInviteMembers) return;
 
     setIsInviting(true);
     setInviteNotice(null);
@@ -745,9 +784,9 @@ const GroupCallStage: React.FC<GroupCallStageProps> = ({
         conversationId,
         callId,
         userId,
-        targetUserIds,
+        targetUserIds.slice(0, remainingInviteSlots),
       );
-      setInviteNotice(`Đã gửi lời mời tới ${targetUserIds.length} thành viên.`);
+      setInviteNotice(`Đã gửi lời mời tới ${Math.min(targetUserIds.length, remainingInviteSlots)} thành viên.`);
       setIsInviteOpen(false);
     } catch (error) {
       console.error("Không thể mời thêm thành viên vào cuộc gọi:", error);
@@ -819,8 +858,11 @@ const GroupCallStage: React.FC<GroupCallStageProps> = ({
           <button
             type="button"
             onClick={() => setIsInviteOpen(true)}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all duration-300 hover:bg-white/20"
-            title="Mời thêm thành viên"
+            disabled={!canInviteMembers}
+            className={`flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all duration-300 ${
+              canInviteMembers ? "hover:bg-white/20" : "cursor-not-allowed opacity-35"
+            }`}
+            title={canInviteMembers ? "Mời thêm thành viên" : "Cuộc gọi đã đủ 8 người"}
           >
             <UserPlus size={18} />
           </button>
@@ -860,6 +902,7 @@ const GroupCallStage: React.FC<GroupCallStageProps> = ({
         onMediaNotice={setMediaNotice}
         canShareScreen={hasRemoteAnswered}
         isInitialMediaPending={!isInitialMediaReady}
+        canInviteMembers={canInviteMembers}
       />
 
       <MemberInviteModal
@@ -868,6 +911,7 @@ const GroupCallStage: React.FC<GroupCallStageProps> = ({
         activeIdentitySet={activeIdentitySet}
         currentUserId={userId}
         isSubmitting={isInviting}
+        maxSelectable={remainingInviteSlots}
         onClose={() => setIsInviteOpen(false)}
         onInvite={handleInviteMembers}
       />
@@ -880,11 +924,13 @@ const GroupCallControls: React.FC<{
   onMediaNotice: (message: string | null) => void;
   canShareScreen: boolean;
   isInitialMediaPending: boolean;
+  canInviteMembers: boolean;
 }> = ({
   onOpenInvite,
   onMediaNotice,
   canShareScreen,
   isInitialMediaPending,
+  canInviteMembers,
 }) => {
   const room = useRoomContext();
   const {
@@ -1044,8 +1090,11 @@ const GroupCallControls: React.FC<{
       <button
         type="button"
         onClick={onOpenInvite}
-        className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all"
-        title="Mời thêm thành viên"
+        disabled={!canInviteMembers}
+        className={`w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white transition-all ${
+          canInviteMembers ? "hover:bg-white/20" : "cursor-not-allowed opacity-35"
+        }`}
+        title={canInviteMembers ? "Mời thêm thành viên" : "Cuộc gọi đã đủ 8 người"}
       >
         <UserPlus size={18} />
       </button>
