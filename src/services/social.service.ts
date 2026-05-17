@@ -23,6 +23,14 @@ export interface ApiUser {
 }
 
 type ApiEnvelope<T> = { result?: T; message?: string };
+type ChatRelationshipLike = {
+    _id?: string;
+    requester_id?: string;
+    receiver_id?: string;
+    requesterId?: string;
+    receiverId?: string;
+    status?: string;
+};
 
 type UserServiceProfile = {
     bio?: string | null;
@@ -41,10 +49,85 @@ type PresignedUrlResponse = {
 };
 
 const unwrapApiResult = <T,>(payload: unknown): T | null => {
-    if (!payload || typeof payload !== "object") return null;
-    if ("result" in payload) return (payload as ApiEnvelope<T>).result ?? null;
+    if (!payload) return null;
+
+    // Handle Jackson Polymorphic Array: ["className", { ...data }]
+    if (
+        Array.isArray(payload) &&
+        payload.length === 2 &&
+        typeof payload[0] === "string"
+    ) {
+        return payload[1] as T;
+    }
+
+    if (typeof payload !== "object") return null;
+    if ("result" in (payload as any)) return (payload as any).result ?? null;
     return payload as T;
 };
+
+const CHAT_RELATIONSHIP_MUTATION_TIMEOUT_MS = 15_000;
+
+const getRelationshipRequesterId = (relationship?: ChatRelationshipLike | null) =>
+    String(relationship?.requester_id || relationship?.requesterId || "").trim();
+
+const getRelationshipReceiverId = (relationship?: ChatRelationshipLike | null) =>
+    String(relationship?.receiver_id || relationship?.receiverId || "").trim();
+
+const isRelationshipStatus = (
+    relationship: ChatRelationshipLike | null,
+    expectedStatuses: string[],
+) => {
+    if (!relationship?.status) return false;
+    const normalizedStatus = String(relationship.status).toUpperCase();
+    return expectedStatuses.some((status) => status.toUpperCase() === normalizedStatus);
+};
+
+const verifyRelationshipMutation = async (
+    relationship: ChatRelationshipLike | null | undefined,
+    expectedStatuses: string[],
+    relationshipId?: string,
+) => {
+    const requesterId = getRelationshipRequesterId(relationship);
+    const receiverId = getRelationshipReceiverId(relationship);
+    if (!requesterId || !receiverId) return false;
+
+    const latest = await fetchRelationshipStatusViaChat(requesterId, receiverId);
+    if (!latest) return false;
+
+    const sameRelationship =
+        !relationshipId ||
+        String(latest._id || latest.relationship_id || "") === String(relationshipId);
+
+    return sameRelationship && isRelationshipStatus(latest, expectedStatuses);
+};
+
+const verifySentFriendRequest = async (requesterId: string, receiverId: string) => {
+    const latest = await fetchRelationshipStatusViaChat(requesterId, receiverId);
+    if (!latest) return null;
+
+    const sameDirection =
+        getRelationshipRequesterId(latest) === String(requesterId) &&
+        getRelationshipReceiverId(latest) === String(receiverId);
+
+    if (sameDirection && isRelationshipStatus(latest, ["PENDING", "ACCEPTED"])) {
+        return latest;
+    }
+
+    return null;
+};
+
+function unwrapList<T>(json: unknown): T[] {
+    const data = unwrapApiResult<T[]>(json);
+    if (!Array.isArray(data)) {
+        const obj = data as any;
+        if (obj && Array.isArray(obj.value)) return obj.value;
+        return [];
+    }
+    // Each element might be ["className", {data}]
+    return data
+        .map((item) => unwrapApiResult<T>(item))
+        .filter((item) => item !== null) as T[];
+}
 export interface RelationshipResponse {
     id: string;
     requesterId: string;
@@ -74,6 +157,7 @@ export interface FriendOption {
     id: string;
     name: string;
     avatarUrl?: string;
+    phone?: string;
 }
 
 export interface FriendRequestOption {
@@ -81,6 +165,7 @@ export interface FriendRequestOption {
     userId: string;
     name: string;
     avatarUrl?: string;
+    createdAt?: string;
 }
 
 /* ─── Public API ──────────────────────────────────────── */
@@ -96,7 +181,8 @@ export async function fetchUsers(): Promise<ApiUser[]> {
         });
         if (!res.ok) return [];
         const json = await res.json();
-        return Array.isArray(json) ? json : ((json.value ?? []) as ApiUser[]);
+        const data = unwrapList<ApiUser>(json);
+        return data;
     } catch {
         return [];
     }
@@ -113,11 +199,13 @@ export async function fetchUserByUsername(username: string): Promise<ApiUser | n
             { signal: AbortSignal.timeout(5_000) },
         );
         if (!res.ok) return null;
-        return (await res.json()) as ApiUser;
+        const json = await res.json();
+        return unwrapApiResult<ApiUser>(json);
     } catch {
         return null;
     }
 }
+
 
 /**
  * Lấy user theo ID từ DB – trả về full profile gồm bio, work, location, relationshipStatus.
@@ -128,36 +216,48 @@ export async function fetchUserById(id: string): Promise<ApiUser | null> {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return null;
-        return (await res.json()) as ApiUser;
-    } catch {
+        const json = await res.json();
+        console.log(`[fetchUserById] Raw response for ${id}:`, json);
+        return unwrapApiResult<ApiUser>(json);
+    } catch (error) {
+        console.error(`[fetchUserById] Error fetching user ${id}:`, error);
         return null;
     }
 }
 
 export async function fetchFriends(userId: string): Promise<FriendOption[]> {
     try {
-        console.log(`fetchFriends called for userId: ${userId}`);
-        const url = `${API_CHAT_SERVER_URL}/relationships/${userId}/friends`;
-        console.log(`fetchFriends URL: ${url}`);
+        const url = `${API_MEDIA_SERVER_URL}/relationships/friends/${userId}`;
         const res = await authFetch(url, {
             signal: AbortSignal.timeout(5_000),
         });
-        if (!res.ok) {
-            console.error(`fetchFriends failed with status: ${res.status}`);
-            return [];
-        }
-        const raw = (await res.json()) as any[];
-        console.log(`fetchFriends raw data:`, raw);
+        if (!res.ok) return [];
+        
+        const json = await res.json();
+        const raw = unwrapList<any>(json);
         if (!Array.isArray(raw)) return [];
-        const mapped = raw.map((user) => ({
-            id: user.user_id || user.userId || user.id,
-            name: user.displayName || user.name || user.username || "Người dùng",
-            avatarUrl: user.avatar || user.avatarUrl || user.user_avatar || undefined,
-        }));
-        console.log(`fetchFriends mapped data:`, mapped);
-        return mapped;
+        
+        return raw.map((rel: any) => {
+            const isRequester = rel.requesterId === userId;
+            const friendId = isRequester ? rel.receiverId : rel.requesterId;
+            const friendName = isRequester
+                ? (rel.receiverDisplayName || rel.receiverUsername)
+                : (rel.requesterDisplayName || rel.requesterUsername);
+            const friendAvatar = isRequester
+                ? rel.receiverAvatarUrl
+                : rel.requesterAvatarUrl;
+            const friendPhone = isRequester
+                ? rel.receiverPhoneNumber
+                : rel.requesterPhoneNumber;
+
+            return {
+                id: friendId,
+                name: friendName || "Người dùng",
+                avatarUrl: friendAvatar || undefined,
+                phone: friendPhone || undefined,
+            };
+        });
     } catch (error) {
-        console.error("fetchFriends catch error:", error);
         return [];
     }
 }
@@ -177,7 +277,8 @@ export async function fetchRelationshipOf(
 
         if (!res.ok) return null;
 
-        return (await res.json()) as RelationshipResponse;
+        const json = await res.json();
+        return unwrapApiResult<RelationshipResponse>(json);
     } catch {
         return null;
     }
@@ -226,13 +327,15 @@ export async function fetchPendingRequests(
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return [];
-        const raw = (await res.json()) as ApiRelationshipResponse[];
+        const json = await res.json();
+        const raw = unwrapList<ApiRelationshipResponse>(json);
         if (!Array.isArray(raw)) return [];
-        return raw.map((rel) => ({
+        return raw.map((rel: any) => ({
             id: rel.id,
-            userId: rel.requesterId,
-            name: rel.requesterDisplayName || rel.requesterUsername,
-            avatarUrl: rel.requesterAvatarUrl ?? undefined,
+            userId: rel.requesterId || rel.userId || rel.id,
+            name: rel.requesterDisplayName || rel.requesterUsername || "Người dùng",
+            avatarUrl: rel.requesterAvatarUrl || rel.avatarUrl || rel.avatar || undefined,
+            createdAt: rel.createdAt,
         }));
     } catch {
         return [];
@@ -258,15 +361,17 @@ export async function acceptFriendRequest(
  */
 export async function acceptFriendRequestViaChat(
     relationshipId: string,
+    relationship?: ChatRelationshipLike | null,
 ): Promise<boolean> {
     try {
         const res = await authFetch(
             `${API_CHAT_SERVER_URL}/relationships/accept/${relationshipId}`,
-            { method: "POST", signal: AbortSignal.timeout(5_000) },
+            { method: "POST", signal: AbortSignal.timeout(CHAT_RELATIONSHIP_MUTATION_TIMEOUT_MS) },
         );
-        return res.ok;
+        if (res.ok) return true;
+        return await verifyRelationshipMutation(relationship, ["ACCEPTED"], relationshipId);
     } catch {
-        return false;
+        return await verifyRelationshipMutation(relationship, ["ACCEPTED"], relationshipId);
     }
 }
 
@@ -275,15 +380,17 @@ export async function acceptFriendRequestViaChat(
  */
 export async function rejectFriendRequestViaChat(
     relationshipId: string,
+    relationship?: ChatRelationshipLike | null,
 ): Promise<boolean> {
     try {
         const res = await authFetch(
             `${API_CHAT_SERVER_URL}/relationships/reject/${relationshipId}`,
-            { method: "POST", signal: AbortSignal.timeout(5_000) },
+            { method: "POST", signal: AbortSignal.timeout(CHAT_RELATIONSHIP_MUTATION_TIMEOUT_MS) },
         );
-        return res.ok;
+        if (res.ok) return true;
+        return await verifyRelationshipMutation(relationship, ["REMOVED"], relationshipId);
     } catch {
-        return false;
+        return await verifyRelationshipMutation(relationship, ["REMOVED"], relationshipId);
     }
 }
 
@@ -292,15 +399,17 @@ export async function rejectFriendRequestViaChat(
  */
 export async function cancelFriendRequestViaChat(
     relationshipId: string,
+    relationship?: ChatRelationshipLike | null,
 ): Promise<boolean> {
     try {
         const res = await authFetch(
             `${API_CHAT_SERVER_URL}/relationships/cancel/${relationshipId}`,
-            { method: "POST", signal: AbortSignal.timeout(5_000) },
+            { method: "POST", signal: AbortSignal.timeout(CHAT_RELATIONSHIP_MUTATION_TIMEOUT_MS) },
         );
-        return res.ok;
+        if (res.ok) return true;
+        return await verifyRelationshipMutation(relationship, ["REMOVED"], relationshipId);
     } catch {
-        return false;
+        return await verifyRelationshipMutation(relationship, ["REMOVED"], relationshipId);
     }
 }
 
@@ -356,6 +465,52 @@ export async function unfriendViaChat(
     }
 }
 
+/**
+ * Chặn người dùng qua chat-service
+ */
+export async function blockUserViaChat(
+    userId: string,
+    targetId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/block`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, targetId }),
+                signal: AbortSignal.timeout(5_000)
+            },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Bỏ chặn người dùng qua chat-service
+ */
+export async function unblockUserViaChat(
+    userId: string,
+    targetId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_CHAT_SERVER_URL}/relationships/unblock`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, targetId }),
+                signal: AbortSignal.timeout(5_000)
+            },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
 export async function rejectFriendRequest(
     relationshipId: string,
 ): Promise<boolean> {
@@ -380,7 +535,8 @@ export async function sendFriendRequest(
             { method: "POST", signal: AbortSignal.timeout(5_000) },
         );
         if (!res.ok) throw new Error("Gửi kết bạn thất bại.")
-        return await res.json();
+        const json = await res.json();
+        return unwrapApiResult<any>(json);
     } catch (error) {
         console.error(error)
         return null;
@@ -401,12 +557,18 @@ export async function sendFriendRequestViaChat(
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ requesterId, receiverId }),
-                signal: AbortSignal.timeout(5_000)
+                signal: AbortSignal.timeout(CHAT_RELATIONSHIP_MUTATION_TIMEOUT_MS)
             },
         );
-        if (!res.ok) throw new Error("Gửi kết bạn qua Chat thất bại.")
+        if (!res.ok) {
+            const verified = await verifySentFriendRequest(requesterId, receiverId);
+            if (verified) return verified;
+            throw new Error("Gửi kết bạn qua Chat thất bại.")
+        }
         return await res.json();
     } catch (error) {
+        const verified = await verifySentFriendRequest(requesterId, receiverId);
+        if (verified) return verified;
         console.error(error)
         return null;
     }

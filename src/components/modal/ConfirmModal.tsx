@@ -4,11 +4,12 @@ import { X } from "lucide-react";
 interface ConfirmModalProps {
   isOpen: boolean;
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   isDangerous?: boolean;
   hideCancelButton?: boolean;
+  maxWidthClassName?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -21,6 +22,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   cancelText = "Hủy",
   isDangerous = false,
   hideCancelButton = false,
+  maxWidthClassName = "max-w-sm",
   onConfirm,
   onCancel,
 }) => {
@@ -28,7 +30,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
-      <div className="bg-primary-50 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-primary-200 animate-scale-in">
+      <div className={`bg-primary-50 rounded-2xl p-6 ${maxWidthClassName} w-full mx-4 shadow-2xl border border-primary-200 animate-scale-in`}>
         {/* Close button */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-primary-900 font-semibold text-lg">{title}</h2>
@@ -42,9 +44,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
 
         {/* Message */}
-        <p className="text-primary-700 text-sm mb-8 leading-relaxed">
+        <div className="text-primary-700 text-sm mb-8 leading-relaxed">
           {message}
-        </p>
+        </div>
 
         {/* Actions */}
         <div className="flex gap-3 justify-end">

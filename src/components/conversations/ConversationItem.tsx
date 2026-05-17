@@ -6,7 +6,7 @@ import ConversationContextMenu from "../modal/conversation/ConversationContextMe
 import CategoryManagementModal from "../modal/category/CategoryManagementModal";
 import { ConfirmModal } from "../modal/ConfirmModal";
 import type { ConversationItemProps } from "../../interfaces";
-import { ParticipantService } from "../../services";
+import { ParticipantService, fetchRelationshipStatusViaChat, blockUserViaChat, unblockUserViaChat, socketService } from "../../services";
 import type { Category } from "../../types";
 import { useConversations } from "../../contexts/ConversationsContext";
 import { PiTagSimpleFill } from "react-icons/pi";
@@ -17,6 +17,31 @@ import {
 } from "../../utils";
 import { EmojiText } from "../chat/EmojiText";
 import { useAuth } from "../../contexts/AuthContext";
+import { usePresence } from "../../contexts/PresenceContext";
+
+// ─── Helper: format last seen ngắn gọn ───────────────────────────────────────
+const formatLastSeenShort = (date: Date | null): string => {
+  if (!date) return "";
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (diff < 60) return "vừa mới";
+  if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)} ngày trước`;
+  return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+};
+
+// ─── Helper: lấy userId của người kia trong 1-1 chat ─────────────────────────
+const getOtherParticipantId = (conversation: any, currentUserId?: string): string | null => {
+  if (conversation.type !== "private") return null;
+  const participants = conversation.participants ?? [];
+  const other = participants.find(
+    (p: any) => String(p.user_id ?? p._id ?? "") !== String(currentUserId ?? "")
+  );
+  return other ? String(other.user_id ?? other._id ?? "") : null;
+};
+
+
 
 const ConversationItem: React.FC<ConversationItemProps> = ({
   item,
@@ -37,7 +62,24 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeletingConversation, setIsDeletingConversation] = useState(false);
   const [isProcessingInvitation, setIsProcessingInvitation] = useState(false);
+  const [relationship, setRelationship] = useState<any>(null);
   const { user: authUser } = useAuth();
+
+  // ── PRESENCE ──────────────────────────────────────────────────────────────
+  const { isUserOnline, getLastSeen, watchUsers } = usePresence();
+  const otherUserId = getOtherParticipantId(conversation, currentUserId);
+
+  useEffect(() => {
+    if (otherUserId) {
+      watchUsers([otherUserId]);
+    }
+  }, [otherUserId, watchUsers]);
+
+  // Chỉ hiển thị trạng thái cho chat 1-1
+  const showPresence = conversation.type === "private" && !!otherUserId;
+  const otherIsOnline = showPresence ? isUserOnline(otherUserId!) : false;
+  const otherLastSeen = showPresence ? getLastSeen(otherUserId!) : null;
+  // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     // Find and set current category from participant settings
@@ -50,6 +92,45 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       setCurrentCategory(null);
     }
   }, [participant.settings.category_id, categories]);
+
+  const loadRelationship = React.useCallback(async () => {
+    if (conversation.type === "private" && currentUserId) {
+      const otherId = conversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(currentUserId))?.user_id;
+      if (otherId) {
+        try {
+          const rel = await fetchRelationshipStatusViaChat(currentUserId, otherId);
+          setRelationship(rel);
+        } catch (err) {
+          console.error("Error loading relationship in ConversationItem:", err);
+        }
+      }
+    }
+  }, [conversation.type, conversation.participants, currentUserId]);
+
+  useEffect(() => {
+    loadRelationship();
+  }, [loadRelationship]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const handleRelationshipUpdate = (payload: any) => {
+      if (conversation.type === "private") {
+        const otherId = conversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(currentUserId))?.user_id;
+        const reqId = payload.requesterId || payload.requester_id;
+        const recId = payload.receiverId || payload.receiver_id;
+
+        if (otherId && (String(reqId) === String(otherId) || String(recId) === String(otherId))) {
+          setRelationship(payload);
+        }
+      }
+    };
+
+    socketService.onRelationshipUpdate(handleRelationshipUpdate);
+    return () => {
+      socketService.offRelationshipUpdate(handleRelationshipUpdate);
+    };
+  }, [conversation.type, conversation.participants, currentUserId]);
 
   // Check if conversation is muted
   const isMuted = !!(
@@ -142,7 +223,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
   const unreadCount = Number(participant.unread_count || 0);
   const hasUnreadMessage = !isSelected && unreadCount > 0;
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
-  const isInvited = participant.status === "invited" && conversation.type === "group";
+  const isInvited = false;
 
   const handleAcceptInvitation = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -274,6 +355,14 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       updateParticipant(conversation._id, {
         deleted_msg_id: updatedParticipant.deleted_msg_id,
       });
+
+      // Báo cho ChatPage biết để đóng cửa sổ chat nếu đang mở đoạn này
+      window.dispatchEvent(
+        new CustomEvent("chat:remove-conversation", {
+          detail: { conversationId: conversation._id },
+        }),
+      );
+
       setIsDeleteModalOpen(false);
     } catch (error: unknown) {
       const message =
@@ -285,20 +374,48 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
     }
   };
 
+  const handleBlock = async () => {
+    if (!currentUserId) return;
+    const otherId = conversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(currentUserId))?.user_id;
+    if (!otherId) return;
+
+
+    try {
+      const rel = await blockUserViaChat(currentUserId, otherId);
+      setRelationship(rel);
+      await refreshConversations(currentUserId);
+    } catch (error) {
+      console.error("Error blocking user:", error);
+    }
+  };
+
+  const handleUnblock = async () => {
+    if (!currentUserId) return;
+    const otherId = conversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(currentUserId))?.user_id;
+    if (!otherId) return;
+
+    try {
+      const rel = await unblockUserViaChat(currentUserId, otherId);
+      setRelationship(rel);
+      await refreshConversations(currentUserId);
+    } catch (error) {
+      console.error("Error unblocking user:", error);
+    }
+  };
+
   return (
     <>
       <div
         className={`
           relative p-3 rounded-xl transition-all duration-300
           mx-2 ${isInvited ? "cursor-default" : "cursor-pointer"}
-          ${
-            isSelected
-              ? "bg-primary-500/10 shadow-md "
-              : "hover:bg-gray-50 hover:shadow-sm"
+          ${isSelected
+            ? "bg-primary-500/10 shadow-md "
+            : "hover:bg-gray-50 hover:shadow-sm"
           }
           ${isHovered ? "shadow-lg" : ""}
         `}
-        onClick={isInvited ? undefined : onClick}
+        onClick={onClick}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -310,7 +427,7 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
 
         <div className="flex items-center space-x-3">
           {/* Avatar */}
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <Avatar
               src={getConversationAvatar()}
               name={getConversationName()}
@@ -318,15 +435,27 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
               className="ring-1 ring-gray-200"
             />
 
-            {/* Conversation type indicator */}
+            {/* Presence dot (1-1) or group icon */}
             <div
-              className={`
-            absolute -bottom-1 -right-1 w-5 h-5 rounded-full 
-            flex items-center justify-center bg-white
-            ring-2 ring-gray-100 shadow-sm
-          `}
+              className="
+                absolute -bottom-1 -right-1 w-5 h-5 rounded-full
+                flex items-center justify-center bg-white
+                ring-2 ring-gray-100 shadow-sm
+              "
             >
-              {conversation.type === "group" ? (
+              {showPresence ? (
+                /* Online/Offline dot cho 1-1 */
+                <span className="relative flex h-3 w-3">
+                  {otherIsOnline && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                  )}
+                  <span
+                    className={`relative inline-flex rounded-full h-3 w-3 transition-colors duration-500 ${
+                      otherIsOnline ? "bg-emerald-500" : "bg-gray-300"
+                    }`}
+                  />
+                </span>
+              ) : conversation.type === "group" ? (
                 <Users className="w-3 h-3 text-primary-500" />
               ) : (
                 <MessageCircle className="w-3 h-3 text-primary-500" />
@@ -334,13 +463,14 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
             </div>
           </div>
 
+
           {/* Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-0.5">
               <div className="flex items-center gap-1.5 flex-1 min-w-0">
                 <h3
                   className={`
-                font-semibold truncate transition-colors duration-200 select-none
+                font-semibold truncate transition-colors duration-200 select-none text-sm
                 ${isSelected ? "text-primary-500" : "text-gray-900"}
                 ${isHovered ? "text-primary-500" : ""}
               `}
@@ -352,65 +482,48 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center space-x-1 ml-2 ">
+              <div className="flex items-center space-x-1 ml-2">
                 {isMuted && <FaBellSlash className="w-4 h-4 text-gray-400" />}
                 <span
-                  className={`text-xs  whitespace-nowrap select-none max-w-18 ${hasUnreadMessage ? "text-primary-500 font-medium" : "text-gray-400"}`}
+                  className={`text-xs whitespace-nowrap select-none max-w-18 ${
+                    hasUnreadMessage ? "text-primary-500 font-medium" : "text-gray-400"
+                  }`}
                 >
                   {getTimeDisplay()}
                 </span>
               </div>
             </div>
 
-            {isInvited ? (
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-orange-600 font-medium flex-1 truncate">Bạn được mời vào nhóm này</span>
-                <button
-                  onClick={handleAcceptInvitation}
-                  disabled={isProcessingInvitation}
-                  className="cursor-pointer flex items-center gap-1 px-2.5 py-1 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                >
-                  <Check size={12} />
-                  Đồng ý
-                </button>
-                <button
-                  onClick={handleRejectInvitation}
-                  disabled={isProcessingInvitation}
-                  className="cursor-pointer flex items-center gap-1 px-2.5 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                >
-                  <XIcon size={12} />
-                  Từ chối
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                {/* Category tag - before message */}
-                {currentCategory && (
-                  <PiTagSimpleFill
-                    className="shrink-0"
-                    color={currentCategory.color}
-                  />
-                )}
+            <div className="flex items-center gap-1.5">
+              {/* Category tag - before message */}
+              {currentCategory && (
+                <PiTagSimpleFill
+                  className="shrink-0"
+                  color={currentCategory.color}
+                />
+              )}
 
-                <p
-                  className={`text-sm truncate flex-1 select-none ${hasUnreadMessage ? "text-gray-900 font-semibold" : "text-gray-600"}`}
-                >
-                  <EmojiText
-                    text={getLatestMessagePreview()}
-                    emojiSize={15}
-                    emojiClassName="inline-block align-[-0.2em] me-1"
-                  />
-                </p>
+              <p
+                className={`text-sm truncate flex-1 select-none ${
+                  hasUnreadMessage ? "text-gray-900 font-semibold" : "text-gray-500"
+                }`}
+              >
+                <EmojiText
+                  text={getLatestMessagePreview()}
+                  emojiSize={15}
+                  emojiClassName="inline-block align-[-0.2em] me-1"
+                />
+              </p>
 
-                {/* Unread badge */}
-                {hasUnreadMessage && (
-                  <div className="min-w-5 h-5 px-1 rounded-full bg-primary-500 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
-                    {unreadLabel}
-                  </div>
-                )}
-              </div>
-            )}
+              {/* Unread badge */}
+              {hasUnreadMessage && (
+                <div className="min-w-5 h-5 px-1 rounded-full bg-primary-500 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
+                  {unreadLabel}
+                </div>
+              )}
+            </div>
           </div>
+
         </div>
       </div>
 
@@ -424,8 +537,13 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
         onManageCategories={handleManageCategories}
         onMute={handleMute}
         onDelete={handleDelete}
+        onBlock={handleBlock}
+        onUnblock={handleUnblock}
         isPinned={participant.settings.is_pinned}
         isMuted={isMuted}
+        isBlocked={relationship?.status === "BLOCKED"}
+        canUnblock={(relationship?.requester_id === currentUserId || relationship?.requesterId === currentUserId || relationship?.actorId === currentUserId)}
+        isGroup={conversation.type === "group"}
         categories={categories}
         currentCategoryId={participant.settings.category_id || undefined}
       />

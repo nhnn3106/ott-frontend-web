@@ -31,6 +31,22 @@ export interface Post {
     accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[];
 }
 
+export interface StoryContentItem {
+    id?: string;
+    type: "TEXT" | "IMAGE" | "VIDEO";
+    url?: string;
+    textContent?: string;
+    textBackgroundColor?: string;
+    positionX: number;
+    positionY: number;
+    width?: number;
+    height?: number;
+    scale: number;
+    rotation: number;
+    zIndex: number;
+    file?: File;
+}
+
 export interface StoryItem {
     id: string;
     name: string;
@@ -42,6 +58,13 @@ export interface StoryItem {
     textBackgroundColor?: string;
     imageUrl?: string;
     videoUrl?: string;
+    totalViews?: number;
+    musics?: any[];
+    items?: StoryContentItem[];
+    expireAt?: string;
+    visibility?: string;
+    accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[];
+    lastUpdated?: number;
 }
 
 export interface StoryUserGroup {

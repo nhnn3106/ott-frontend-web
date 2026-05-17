@@ -3,11 +3,37 @@ import { SOCKET_CHAT_SERVER_URL } from "../config/api.config";
 
 type CallType = "voice" | "video";
 
+type CallSessionAck = {
+  ok?: boolean;
+  reason?: string;
+  conversationId?: string;
+  callId?: string;
+  callType?: CallType;
+  isGroup?: boolean;
+  livekitToken?: string | null;
+  participants?: string[];
+  participantDetails?: Array<{
+    userId?: string;
+    user_id?: string;
+    id?: string;
+    name?: string;
+    avatar?: string;
+  }>;
+  targetUserId?: string;
+};
+
 class SocketService {
   private socket: Socket | null = null;
+  private userRoomId: string | null = null;
+  private joinedUserRoomKey: string | null = null;
+  private joinedConversationIds = new Set<string>();
 
   private ensureSocket(): Socket {
     return this.socket ?? this.connect();
+  }
+
+  public emit(event: string, payload: unknown) {
+    this.emitWhenConnected(event, payload);
   }
 
   private emitWhenConnected(event: string, payload: unknown) {
@@ -22,8 +48,62 @@ class SocketService {
     }
   }
 
+  private emitWithAck<T = unknown>(
+    event: string,
+    payload: unknown,
+    timeoutMs = 1000,
+  ): Promise<T | null> {
+    const socket = this.ensureSocket();
+
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const finish = (value: T | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const emit = () => {
+        try {
+          socket.timeout(timeoutMs).emit(
+            event,
+            payload,
+            (error: Error | null, response: T) => {
+              if (error) {
+                finish(null);
+                return;
+              }
+
+              finish(response ?? null);
+            },
+          );
+        } catch {
+          socket.emit(event, payload);
+          window.setTimeout(() => finish(null), 100);
+        }
+      };
+
+      if (socket.connected) {
+        emit();
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+      socket.once("connect", () => {
+        window.clearTimeout(timeoutId);
+        emit();
+      });
+    });
+  }
+
   connect(): Socket {
-    if (this.socket) return this.socket;
+    if (this.socket) {
+      if (!this.socket.connected && this.socket.disconnected) {
+        this.socket.connect();
+      }
+      return this.socket;
+    }
 
     const token = localStorage.getItem("accessToken");
     const socket = io(SOCKET_CHAT_SERVER_URL, {
@@ -35,8 +115,22 @@ class SocketService {
       },
     });
 
-    socket.on("connect", () => console.log("Socket connection:", socket.id));
-    socket.on("disconnect", () => console.log("Socket disconnected"));
+    socket.on("connect", () => {
+      console.log("Socket connection:", socket.id);
+      this.joinedUserRoomKey = null;
+
+      if (this.userRoomId) {
+        this.emitJoinUserRoom(socket, this.userRoomId);
+      }
+
+      this.joinedConversationIds.forEach((conversationId) => {
+        socket.emit("tham_gia_nhom", conversationId);
+      });
+    });
+    socket.on("disconnect", () => {
+      this.joinedUserRoomKey = null;
+      console.log("Socket disconnected");
+    });
     socket.on("connect_error", (err) =>
       console.error("Socket Error:", err.message),
     );
@@ -47,26 +141,41 @@ class SocketService {
   disconnect() {
     this.socket?.disconnect();
     this.socket = null;
+    this.userRoomId = null;
+    this.joinedUserRoomKey = null;
+    this.joinedConversationIds.clear();
     console.log("Socket disconnected manually");
+  }
+
+  private emitJoinUserRoom(socket: Socket, userId: string) {
+    const joinKey = `${socket.id || "pending"}:${userId}`;
+    if (this.joinedUserRoomKey === joinKey) return;
+
+    socket.emit("tham_gia_user_room", userId);
+    this.joinedUserRoomKey = joinKey;
+    console.log(`Đã vào user room: user:${userId}`);
   }
 
   joinUserRoom(userId: string) {
     const socket = this.ensureSocket();
-
-    const join = () => {
-      socket.emit("tham_gia_user_room", userId);
-      console.log(`Đã vào user room: user:${userId}`);
-    };
+    this.userRoomId = userId;
 
     if (socket.connected) {
-      join();
-    } else {
-      socket.once("connect", join);
+      this.emitJoinUserRoom(socket, userId);
     }
+  }
+
+  refreshPresence(userId?: string) {
+    const activeUserId = userId || this.userRoomId;
+    if (!activeUserId) return;
+
+    this.userRoomId = activeUserId;
+    this.emitWhenConnected("presence_heartbeat", { userId: activeUserId });
   }
 
   joinConversation(conversationId: string) {
     const socket = this.ensureSocket();
+    this.joinedConversationIds.add(conversationId);
 
     const join = () => {
       socket.emit("tham_gia_nhom", conversationId);
@@ -114,6 +223,18 @@ class SocketService {
       this.socket?.off("tao_phong_moi", callback);
     } else {
       this.socket?.removeAllListeners("tao_phong_moi");
+    }
+  }
+
+  onGroupCallUpdated(callback: (payload: any) => void) {
+    this.socket?.on("cap_nhat_trang_thai_goi_nhom", callback);
+  }
+
+  offGroupCallUpdated(callback?: (payload: any) => void) {
+    if (callback) {
+      this.socket?.off("cap_nhat_trang_thai_goi_nhom", callback);
+    } else {
+      this.socket?.removeAllListeners("cap_nhat_trang_thai_goi_nhom");
     }
   }
 
@@ -251,6 +372,48 @@ class SocketService {
     });
   }
 
+  markMessageDelivered(
+    conversationId: string,
+    userId: string,
+    msgId: string,
+    deviceId?: string,
+  ) {
+    this.emitWhenConnected("message_delivered", {
+      conversationId,
+      userId,
+      msgId,
+      deviceId,
+    });
+  }
+
+  markMessagesDeliveredUpTo(
+    conversationId: string,
+    userId: string,
+    msgId: string,
+    deviceId?: string,
+  ) {
+    this.emitWhenConnected("messages_delivered_up_to", {
+      conversationId,
+      userId,
+      msgId,
+      deviceId,
+    });
+  }
+
+  markMessageSeenUpTo(
+    conversationId: string,
+    userId: string,
+    msgId: string,
+    deviceId?: string,
+  ) {
+    this.emitWhenConnected("message_seen_up_to", {
+      conversationId,
+      userId,
+      msgId,
+      deviceId,
+    });
+  }
+
   onTyping(
     callback: (payload: { conversationId: string; userId: string }) => void,
   ) {
@@ -287,34 +450,91 @@ class SocketService {
     return this.socket;
   }
 
-  startCall(conversationId: string, callerId: string, callType: CallType, invitedUserIds?: string[]) {
-    this.emitWhenConnected("bat_dau_goi", {
+  startCall(
+    conversationId: string,
+    callerId: string,
+    callType: CallType,
+    invitedUserIds?: string[],
+  ): Promise<CallSessionAck | null> {
+    return this.emitWithAck<CallSessionAck>("bat_dau_goi", {
       conversationId,
       callerId,
       callType,
       invitedUserIds,
-    });
+    }, 3000);
   }
 
-  joinCall(conversationId: string, userId: string, callType: CallType) {
-    this.emitWhenConnected("tham_gia_cuoc_goi", {
+  joinCall(
+    conversationId: string,
+    userId: string,
+    callType: CallType,
+    callId?: string | null,
+  ): Promise<CallSessionAck | null> {
+    return this.emitWithAck<CallSessionAck>("tham_gia_cuoc_goi", {
       conversationId,
+      callId,
       userId,
       callType,
+    }, 3000);
+  }
+
+  leaveCall(conversationId: string, userId: string, callId?: string | null) {
+    return this.emitWithAck<CallSessionAck>("roi_cuoc_goi", {
+      conversationId,
+      callId,
+      userId,
+    }, 1500);
+  }
+
+  leaveAllCallsForLogout(userId: string) {
+    return this.emitWithAck<{ ok?: boolean }>("dang_xuat", { userId }, 1200);
+  }
+
+  inviteGroupCallMembers(
+    conversationId: string,
+    callId: string | null | undefined,
+    callerId: string,
+    targetUserIds: string[],
+  ) {
+    this.emitWhenConnected("moi_them_thanh_vien_goi", {
+      conversationId,
+      callId,
+      callerId,
+      targetUserIds,
     });
   }
 
-  leaveCall(conversationId: string, userId: string) {
-    this.emitWhenConnected("roi_cuoc_goi", { conversationId, userId });
+  async endCall(
+    conversationId: string,
+    userId: string,
+    metadata?: {
+      callId?: string | null;
+      callType?: CallType;
+      wasConnected?: boolean;
+      durationSeconds?: number;
+    },
+  ): Promise<boolean> {
+    const response = await this.emitWithAck<{ ok?: boolean }>(
+      "ket_thuc_goi",
+      {
+        conversationId,
+        userId,
+        ...(metadata || {}),
+      },
+      3000,
+    );
+    return response?.ok === true;
   }
 
-  endCall(conversationId: string, userId: string) {
-    this.emitWhenConnected("ket_thuc_goi", { conversationId, userId });
-  }
-
-  declineCall(conversationId: string, userId: string, callerId: string) {
+  declineCall(
+    conversationId: string,
+    userId: string,
+    callerId: string,
+    callId?: string | null,
+  ) {
     this.emitWhenConnected("tu_choi_goi", {
       conversationId,
+      callId,
       userId,
       callerId,
     });
@@ -338,9 +558,15 @@ class SocketService {
     }
   }
 
-  emitCameraState(conversationId: string, userId: string, isCameraOff: boolean) {
+  emitCameraState(
+    conversationId: string,
+    userId: string,
+    isCameraOff: boolean,
+    callId?: string | null,
+  ) {
     this.emitWhenConnected("trang_thai_camera", {
       conversationId,
+      callId,
       userId,
       isCameraOff,
     });
@@ -348,6 +574,7 @@ class SocketService {
 
   sendOffer(
     conversationId: string,
+    callId: string | null | undefined,
     fromUserId: string,
     targetUserId: string,
     offer: RTCSessionDescriptionInit,
@@ -355,6 +582,7 @@ class SocketService {
   ) {
     this.emitWhenConnected("gui_offer", {
       conversationId,
+      callId,
       fromUserId,
       targetUserId,
       offer,
@@ -364,12 +592,14 @@ class SocketService {
 
   sendAnswer(
     conversationId: string,
+    callId: string | null | undefined,
     fromUserId: string,
     targetUserId: string,
     answer: RTCSessionDescriptionInit,
   ) {
     this.emitWhenConnected("gui_answer", {
       conversationId,
+      callId,
       fromUserId,
       targetUserId,
       answer,
@@ -378,21 +608,44 @@ class SocketService {
 
   sendIceCandidate(
     conversationId: string,
+    callId: string | null | undefined,
     fromUserId: string,
     targetUserId: string,
     candidate: RTCIceCandidateInit,
   ) {
     this.emitWhenConnected("gui_ice_candidate", {
       conversationId,
+      callId,
       fromUserId,
       targetUserId,
       candidate,
     });
   }
 
+  onStartCallSuccess(
+    callback: (payload: {
+      conversationId: string;
+      callId?: string;
+      callType: CallType;
+      isGroup?: boolean;
+      livekitToken?: string;
+    }) => void,
+  ) {
+    this.socket?.on("bat_dau_goi_thanh_cong", callback);
+  }
+
+  offStartCallSuccess(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("bat_dau_goi_thanh_cong", callback);
+    } else {
+      this.socket?.removeAllListeners("bat_dau_goi_thanh_cong");
+    }
+  }
+
   onIncomingCall(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       callerId: string;
       callType: CallType;
       startedAt?: string;
@@ -414,6 +667,7 @@ class SocketService {
   onCallJoined(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       participants: string[];
       callType: CallType;
@@ -435,8 +689,10 @@ class SocketService {
   onCallLeft(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       participants: string[];
+      reason?: string;
     }) => void,
   ) {
     this.socket?.on("nguoi_dung_roi_goi", callback);
@@ -453,6 +709,7 @@ class SocketService {
   onOffer(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       offer: RTCSessionDescriptionInit;
       callType: CallType;
@@ -472,6 +729,7 @@ class SocketService {
   onAnswer(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       answer: RTCSessionDescriptionInit;
     }) => void,
@@ -490,6 +748,7 @@ class SocketService {
   onIceCandidate(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       fromUserId: string;
       candidate: RTCIceCandidateInit;
     }) => void,
@@ -508,7 +767,9 @@ class SocketService {
   onCallEnded(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       endedBy?: string | null;
+      reason?: string;
     }) => void,
   ) {
     this.socket?.on("ket_thuc_phong_goi", callback);
@@ -523,7 +784,7 @@ class SocketService {
   }
 
   onCallDeclined(
-    callback: (payload: { conversationId: string; userId: string }) => void,
+    callback: (payload: { conversationId: string; callId?: string; userId: string }) => void,
   ) {
     this.socket?.on("nguoi_dung_tu_choi_goi", callback);
   }
@@ -556,6 +817,7 @@ class SocketService {
   onCameraStateChanged(
     callback: (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
       isCameraOff: boolean;
     }) => void,
@@ -591,6 +853,69 @@ class SocketService {
     }
   }
 
+  onMessageStatusChanged(
+    callback: (payload: {
+      conversationId: string;
+      msgId: string;
+      status: "sent" | "delivered" | "seen";
+      deliveredCount: number;
+      seenCount: number;
+      recipientCount: number;
+      participant?: any;
+      userId?: string;
+      changedUserId?: string;
+    }) => void,
+  ) {
+    this.socket?.on("message_status_changed", callback);
+  }
+
+  offMessageStatusChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("message_status_changed", callback);
+    } else {
+      this.socket?.removeAllListeners("message_status_changed");
+    }
+  }
+
+  onParticipantCursorChanged(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+      receiptType: "delivered" | "seen";
+      participant?: any;
+    }) => void,
+  ) {
+    this.socket?.on("participant_cursor_changed", callback);
+  }
+
+  offParticipantCursorChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("participant_cursor_changed", callback);
+    } else {
+      this.socket?.removeAllListeners("participant_cursor_changed");
+    }
+  }
+
+  onConversationReadSynced(
+    callback: (payload: {
+      conversationId: string;
+      userId: string;
+      msgId: string;
+      participant?: any;
+    }) => void,
+  ) {
+    this.socket?.on("conversation_read_synced", callback);
+  }
+
+  offConversationReadSynced(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("conversation_read_synced", callback);
+    } else {
+      this.socket?.removeAllListeners("conversation_read_synced");
+    }
+  }
+
   /** User Info Synchronization */
   onUserInfoUpdated(
     callback: (payload: {
@@ -611,7 +936,67 @@ class SocketService {
       this.socket?.removeAllListeners("cap_nhat_thong_tin_ca_nhan");
     }
   }
+
+  // ── PRESENCE (User Online/Offline Status) ────────────────────────────────
+
+  /**
+   * Hỏi server trạng thái online của danh sách userId.
+   * Server sẽ trả về event "ket_qua_trang_thai_hoat_dong".
+   */
+  queryPresence(userIds: string[]) {
+    this.emitWhenConnected("hoi_trang_thai_hoat_dong", { userIds });
+  }
+
+  /**
+   * Nhận kết quả batch query presence từ server.
+   */
+  onPresenceResult(callback: (result: { userId: string; isOnline: boolean }[]) => void) {
+    this.socket?.on("ket_qua_trang_thai_hoat_dong", callback);
+  }
+
+  offPresenceResult(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("ket_qua_trang_thai_hoat_dong", callback);
+    } else {
+      this.socket?.removeAllListeners("ket_qua_trang_thai_hoat_dong");
+    }
+  }
+
+  /**
+   * Lắng nghe sự kiện thay đổi trạng thái hoạt động real-time.
+   * Event: "trang_thai_hoat_dong" từ server.
+   */
+  onPresenceChanged(
+    callback: (payload: {
+      userId: string;
+      isOnline: boolean;
+      lastSeenAt: string | null;
+    }) => void
+  ) {
+    this.socket?.on("trang_thai_hoat_dong", callback);
+  }
+
+  offPresenceChanged(callback?: (...args: any[]) => void) {
+    if (callback) {
+      this.socket?.off("trang_thai_hoat_dong", callback);
+    } else {
+      this.socket?.removeAllListeners("trang_thai_hoat_dong");
+    }
+  }
+
+  // ── IN-APP NOTIFICATIONS ────────────────────────────────
+  onNewNotification(callback: (notification: any) => void) {
+    this.socket?.on("thong_bao_moi", callback);
+  }
+
+  offNewNotification(callback?: (notification: any) => void) {
+    if (callback) {
+      this.socket?.off("thong_bao_moi", callback);
+    } else {
+      this.socket?.removeAllListeners("thong_bao_moi");
+    }
+  }
 }
 
-console.log("🚀 SocketService V2.0.1 Loaded");
 export const socketService = new SocketService();
+console.log("🚀 SocketService V2.0.1 Loaded");

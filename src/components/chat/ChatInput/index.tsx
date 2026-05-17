@@ -22,8 +22,10 @@ import {
   Link2,
   Music,
   ListChecks,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
-import { MessageService } from "../../../services";
+import { AiService, ConversationService, MessageService } from "../../../services";
 import type { ChatInputProps } from "../../../types/message.type";
 import {
   convertDisplayShortcodeToEmoji,
@@ -32,6 +34,8 @@ import {
 import { socketService } from "../../../services";
 import { getFullUrl } from "../../../utils";
 import { getFileNameFromUrl } from "../../../utils";
+import { compressImageFile } from "../../../utils/imageCompression";
+import { useToast } from "../../../contexts/ToastContext";
 import { EmojiPicker } from "./EmojiPicker";
 import { ImageInput } from "./ImageInput";
 import { FileInput } from "./FileInput";
@@ -154,6 +158,10 @@ const createUploadClientId = () =>
 const MB = 1024 * 1024;
 const DEFAULT_MAX_FILE_SIZE = 50 * MB;
 const VIDEO_MAX_FILE_SIZE = 100 * MB;
+const IMAGE_UPLOAD_MAX_SIZE_MB = 1.6;
+const IMAGE_UPLOAD_MAX_EDGE = 1920;
+const S3_MEDIA_VIOLATION_PATTERN =
+  /vi phạm|vi pham|policy|moderation|unsafe|malware|virus|accessdenied|access denied|explicit deny/i;
 
 const getMaxUploadSize = (file: File) => {
   if (file.type.startsWith("video/")) {
@@ -178,6 +186,36 @@ const validateUploadFiles = (files: File[]) => {
   return { valid, invalid };
 };
 
+type ConversationCreateResult = {
+  _id?: string;
+  conversation?: {
+    _id?: string;
+  };
+};
+
+const shouldConvertImageToJpegForModeration = (file: File) => {
+  const type = file.type.toLowerCase();
+  return (
+    type.startsWith("image/") &&
+    type !== "image/gif" &&
+    type !== "image/svg+xml" &&
+    type !== "image/png" &&
+    type !== "image/jpeg" &&
+    type !== "image/jpg"
+  );
+};
+
+const optimizeImageForUpload = (file: File) =>
+  compressImageFile(file, {
+    maxSizeMB: IMAGE_UPLOAD_MAX_SIZE_MB,
+    maxWidthOrHeight: IMAGE_UPLOAD_MAX_EDGE,
+    fileType: shouldConvertImageToJpegForModeration(file)
+      ? "image/jpeg"
+      : file.type,
+    initialQuality: 0.82,
+    useWebWorker: true,
+  });
+
 const buildInvalidFilesMessage = (
   invalid: Array<{ file: File; maxSizeMb: number }>,
 ) => {
@@ -193,10 +231,19 @@ export const ChatInput = ({
   onUploadProgress,
   onUploadSuccess,
   onUploadError,
+  onConversationCreated,
   replyToMessage,
   onCancelReply,
   conversationType,
+  smartReplies = [],
+  smartReplyContextKey = "",
+  isSmartReplyLoading = false,
+  isSmartReplyOpen = false,
+  onSmartReplyToggle,
+  onSmartReplyClose,
+  onSmartReplySelect,
 }: ChatInputProps): ReactElement => {
+  const { showToast } = useToast();
   const [text, setText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -214,6 +261,10 @@ export const ChatInput = ({
     message: "",
   });
   const [showCreatePollModal, setShowCreatePollModal] = useState(false);
+  const [isSTTMode, setIsSTTMode] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [dismissedSmartReplySignature, setDismissedSmartReplySignature] =
+    useState("");
   const textInputRef = useRef<TextInputHandle>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -329,6 +380,7 @@ export const ChatInput = ({
       window.removeEventListener("chat:focus-input", handler as EventListener);
     };
   }, []);
+
 
   const handleAddMore = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -587,6 +639,40 @@ export const ChatInput = ({
     return fallback;
   };
 
+  const showUploadFailure = useCallback(
+    (message: string) => {
+      if (S3_MEDIA_VIOLATION_PATTERN.test(message)) {
+        showToast(message, "warning", "Không tải được media", 4500);
+        return;
+      }
+
+      alert(`Gửi tin nhắn thất bại: ${message}`);
+    },
+    [showToast],
+  );
+
+  const getRealConversationId = useCallback(async () => {
+    if (conversationId.startsWith("VIRTUAL_CONV_")) {
+      const targetUserId = conversationId.replace("VIRTUAL_CONV_", "");
+      try {
+        const result = await ConversationService.getOrCreatePrivateConversation(senderId, targetUserId);
+        const conversationResult = result as ConversationCreateResult;
+        const realId = conversationResult.conversation?._id || conversationResult._id;
+        if (!realId) {
+          throw new Error("Không thể tạo hội thoại");
+        }
+        if (onConversationCreated) {
+          onConversationCreated(result);
+        }
+        return realId;
+      } catch (err) {
+        console.error("Failed to create conversation lazily:", err);
+        throw err;
+      }
+    }
+    return conversationId;
+  }, [conversationId, senderId, onConversationCreated]);
+
   const showUploadLimitModal = (
     invalid: Array<{ file: File; maxSizeMb: number }>,
   ) => {
@@ -610,7 +696,7 @@ export const ChatInput = ({
     return false;
   };
 
-  const buildReplyPreview = (): Message["reply_to"] => {
+  const buildReplyPreview = useCallback((): Message["reply_to"] => {
     if (!replyToMessage) return null;
 
     const rawContent = Array.isArray(replyToMessage.content)
@@ -621,15 +707,15 @@ export const ChatInput = ({
       msg_id: String(replyToMessage.msg_id || replyToMessage._id || ""),
       sender_id: String(replyToMessage.sender_id || ""),
       sender_name: String(replyToMessage.sender_name || ""),
-      type: replyToMessage.type,
+      type: String(replyToMessage.type || "") as "text" | "link" | "image" | "file" | "video" | "audio" | "system_add" | "system_block" | "system_leave" | "system_pin" | "system_unpin" | "call_start" | "call_join" | "call_end" | "call_missed" | "call_cancel" | "call_no_answer" | "poll" | "system_poll",
       content: rawContent,
       raw_content: rawContent,
       file_name: replyToMessage.fileName,
       url: rawContent,
       media_urls: Array.isArray(replyToMessage.content)
         ? replyToMessage.content
-            .map((item) => String(item || ""))
-            .filter(Boolean)
+          .map((item) => String(item || ""))
+          .filter(Boolean)
         : undefined,
       media_count: Array.isArray(replyToMessage.content)
         ? replyToMessage.content.filter(Boolean).length
@@ -637,9 +723,9 @@ export const ChatInput = ({
       is_deleted: Boolean(replyToMessage.is_deleted),
       is_revoked: Boolean(replyToMessage.is_revoked),
     };
-  };
+  }, [replyToMessage]);
 
-  const buildLocalDraftMessage = ({
+  const buildLocalDraftMessage = useCallback(({
     clientMessageId,
     type,
     content,
@@ -684,7 +770,7 @@ export const ChatInput = ({
       local_retry: retry,
       local_cancel: cancel,
     };
-  };
+  }, [conversationId, senderId, replyToMessage, buildReplyPreview]);
 
   const inferFileMessageType = (file: File): Message["type"] => {
     if (file.type.startsWith("video/")) return "video";
@@ -692,7 +778,7 @@ export const ChatInput = ({
     return "file";
   };
 
-  const uploadImageBatch = async (
+  const uploadImageBatch = useCallback(async (
     files: File[],
     replyToMsgId?: string,
     clientMessageId = createUploadClientId(),
@@ -722,8 +808,12 @@ export const ChatInput = ({
     onUploadStart?.(draft);
 
     try {
+      const optimizedFiles = await Promise.all(
+        files.map((file) => optimizeImageForUpload(file)),
+      );
+
       const keys = await Promise.all(
-        files.map(async (file) => {
+        optimizedFiles.map(async (file) => {
           const mimeType = resolveMimeType(file);
           const { uploadUrl, key } = await MessageService.getPresignedUrl(
             file.name,
@@ -740,12 +830,14 @@ export const ChatInput = ({
         }),
       );
 
+      const effectiveConvId = await getRealConversationId();
+
       const sentMessage = await MessageService.sendMessage(
-        conversationId,
+        effectiveConvId,
         senderId,
         keys,
         "image",
-        0,
+        optimizedFiles.reduce((sum, file) => sum + file.size, 0),
         undefined,
         replyToMsgId,
         undefined,
@@ -770,7 +862,7 @@ export const ChatInput = ({
       );
       console.error(error);
       onUploadError?.({ clientMessageId, error: errorMessage });
-      alert(errorMessage);
+      showUploadFailure(errorMessage);
     } finally {
       previewUrls.forEach((url) => {
         if (url.startsWith("blob:")) {
@@ -778,17 +870,27 @@ export const ChatInput = ({
         }
       });
     }
-  };
+  }, [
+    senderId,
+    buildLocalDraftMessage,
+    onUploadStart,
+    onUploadProgress,
+    onUploadSuccess,
+    onUploadError,
+    showUploadFailure,
+    onCancelReply,
+    getRealConversationId,
+  ]);
 
   // --- Upload helpers (được gọi khi Send) ---
 
   // Nhiều ảnh → 1 message (gửi cụm)
-  const uploadImages = async (files: File[], replyToMsgId?: string) => {
+  const uploadImages = useCallback(async (files: File[], replyToMsgId?: string) => {
     await uploadImageBatch(files, replyToMsgId);
-  };
+  }, [uploadImageBatch]);
 
   // 1 file (video / tệp) → 1 message
-  const uploadSingleFile = async (
+  const uploadSingleFile = useCallback(async (
     file: File,
     replyToMsgId?: string,
     clientMessageId = createUploadClientId(),
@@ -840,8 +942,10 @@ export const ChatInput = ({
         mimeType,
         abortController.signal,
       );
+      const effectiveConvId = await getRealConversationId();
+
       const sentMessage = await MessageService.sendMessage(
-        conversationId,
+        effectiveConvId,
         senderId,
         key,
         fileCategory,
@@ -869,18 +973,30 @@ export const ChatInput = ({
       );
       console.error(err);
       onUploadError?.({ clientMessageId, error: errorMessage });
-      alert(errorMessage);
+      showUploadFailure(errorMessage);
     } finally {
       if (previewUrl.startsWith("blob:")) {
         URL.revokeObjectURL(previewUrl);
       }
     }
-  };
+  }, [
+    senderId,
+    buildLocalDraftMessage,
+    onUploadStart,
+    onUploadProgress,
+    onUploadSuccess,
+    onUploadError,
+    showUploadFailure,
+    onCancelReply,
+    onSendSuccess,
+    getRealConversationId,
+  ]);
 
   // --- Gửi tất cả (file staged + text) ---
-  const handleSend = async () => {
+  const handleSend = useCallback(async (directText?: string) => {
+    const finalText = (typeof directText === 'string' ? directText : text).trim();
     if (isUploading) return;
-    if (!text.trim() && pendingFiles.length === 0) return;
+    if (!finalText && pendingFiles.length === 0) return;
 
     stopTyping();
 
@@ -918,13 +1034,15 @@ export const ChatInput = ({
       }
 
       // Sau đó gửi text nếu có
-      if (text.trim()) {
+      if (finalText) {
         try {
-          const messageType = isStandaloneLink(text) ? "link" : "text";
-          const messageContent = convertEmojiImageMarkupToText(text);
+          const messageType = isStandaloneLink(finalText) ? "link" : "text";
+          const messageContent = convertEmojiImageMarkupToText(finalText);
+
+          const effectiveConvId = await getRealConversationId();
 
           const sentMessage = await MessageService.sendMessage(
-            conversationId,
+            effectiveConvId,
             senderId,
             messageContent,
             messageType,
@@ -932,11 +1050,16 @@ export const ChatInput = ({
             undefined,
             replyToMsgId,
           );
-          setText("");
+          if (typeof directText !== 'string') {
+            setText("");
+          }
           await onSendSuccess(sentMessage);
           if (replyToMsgId) onCancelReply?.();
-        } catch {
-          alert("Gửi tin nhắn thất bại");
+        } catch (error: unknown) {
+          console.error("Lỗi gửi tin nhắn:", error);
+          const message =
+            error instanceof Error ? error.message : "Lỗi không xác định";
+          alert(`Gửi tin nhắn thất bại: ${message}`);
         }
       }
     } finally {
@@ -944,7 +1067,40 @@ export const ChatInput = ({
         setIsUploading(false);
       }
     }
-  };
+  }, [
+    text,
+    isUploading,
+    pendingFiles,
+    stopTyping,
+    replyToMessage,
+    senderId,
+    onSendSuccess,
+    onCancelReply,
+    isSTTMode,
+    isRecordingVoice,
+    isStandaloneLink,
+    getRealConversationId,
+    buildLocalDraftMessage,
+    validateUploadFiles,
+    uploadImages,
+    uploadSingleFile,
+  ]);
+
+  useEffect(() => {
+    const handleSmartReply = (event: Event) => {
+      const custom = event as CustomEvent<{ text: string }>;
+      const replyText = custom.detail.text;
+      if (replyText) {
+        // Send directly
+        void handleSend(replyText);
+      }
+    };
+
+    window.addEventListener("chat:send-smart-reply", handleSmartReply as EventListener);
+    return () => {
+      window.removeEventListener("chat:send-smart-reply", handleSmartReply as EventListener);
+    };
+  }, [handleSend]);
 
   // --- Handlers từ sub-components → staging ---
 
@@ -1019,9 +1175,14 @@ export const ChatInput = ({
       streamRef.current = stream;
 
       // Tạo AudioContext để xử lý âm lượng
-      const audioContext = new (
-        window.AudioContext || (window as any).webkitAudioContext
-      )();
+      const AudioContextConstructor =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioContextConstructor) {
+        throw new Error("Trình duyệt không hỗ trợ AudioContext");
+      }
+      const audioContext = new AudioContextConstructor();
       audioContextRef.current = audioContext;
 
       // Tạo các node để xử lý âm thanh
@@ -1125,15 +1286,32 @@ export const ChatInput = ({
       }
 
       const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const file = new File([blob], `voice-${timestamp}.webm`, {
-        type: "audio/webm",
-      });
+
+      if (isSTTMode) {
+        setIsTranscribing(true);
+        try {
+          const transcribedText = await AiService.transcribeVoice(blob);
+          if (transcribedText) {
+            setText(prev => (prev.trim() ? `${prev} ${transcribedText}` : transcribedText));
+          }
+        } catch (error) {
+          console.error("STT Error:", error);
+          alert("Không thể chuyển đổi giọng nói thành văn bản. Vui lòng thử lại.");
+        } finally {
+          setIsTranscribing(false);
+          setIsSTTMode(false);
+        }
+      } else {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const file = new File([blob], `voice-${timestamp}.webm`, {
+          type: "audio/webm",
+        });
+        await handleVoiceFile(file);
+      }
 
       audioChunksRef.current = [];
       setRecordingTime(0);
       setIsVoicePaused(false);
-      await handleVoiceFile(file);
     }, 100);
   };
 
@@ -1225,8 +1403,9 @@ export const ChatInput = ({
   const handleCreatePoll = async (data: { question: string; options: { id: string; name: string; voters: string[] }[]; multipleChoice: boolean }) => {
     try {
       setIsUploading(true);
+      const effectiveConvId = await getRealConversationId();
       await MessageService.sendMessage(
-        conversationId,
+        effectiveConvId,
         senderId,
         "Khảo sát",
         "poll",
@@ -1253,6 +1432,50 @@ export const ChatInput = ({
 
   const canSend =
     (text.trim().length > 0 || pendingFiles.length > 0) && !isUploading;
+  const smartReplySignature = smartReplies.join("\u001f");
+  const smartReplyDismissKey = smartReplyContextKey || smartReplySignature;
+  const shouldShowSmartReplyCue =
+    smartReplies.length > 0 &&
+    smartReplyDismissKey !== dismissedSmartReplySignature &&
+    text.trim().length === 0 &&
+    pendingFiles.length === 0 &&
+    !replyToMessage &&
+    !showEmojiPicker &&
+    !isUploading &&
+    !isRecordingVoice &&
+    !isSmartReplyLoading;
+  const shouldShowSmartReplyLoading =
+    isSmartReplyLoading &&
+    text.trim().length === 0 &&
+    pendingFiles.length === 0 &&
+    !replyToMessage &&
+    !showEmojiPicker &&
+    !isUploading &&
+    !isRecordingVoice;
+  const visibleSmartReplies = isSmartReplyOpen
+    ? smartReplies.slice(0, 5)
+    : smartReplies.slice(0, 3);
+  const hiddenSmartReplyCount = Math.max(
+    0,
+    smartReplies.length - visibleSmartReplies.length,
+  );
+
+  const handleSmartReplySelect = (reply: string) => {
+    onSmartReplySelect?.(reply);
+  };
+
+  const handleSmartReplyToggle = () => {
+    if (isSmartReplyOpen) {
+      onSmartReplyClose?.();
+    } else {
+      onSmartReplyToggle?.();
+    }
+  };
+
+  const handleDismissSmartReplies = () => {
+    setDismissedSmartReplySignature(smartReplyDismissKey);
+    onSmartReplyClose?.();
+  };
 
   const handleTextKeyDown = async (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1353,6 +1576,65 @@ export const ChatInput = ({
         </div>
       )}
 
+      {shouldShowSmartReplyLoading && (
+        <div
+          className="mb-4 flex h-7 items-center gap-2 rounded-2xl bg-white px-2"
+          title="Đang tạo gợi ý trả lời"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary-500">
+            <Sparkles size={14} />
+          </span>
+          <div className="flex flex-1 items-center gap-2">
+            <Loader2 size={14} className="animate-spin text-primary-500" />
+            <div className="h-2 w-24 rounded-full bg-slate-100" />
+            <div className="h-2 w-16 rounded-full bg-slate-100" />
+            <div className="h-2 w-20 rounded-full bg-slate-100" />
+          </div>
+        </div>
+      )}
+
+      {shouldShowSmartReplyCue && (
+        <div className="mb-4 flex h-7 items-center gap-2 overflow-hidden rounded-2xl  bg-white px-2 ">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary-500">
+            <Sparkles size={14} />
+          </span>
+
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {visibleSmartReplies.map((reply, index) => (
+              <button
+                key={`${reply}-${index}`}
+                type="button"
+                onClick={() => handleSmartReplySelect(reply)}
+                className="h-7  shrink-0 truncate rounded-full border border-slate-200 bg-slate-50 px-3 text-left text-[13px] font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-800"
+                title={reply}
+              >
+                {reply}
+              </button>
+            ))}
+
+            {smartReplies.length > 3 && (
+              <button
+                type="button"
+                onClick={handleSmartReplyToggle}
+                className="h-7 shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 text-[12px] font-semibold text-slate-600 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+                title={isSmartReplyOpen ? "Thu gọn gợi ý" : "Xem thêm gợi ý"}
+              >
+                {isSmartReplyOpen ? "Thu gọn" : `+${hiddenSmartReplyCount}`}
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDismissSmartReplies}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-slate-50 hover:text-slate-600"
+            title="Ẩn gợi ý"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {isRecordingVoice ? (
         <div className="flex items-center gap-2 rounded-2xl bg-primary-50/80 px-2 py-1 ring-1 ring-primary-100 shadow-sm animate-in fade-in zoom-in-95">
           {/* Nút Hủy (Secondary Action) -> Dạng Ghost, tối giản */}
@@ -1391,7 +1673,7 @@ export const ChatInput = ({
               <span
                 className={`text-xs font-medium ${isVoicePaused ? "text-primary-400" : "text-primary-600"}`}
               >
-                {isVoicePaused ? "Tạm dừng" : "Đang ghi..."}
+                {isVoicePaused ? "Tạm dừng" : isSTTMode ? "Đang nghe..." : "Đang ghi..."}
               </span>
 
               {/* Nút Play/Pause (Gọn gàng bên cạnh text) */}
@@ -1413,12 +1695,16 @@ export const ChatInput = ({
           <button
             onClick={sendVoiceRecording}
             className="ml-1 h-9 w-9 shrink-0 flex items-center justify-center rounded-full bg-primary-100 text-primary-600 transition-colors hover:bg-primary-200 active:bg-primary-300"
-            title="Gửi ghi âm"
+            title={isSTTMode ? "Chuyển thành văn bản" : "Gửi ghi âm"}
           >
-            <SendHorizonal
-              size={18}
-              className="translate-x-px translate-y-[0.5px]"
-            />
+            {isSTTMode ? (
+              <Sparkles size={18} />
+            ) : (
+              <SendHorizonal
+                size={18}
+                className="translate-x-px translate-y-[0.5px]"
+              />
+            )}
           </button>
         </div>
       ) : (
@@ -1430,15 +1716,6 @@ export const ChatInput = ({
           />
 
           <FileInput disabled={isUploading} onFiles={handleAttachFiles} />
-
-          <button
-            onClick={startVoiceRecording}
-            disabled={isUploading}
-            className="p-2 text-slate-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
-            title="Ghi am"
-          >
-            <Mic size={20} />
-          </button>
 
           {conversationType !== "private" && (
             <button
@@ -1460,6 +1737,37 @@ export const ChatInput = ({
             <Smile size={20} />
           </button>
 
+          <button
+            onClick={startVoiceRecording}
+            disabled={isUploading}
+            className="p-2 text-slate-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
+            title="Gửi tin nhắn thoại"
+          >
+            <Mic size={20} />
+          </button>
+
+          <button
+            onClick={() => {
+              setIsSTTMode(true);
+              startVoiceRecording();
+            }}
+            disabled={isUploading || isRecordingVoice}
+            className={`p-2 rounded-xl transition-all duration-200 ${isTranscribing ? "animate-pulse text-primary-500 bg-primary-50" : "text-slate-400 hover:text-primary-500 hover:bg-primary-50"
+              }`}
+            title="Nhập liệu bằng giọng nói"
+          >
+            {isTranscribing ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <div className="relative">
+                <Mic size={20} />
+                <span className="absolute -top-1.5 -right-1.5 text-[7px] font-bold bg-primary-500 text-white px-0.5 rounded-[2px] leading-tight ring-1 ring-white">
+                  AI
+                </span>
+              </div>
+            )}
+          </button>
+
           <TextInput
             ref={textInputRef}
             value={text}
@@ -1472,7 +1780,7 @@ export const ChatInput = ({
 
           {canSend && (
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
               title="Gửi"
             >

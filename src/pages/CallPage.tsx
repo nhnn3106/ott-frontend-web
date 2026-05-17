@@ -5,14 +5,16 @@ import { useCall, type CallType } from "../hooks/useCall";
 import { socketService } from "../services";
 import { clearActiveCallLock, getFullUrl, setActiveCallLock } from "../utils";
 import {
+  AUTH_LOGOUT_EVENT,
+  isAuthLogoutStorageEvent,
+} from "../utils/authLogoutSignal";
+import {
   Mic,
   MicOff,
   Video,
   VideoOff,
   PhoneOff,
   MonitorUp,
-  Eye,
-  EyeOff,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -150,7 +152,9 @@ const CallPage: React.FC = () => {
   const { user: currentUser } = useAuth();
 
   const conversationId = searchParams.get("conversationId") || "";
-  const callType = normalizeCallType(searchParams.get("type"));
+  const urlCallId = searchParams.get("callId") || "";
+  const isGroupUrl = searchParams.get("isGroup") === "true";
+  const callType = isGroupUrl ? "video" : normalizeCallType(searchParams.get("type"));
   const action = searchParams.get("action") || "start";
   const conversationName = searchParams.get("name") || "Cuoc goi";
   const remoteDisplayName = String(conversationName || "Cuoc goi").trim();
@@ -160,7 +164,7 @@ const CallPage: React.FC = () => {
   ).trim();
   const myAvatar = String(currentUser?.avatarUrl || "").trim();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isLocalPreviewVisible, setIsLocalPreviewVisible] = useState(true);
+  const [isLocalPreviewVisible] = useState(true);
   const [isLocalVideoCollapsed, setIsLocalVideoCollapsed] = useState(false);
   const [isRemoteVideoActive, setIsRemoteVideoActive] = useState(false);
   const [isRemoteAvatarBroken, setIsRemoteAvatarBroken] = useState(false);
@@ -174,6 +178,7 @@ const CallPage: React.FC = () => {
   const hasRemoteAnsweredRef = useRef(false);
   const isClosingByNoAnswerRef = useRef(false);
   const isClosingByCancelRef = useRef(false);
+  const isClosingByLogoutRef = useRef(false);
 
   const {
     isInCall,
@@ -188,16 +193,31 @@ const CallPage: React.FC = () => {
     busyUserIds,
     isGroup,
     livekitToken,
+    currentCallId,
     startCall,
     joinExistingCall,
     endCall,
     toggleMic,
     toggleCamera,
     toggleScreenShare,
+    stopLocalStream,
   } = useCall({
     conversationId,
     userId: normalizedUserId,
   });
+  const prefersLiveKitGroup = searchParams.get("transport") === "livekit";
+  const shouldUseLiveKitGroup =
+    prefersLiveKitGroup &&
+    (isGroup || isGroupUrl) &&
+    Boolean(livekitToken);
+
+  // Release camera/mic for LiveKit when entering group mode
+  useEffect(() => {
+    if (shouldUseLiveKitGroup && localStream) {
+      console.log("Releasing local stream for group call transition...");
+      stopLocalStream();
+    }
+  }, [shouldUseLiveKitGroup, localStream, stopLocalStream]);
 
   // Khi người nhận đang bận: thông báo về parent window rồi đóng tab này
   useEffect(() => {
@@ -208,7 +228,7 @@ const CallPage: React.FC = () => {
         opener.postMessage({ type: "call-target-busy", name: remoteDisplayName }, "*");
       }
       // Đóng cửa sổ gọi
-      endCall();
+      void endCall(false);
       setTimeout(() => {
         window.close();
         window.location.href = "about:blank";
@@ -219,6 +239,23 @@ const CallPage: React.FC = () => {
   const hasRemoteAnswered =
     participants.some((id) => String(id) !== String(normalizedUserId || "")) ||
     remoteStreams.length > 0;
+
+  // Premium: Lắng nghe yêu cầu focus từ tab chính để tránh mở nhiều cửa sổ hoặc tải lại trang gọi
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const channelName = `call_channel_${conversationId}`;
+    const bc = new BroadcastChannel(channelName);
+    
+    bc.onmessage = (ev) => {
+      if (ev.data.type === "PING_FOCUS") {
+        window.focus();
+        bc.postMessage({ type: "PONG_ALIVE" });
+      }
+    };
+    
+    return () => bc.close();
+  }, [conversationId]);
 
   useEffect(() => {
     socketService.connect();
@@ -233,7 +270,7 @@ const CallPage: React.FC = () => {
     startedRef.current = true;
 
     if (action === "join") {
-      joinExistingCall(callType).catch((error) => {
+      joinExistingCall(callType, isGroupUrl, urlCallId).catch((error) => {
         console.error("Khong the tham gia cuoc goi:", error);
       });
       return;
@@ -242,16 +279,18 @@ const CallPage: React.FC = () => {
     const invitedUserIdsStr = searchParams.get("invitedUserIds");
     const invitedUserIds = invitedUserIdsStr ? invitedUserIdsStr.split(",") : undefined;
 
-    startCall(callType, invitedUserIds).catch((error) => {
+    startCall(callType, invitedUserIds, isGroupUrl).catch((error) => {
       console.error("Khong the bat dau cuoc goi:", error);
     });
   }, [
     action,
     callType,
     conversationId,
+    isGroupUrl,
     joinExistingCall,
     normalizedUserId,
     startCall,
+    urlCallId,
   ]);
 
   useEffect(() => {
@@ -292,25 +331,47 @@ const CallPage: React.FC = () => {
 
     const onDeclined = (payload: {
       conversationId: string;
+      callId?: string;
       userId: string;
     }) => {
       if (payload.conversationId !== conversationId) return;
+      const activeCallId = currentCallId || urlCallId;
+      if (activeCallId && (!payload.callId || String(payload.callId) !== String(activeCallId))) {
+        return;
+      }
 
-      isClosingByCancelRef.current = true;
-      endCall();
+      const isGroupFromUrl = isGroupUrl;
+      const actualIsGroup = isGroup || isGroupFromUrl;
+
+      console.log(`[CALL] Received decline from ${payload.userId}. isGroup(state): ${isGroup}, isGroup(url): ${isGroupFromUrl}`);
+      
+      // Nếu là cuộc gọi nhóm, không được kết thúc cuộc gọi của mình khi người khác từ chối
+      if (!actualIsGroup) {
+        console.log("[CALL] 1:1 call declined, ending...");
+        isClosingByCancelRef.current = true;
+        void endCall(false);
+      } else {
+        console.log(`[CALL] Group member ${payload.userId} declined, staying in call.`);
+      }
     };
 
     const onCallEnded = (payload: {
       conversationId: string;
+      callId?: string;
       endedBy?: string | null;
     }) => {
       if (payload.conversationId !== conversationId) return;
+      const activeCallId = currentCallId || urlCallId;
+      if (activeCallId && (!payload.callId || String(payload.callId) !== String(activeCallId))) {
+        return;
+      }
+      console.log(`[CALL] Received onCallEnded (ket_thuc_phong_goi) event from server. EndedBy: ${payload.endedBy}`);
 
       if (!hasRemoteAnsweredRef.current) {
         isClosingByNoAnswerRef.current = true;
       }
 
-      endCall();
+      void endCall(false);
     };
 
     socketService.onCallDeclined(onDeclined);
@@ -319,10 +380,10 @@ const CallPage: React.FC = () => {
       socketService.offCallDeclined(onDeclined);
       socketService.offCallEnded(onCallEnded);
     };
-  }, [conversationId, endCall, normalizedUserId]);
+  }, [conversationId, currentCallId, endCall, normalizedUserId, isGroup, isGroupUrl, urlCallId]);
 
-  const handleExit = () => {
-    endCall();
+  const handleExit = async () => {
+    await endCall();
     // window.opener chỉ tồn tại khi window được mở bằng window.open — an toàn để close
     if (window.opener) {
       window.close();
@@ -330,6 +391,39 @@ const CallPage: React.FC = () => {
     }
     navigate("/chat");
   };
+
+  const handleLeaveForLogout = React.useCallback(() => {
+    if (isClosingByLogoutRef.current) return;
+    isClosingByLogoutRef.current = true;
+
+    if (conversationId) {
+      clearActiveCallLock(conversationId);
+    }
+
+    void endCall(true).finally(() => {
+      if (window.opener) {
+        window.close();
+        return;
+      }
+      navigate("/login");
+    });
+  }, [conversationId, endCall, navigate]);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_LOGOUT_EVENT, handleLeaveForLogout);
+
+    const handleStorage = (event: StorageEvent) => {
+      if (isAuthLogoutStorageEvent(event)) {
+        handleLeaveForLogout();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(AUTH_LOGOUT_EVENT, handleLeaveForLogout);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [handleLeaveForLogout]);
 
   useEffect(() => {
     if (!isConnecting && !isInCall) {
@@ -418,13 +512,18 @@ const CallPage: React.FC = () => {
     };
   }, [callType, primaryRemote, remoteCameraStates]);
 
-  if (isGroup && livekitToken) {
+  if (shouldUseLiveKitGroup && livekitToken) {
     return (
       <LiveKitGroupCall
         token={livekitToken}
         serverUrl={import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880"}
         onLeave={handleExit}
         video={callType === "video"}
+        name={remoteDisplayName}
+        avatar={remoteAvatarSrc}
+        conversationId={conversationId}
+        userId={normalizedUserId}
+        callId={currentCallId || urlCallId}
       />
     );
   }
@@ -449,6 +548,10 @@ const CallPage: React.FC = () => {
 
   return (
     <div className="h-screen w-screen bg-primary-900 flex flex-col overflow-hidden relative font-body text-white">
+      {remoteStreams.slice(1).map((item) => (
+        <StreamAudio key={`audio-${item.userId}`} stream={item.stream} />
+      ))}
+
       {/* 1. NỀN: Video người đối diện */}
       <div className="absolute inset-0 z-0 bg-primary-900">
         {primaryRemote ? (
@@ -505,6 +608,45 @@ const CallPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {isGroup && callType === "video" && remoteStreams.length > 1 && (
+        <div className="absolute left-6 right-6 bottom-28 z-20 flex gap-3 overflow-x-auto pb-1">
+          {remoteStreams.slice(1).map((item, index) => {
+            const hasRemoteVideo = item.stream
+              .getVideoTracks()
+              .some((track) => track.readyState === "live" && !track.muted);
+            const isRemoteCameraOff =
+              remoteCameraStates[item.userId] === true || !hasRemoteVideo;
+
+            return (
+              <div
+                key={item.userId}
+                className="relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-white/15 bg-primary-900 shadow-xl"
+              >
+                {isRemoteCameraOff ? (
+                  <div className="flex h-full w-full items-center justify-center bg-radial from-primary-800 to-primary-950">
+                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-primary-700 text-xs font-bold text-white">
+                      {getAvatarInitial(`${index + 1}`)}
+                    </div>
+                  </div>
+                ) : (
+                  <StreamVideo
+                    stream={item.stream}
+                    muted
+                    className="h-full w-full object-cover"
+                  />
+                )}
+
+                {isRemoteCameraOff && (
+                  <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur">
+                    <VideoOff size={13} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Lớp phủ Gradient để text dễ đọc hơn */}
       <div className="absolute inset-0 z-0 pointer-events-none bg-linear-to-b from-primary-950/70 via-transparent to-primary-950/80" />

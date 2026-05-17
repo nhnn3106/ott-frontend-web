@@ -13,6 +13,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { Message } from "../../../types";
 import { MessageLayout } from "./MessageLayout";
+import { downloadChatMedia } from "./downloadMedia";
+import { isMessageMediaFlagged } from "../../../utils/mediaModeration";
 
 export const VideoMessage = ({
   msg,
@@ -30,6 +32,7 @@ export const VideoMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   url: string;
@@ -45,7 +48,8 @@ export const VideoMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
-  participants?: any[];
+  participants?: unknown[];
+  conversationType?: string;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -61,6 +65,7 @@ export const VideoMessage = ({
   const isUploadSuccess = msg.local_status === "success";
   const isUploadError = msg.local_status === "error";
   const hasUploadState = isUploading || isUploadSuccess || isUploadError;
+  const isFlagged = isMessageMediaFlagged(msg, 0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -150,28 +155,10 @@ export const VideoMessage = ({
     event.preventDefault();
 
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error("Không thể tải video");
-      }
-
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = msg.fileName || "video.mp4";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = msg.fileName || "video.mp4";
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      await downloadChatMedia(url, msg.fileName || "video.mp4");
+    } catch (error) {
+      console.error("Lỗi tải video:", error);
+      alert("Không thể tải video này. Vui lòng thử lại.");
     }
   };
 
@@ -190,8 +177,9 @@ export const VideoMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
-      {(borderRadius) => (
+      {(borderRadius, renderMessageMeta) => (
         <div className="relative inline-block">
           <div
             className={`relative max-w-75 overflow-hidden bg-black shadow-sm group cursor-pointer border border-gray-100 transition-all ${borderRadius}`}
@@ -200,11 +188,19 @@ export const VideoMessage = ({
             <video
               ref={videoRef}
               src={url}
-              className="w-full h-full object-cover max-h-100"
+              className={`w-full h-full object-cover max-h-100 transition duration-200 ${
+                isFlagged ? "blur-md scale-105" : ""
+              }`}
               controls={false}
               playsInline
               preload="metadata"
             />
+
+            {renderMessageMeta("media") && (
+              <div className="pointer-events-none absolute right-2 top-2 z-10">
+                {renderMessageMeta("media")}
+              </div>
+            )}
 
             <div
               className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/40 to-transparent px-3 py-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300"

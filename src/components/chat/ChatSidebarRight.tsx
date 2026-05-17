@@ -110,6 +110,14 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
   const [pendingFriendRequestIds, setPendingFriendRequestIds] = useState<Set<string>>(new Set());
   const [sentFriendRequestIds, setSentFriendRequestIds] = useState<Set<string>>(new Set());
 
+  // Reset sidebar state when switching conversations
+  useEffect(() => {
+    setViewMode("main");
+    setStorageTab("media");
+    setBulletinTab("pinned");
+    setError(null);
+  }, [conversation?._id]);
+
   // Helper to safely filter valid messages
   const filterValidMessages = (messages: any[]): Message[] => {
     if (!Array.isArray(messages)) return [];
@@ -364,9 +372,12 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
     const handleSocketRelationshipUpdate = (payload: any) => {
       if (!isOpen || !currentUser?.id) return;
 
+      const requesterId = payload.requesterId || payload.requester_id;
+      const receiverId = payload.receiverId || payload.receiver_id;
+
       // If the update involves the current user
-      if (String(payload.requester_id) === String(currentUser.id) ||
-        String(payload.receiver_id) === String(currentUser.id)) {
+      if (String(requesterId) === String(currentUser.id) ||
+        String(receiverId) === String(currentUser.id)) {
         console.log("ChatSidebarRight: Relationship updated via socket, refreshing data...");
         loadSidebarData();
       }
@@ -632,17 +643,45 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
   ) => {
     try {
       if (!currentUser?.id || !conversation?._id) return;
-      const userIds = selectedUsers
-        .map((u: User) => u.user_id || u._id)
-        .filter(Boolean) as string[];
+      const friendIds = selectedUsers
+        .filter(u => availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)))
+        .map(u => u.user_id || u._id)
+        .filter((id): id is string => !!id);
+
+      const strangers = selectedUsers.filter(u => !availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)));
+      const strangerIds = strangers.map(u => u.user_id || u._id).filter((id): id is string => !!id);
+
       const newGroup = await ConversationService.createGroup(
         currentUser.id,
         groupName,
-        userIds,
+        friendIds,
         groupAvatar,
-        memberNames,
+        memberNames?.filter((_, idx) => availableUsers.some(f => (f.user_id || f._id) === (selectedUsers[idx].user_id || selectedUsers[idx]._id))),
       );
       if (newGroup && newGroup._id) {
+        // Handle strangers: send invite link
+        if (strangerIds.length > 0) {
+          try {
+            const link = await ConversationService.getInviteLink(newGroup._id, currentUser.id);
+            for (const sId of strangerIds) {
+              const existingConv = conversations.find(c => 
+                c.conversation.type === "private" && 
+                c.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(sId))
+              );
+
+              let targetConvId: string;
+              if (existingConv) {
+                targetConvId = existingConv.conversation._id;
+              } else {
+                const directConv = await ConversationService.getOrCreatePrivateConversation(currentUser!.id, sId);
+                targetConvId = (directConv as any).conversation?._id || (directConv as any)._id;
+              }
+              await MessageService.sendMessage(targetConvId, currentUser!.id, link, "link");
+            }
+          } catch (linkErr) {
+            console.error("Failed to send invite links to strangers:", linkErr);
+          }
+        }
         // Close modal and select the new group
         setShowCreateGroupModal(false);
         // We need a way to tell the parent (ChatArea/ChatPage) to select this conversation
@@ -703,7 +742,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
       const rel = await fetchRelationshipStatusViaChat(currentUser.id, userId);
       if (rel && rel._id) {
         const { acceptFriendRequestViaChat } = await import("../../services/social.service");
-        const success = await acceptFriendRequestViaChat(rel._id);
+        const success = await acceptFriendRequestViaChat(rel._id, rel);
         if (success) {
           // Update local state
           setFriendIds(prev => new Set([...prev, userId]));
@@ -889,7 +928,16 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
                             <QrCode size={16} />
                           </button>
                           <button
-                            onClick={() => setShowInviteLinkModal(true)}
+                            onClick={async () => {
+                              try {
+                                if (!currentUser?.id || !conversation._id) return;
+                                const link = await ConversationService.getInviteLink(conversation._id, currentUser.id);
+                                await navigator.clipboard.writeText(link);
+                                showToast("Đã sao chép link tham gia nhóm!", "success");
+                              } catch (err) {
+                                showToast("Không thể sao chép link", "error");
+                              }
+                            }}
                             title="Sao chép link"
                             className="cursor-pointer p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-primary-600"
                           >
@@ -935,6 +983,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
                         await refreshConversations(currentUser.id);
                       }
                     }}
+                    onRelationshipChange={setRelationship}
                   />
                 )}
               </>
@@ -959,6 +1008,10 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
               pendingFriendRequestIds={pendingFriendRequestIds}
               sentFriendRequestIds={sentFriendRequestIds}
               onFriendAccepted={handleFriendAccepted}
+              onMemberBlocked={(userId: string) => {
+                setMembers(prev => prev.filter(m => m.user_id !== userId));
+              }}
+              conversationId={conversation._id}
             />
           </div>
         )}

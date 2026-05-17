@@ -20,3 +20,5 @@ export const SOCKET_MEDIA_SERVER_URL = import.meta.env.VITE_MEDIA_SOCKET_URL;
 //   "https://abactinal-billy-sportily.ngrok-free.dev";
 
 export const URL_S3 = `https://${AWS_S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/`;
+
+export const API_NOTIFICATION_SERVER_URL = API_BASE_URL;

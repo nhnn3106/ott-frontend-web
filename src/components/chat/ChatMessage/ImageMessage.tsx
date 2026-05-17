@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Message } from "../../../types";
 import { AlertCircle, CheckCircle2, Loader2, RotateCcw, X } from "lucide-react";
 import { MessageLayout } from "./MessageLayout";
+import { isMessageMediaFlagged } from "../../../utils/mediaModeration";
 
 const imagePreviewCache = new Map<string, string>();
 const PREVIEW_MAX_EDGE = 640;
@@ -75,6 +76,7 @@ export const ImageMessage = ({
   onPin,
   onForward,
   participants,
+  conversationType,
 }: {
   msg: Message;
   urls: string[];
@@ -90,7 +92,8 @@ export const ImageMessage = ({
   onDelete?: (msg: Message) => void;
   onPin?: (msg: Message) => void;
   onForward?: (msg: Message) => void;
-  participants?: any[];
+  participants?: unknown[];
+  conversationType?: string;
 }) => {
   const GRID_WIDTH = 260;
   const GRID_LARGE_HEIGHT = 130;
@@ -116,6 +119,11 @@ export const ImageMessage = ({
     if (!url) return "";
     return previewMap[url] || imagePreviewCache.get(url) || url;
   };
+
+  const getImageClassName = (index: number, baseClassName: string) =>
+    `${baseClassName} transition duration-200 ${
+      isMessageMediaFlagged(msg, index) ? "blur-md scale-105" : ""
+    }`;
 
   useEffect(() => {
     let cancelled = false;
@@ -246,7 +254,10 @@ export const ImageMessage = ({
           <img
             src={getDisplaySrc(urls[0])}
             alt="Attachment"
-            className="block w-full h-auto object-cover min-w-[200px] min-h-[120px]"
+            className={getImageClassName(
+              0,
+              "block w-full h-auto object-cover min-w-[200px] min-h-[120px]",
+            )}
             loading="eager"
             fetchPriority="high"
             decoding="async"
@@ -281,7 +292,7 @@ export const ImageMessage = ({
                   <img
                     src={getDisplaySrc(url)}
                     alt="Attachment"
-                    className="w-full h-full object-cover"
+                    className={getImageClassName(index, "w-full h-full object-cover")}
                     loading={priority.loading}
                     fetchPriority={priority.fetchPriority}
                     decoding="async"
@@ -317,7 +328,7 @@ export const ImageMessage = ({
                 <img
                   src={getDisplaySrc(urls[0])}
                   alt="Attachment"
-                  className="w-full h-full object-cover"
+                  className={getImageClassName(0, "w-full h-full object-cover")}
                   loading={priority.loading}
                   fetchPriority={priority.fetchPriority}
                   decoding="async"
@@ -344,7 +355,10 @@ export const ImageMessage = ({
                   <img
                     src={getDisplaySrc(url)}
                     alt="Attachment"
-                    className="w-full h-full object-cover"
+                    className={getImageClassName(
+                      index + 1,
+                      "w-full h-full object-cover",
+                    )}
                     loading={priority.loading}
                     fetchPriority={priority.fetchPriority}
                     decoding="async"
@@ -382,7 +396,7 @@ export const ImageMessage = ({
                   <img
                     src={getDisplaySrc(url)}
                     alt="Attachment"
-                    className="w-full h-full object-cover"
+                    className={getImageClassName(index, "w-full h-full object-cover")}
                     loading={priority.loading}
                     fetchPriority={priority.fetchPriority}
                     decoding="async"
@@ -419,7 +433,7 @@ export const ImageMessage = ({
                 <img
                   src={getDisplaySrc(urls[0])}
                   alt="Attachment"
-                  className="h-full w-full object-cover"
+                  className={getImageClassName(0, "h-full w-full object-cover")}
                   loading={priority.loading}
                   fetchPriority={priority.fetchPriority}
                   decoding="async"
@@ -447,7 +461,10 @@ export const ImageMessage = ({
                   <img
                     src={getDisplaySrc(url)}
                     alt="Attachment"
-                    className="h-full w-full object-cover"
+                    className={getImageClassName(
+                      index + 1,
+                      "h-full w-full object-cover",
+                    )}
                     loading={priority.loading}
                     fetchPriority={priority.fetchPriority}
                     decoding="async"
@@ -476,7 +493,10 @@ export const ImageMessage = ({
                   <img
                     src={getDisplaySrc(url)}
                     alt="Attachment"
-                    className="h-full w-full object-cover"
+                    className={getImageClassName(
+                      index + 3,
+                      "h-full w-full object-cover",
+                    )}
                     loading={priority.loading}
                     fetchPriority={priority.fetchPriority}
                     decoding="async"
@@ -518,7 +538,7 @@ export const ImageMessage = ({
                 <img
                   src={getDisplaySrc(url)}
                   alt="Attachment"
-                  className="w-full h-full object-cover"
+                  className={getImageClassName(index, "w-full h-full object-cover")}
                   loading={priority.loading}
                   fetchPriority={priority.fetchPriority}
                   decoding="async"
@@ -551,10 +571,16 @@ export const ImageMessage = ({
       onPin={onPin}
       onForward={onForward}
       participants={participants}
+      conversationType={conversationType}
     >
-      {(borderRadius: string) => (
+      {(borderRadius: string, renderMessageMeta) => (
         <div className="relative inline-block">
           {renderGrid(borderRadius)}
+          {renderMessageMeta("media") && (
+            <div className="pointer-events-none absolute right-1.5 top-1.5 z-10">
+              {renderMessageMeta("media")}
+            </div>
+          )}
           {renderUploadOverlay()}
         </div>
       )}

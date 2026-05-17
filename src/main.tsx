@@ -7,6 +7,7 @@ import AppRouter from "./routers/AppRouter";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ConversationsProvider } from "./contexts/ConversationsContext";
 import { ToastProvider } from './contexts/ToastContext';
+import { PresenceProvider } from './contexts/PresenceContext';
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -14,12 +15,14 @@ createRoot(document.getElementById("root")!).render(
       <ToastProvider>
         <BrowserRouter>
           <AuthProvider>
-            <ConversationsProvider>
-              <AppRouter />
-            </ConversationsProvider>
+            <PresenceProvider>
+              <ConversationsProvider>
+                <AppRouter />
+              </ConversationsProvider>
+            </PresenceProvider>
           </AuthProvider>
         </BrowserRouter>
       </ToastProvider>
     </div>
   </StrictMode>
-);
+);

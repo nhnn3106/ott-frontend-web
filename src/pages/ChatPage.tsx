@@ -15,8 +15,19 @@ import {
 
 type IncomingCallPayload = {
   conversationId: string;
+  callId?: string;
   callerId: string;
   callType: "voice" | "video";
+  isGroup?: boolean;
+};
+
+type CallOutcomeMessagePayload = {
+  type?: string;
+  conversation_id?: string;
+  system_meta?: {
+    callId?: string;
+    call_id?: string;
+  } | null;
 };
 
 /* ─── Reusable Modal (style khớp app) ─────────────────────────────── */
@@ -96,8 +107,12 @@ const ChatContent: React.FC = () => {
     displayName: string;
     displayAvatar: string;
   } | null>(null);
+  const declinedIncomingCallRef = useRef<string | null>(null);
 
-  useEffect(() => { setAvatarBroken(false); }, [incomingCall?.conversationId]);
+  useEffect(() => {
+    setAvatarBroken(false);
+    declinedIncomingCallRef.current = null;
+  }, [incomingCall?.conversationId, incomingCall?.callId]);
 
   const handleConversationSelect = (item: ConversationWithParticipant) => {
     setSelectedConversation(item.conversation);
@@ -105,14 +120,22 @@ const ChatContent: React.FC = () => {
 
   // Helper thực sự mở cửa sổ gọi (sau khi đã xác nhận sẵn sàng)
   const doOpenCallWindow = (payload: IncomingCallPayload, action: "join" | "start", displayName: string, displayAvatar: string) => {
+    const effectiveCallType = payload.isGroup ? "video" : payload.callType;
     const params = new URLSearchParams({
       conversationId: payload.conversationId,
-      type: payload.callType,
+      type: effectiveCallType,
       action,
       name: displayName || "Cuoc goi",
       // Tránh truyền base64 quá dài gây lỗi HTTP 431
       avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
     });
+    if (payload.callId) {
+      params.set("callId", payload.callId);
+    }
+    if (payload.isGroup) {
+      params.set("isGroup", "true");
+      params.set("transport", "livekit");
+    }
 
     const callWindow = window.open(
       `/call?${params.toString()}`,
@@ -222,17 +245,29 @@ const ChatContent: React.FC = () => {
 
   const handleDeclineIncomingCall = () => {
     if (!incomingCall || !normalizedUserId) return;
-    socketService.declineCall(incomingCall.conversationId, normalizedUserId, incomingCall.callerId);
+    const declineKey = incomingCall.callId || incomingCall.conversationId;
+    if (declinedIncomingCallRef.current === declineKey) return;
+
+    declinedIncomingCallRef.current = declineKey;
+    socketService.declineCall(
+      incomingCall.conversationId,
+      normalizedUserId,
+      incomingCall.callerId,
+      incomingCall.callId,
+    );
     setIncomingCall(null);
   };
 
   useEffect(() => {
     if (!normalizedUserId) return;
-    const onCallEnded = (payload: { conversationId: string }) => {
+    const onCallEnded = (payload: { conversationId: string; callId?: string }) => {
       console.log("onCallEnded received:", payload);
       setIncomingCall((prev) => {
         if (!prev) return null;
-        if (String(prev.conversationId) === String(payload.conversationId)) {
+        if (
+          String(prev.conversationId) === String(payload.conversationId) &&
+          (!prev.callId || (payload.callId && String(prev.callId) === String(payload.callId)))
+        ) {
           console.log("Matching incoming call found, closing modal.");
           return null;
         }
@@ -243,15 +278,38 @@ const ChatContent: React.FC = () => {
     const onIncomingCall = (payload: IncomingCallPayload) => {
       console.log("onIncomingCall received:", payload);
       if (payload.callerId === normalizedUserId) return;
+
+      const blockReason = getCallOpenBlockReason(payload.conversationId);
+      if (blockReason === "other") {
+        if (normalizedUserId) {
+          socketService.declineCall(
+            payload.conversationId,
+            normalizedUserId,
+            payload.callerId,
+            payload.callId,
+          );
+        }
+        return;
+      }
+
+      if (blockReason === "same") {
+        return;
+      }
+
       setIncomingCall(payload);
     };
 
     // Fail-safe: Nếu nhận được tin nhắn báo cuộc gọi kết thúc/nhỡ -> đóng modal ngay
-    const onNewMessage = (message: any) => {
-      if (["call_end", "call_missed", "call_busy"].includes(message.type)) {
+    const onNewMessage = (message: CallOutcomeMessagePayload) => {
+      if (["call_end", "call_missed", "call_cancel", "call_no_answer", "call_busy"].includes(String(message.type || ""))) {
         setIncomingCall((prev) => {
           if (!prev) return null;
-          if (String(prev.conversationId) === String(message.conversation_id)) {
+          const messageCallId =
+            message.system_meta?.callId || message.system_meta?.call_id || "";
+          if (
+            String(prev.conversationId) === String(message.conversation_id) &&
+            (!prev.callId || (messageCallId && String(prev.callId) === String(messageCallId)))
+          ) {
             console.log("Fail-safe: Received call notification message, closing modal.");
             return null;
           }
@@ -261,8 +319,13 @@ const ChatContent: React.FC = () => {
     };
 
     // Đảm bảo lắng nghe cả sự kiện người dùng từ chối (cho trường hợp đồng bộ nhiều tab)
-    const onCallDeclined = (payload: { conversationId: string }) => {
-      setIncomingCall((prev) => (String(prev?.conversationId) === String(payload.conversationId) ? null : prev));
+    const onCallDeclined = (payload: { conversationId: string; callId?: string }) => {
+      setIncomingCall((prev) =>
+        String(prev?.conversationId) === String(payload.conversationId) &&
+        (!prev?.callId || (payload.callId && String(prev.callId) === String(payload.callId)))
+          ? null
+          : prev,
+      );
     };
 
     socketService.onIncomingCall(onIncomingCall);
@@ -372,7 +435,7 @@ const ChatContent: React.FC = () => {
             <div className="px-6 pt-8 pb-8 flex flex-col items-center">
               {/* Label */}
               <p className="text-[11px] font-medium tracking-widest uppercase text-amber-400/80 mb-2">
-                {incomingCall.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi thoại"}
+                {incomingCall.isGroup || incomingCall.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi thoại"}
               </p>
 
               {/* Avatar */}
@@ -403,7 +466,7 @@ const ChatContent: React.FC = () => {
                 {callerName}
               </h3>
               <p className="text-sm text-stone-400 mt-1">
-                {incomingCall.callType === "video" ? "Đang gọi video..." : "Đang gọi cho bạn..."}
+                {incomingCall.isGroup || incomingCall.callType === "video" ? "Đang gọi video..." : "Đang gọi cho bạn..."}
               </p>
 
               {/* Action buttons */}
@@ -427,7 +490,7 @@ const ChatContent: React.FC = () => {
                     className="h-16 w-16 rounded-full flex items-center justify-center bg-green-500 text-white transition-all duration-200 hover:bg-green-600 hover:scale-105 active:scale-95 shadow-lg shadow-green-500/30"
                     title="Chấp nhận"
                   >
-                    {incomingCall.callType === "video" ? <Video size={24} /> : <Phone size={24} />}
+                    {incomingCall.isGroup || incomingCall.callType === "video" ? <Video size={24} /> : <Phone size={24} />}
                   </button>
                   <span className="text-xs font-medium text-stone-400">Chấp nhận</span>
                 </div>

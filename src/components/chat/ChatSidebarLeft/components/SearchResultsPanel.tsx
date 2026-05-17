@@ -66,7 +66,6 @@ const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
 
   const tabButtons: Array<{ id: SearchTab; label: string }> = [
     { id: "all", label: "Tất cả" },
-    { id: "contacts", label: "Liên hệ" },
     { id: "messages", label: "Tin nhắn" },
     { id: "files", label: "File" },
   ];
@@ -106,15 +105,7 @@ const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
       </div>
 
       <div className="space-y-4 px-2 pt-3">
-        {(searchTab === "all" || searchTab === "contacts") && (
-          <SearchContactsSection
-            contacts={searchResults.contacts}
-            searchTab={searchTab}
-            onOpenConversation={(conversationId, messageId, contactId) => onOpenConversation(conversationId, messageId, contactId)}
-          />
-        )}
-
-        {(searchTab === "all" || searchTab === "contacts") && (
+        {(searchTab === "all") && (
           <SearchConversationsSection
             conversations={conversationResultsByName}
             searchTab={searchTab}

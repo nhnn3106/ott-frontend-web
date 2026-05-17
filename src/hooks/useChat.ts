@@ -88,14 +88,22 @@ export const useChat = (conversationId: string, userId?: string) => {
 
       setMessages((prev) => {
         const incomingMsgId = String(normalized.msg_id || normalized._id || "");
-        if (
-          incomingMsgId &&
-          prev.some(
+        if (incomingMsgId) {
+          const existingIndex = prev.findIndex(
             (item: Message & { _id?: string; msg_id?: string }) =>
               String(item.msg_id || item._id || "") === incomingMsgId,
-          )
-        ) {
-          return prev;
+          );
+
+          if (existingIndex !== -1) {
+            const nextMessages = [...prev];
+            nextMessages[existingIndex] = {
+              ...(prev[existingIndex] as Message),
+              ...(normalized as Message),
+            };
+
+            messagesRef.current = nextMessages;
+            return nextMessages;
+          }
         }
 
         const nextMessages = [...prev, normalized as Message];
@@ -107,12 +115,14 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId, normalizeIncomingMessage],
   );
 
+  const isVirtual = conversationId.startsWith("VIRTUAL_CONV_");
+
   // Reset messages khi đổi conversation, tránh dùng tin nhắn cũ
   useEffect(() => {
     setMessages([]);
-    setHasMore(true);
+    setHasMore(!isVirtual);
     setHasMoreAfter(false);
-  }, [conversationId]);
+  }, [conversationId, isVirtual]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -123,7 +133,7 @@ export const useChat = (conversationId: string, userId?: string) => {
    * Use new REST API with Redis caching
    */
   const loadMessages = useCallback(async () => {
-    if (!conversationId) return;
+    if (!conversationId || isVirtual) return;
     setLoading(true);
     try {
       const listUrl = userId
@@ -354,9 +364,23 @@ export const useChat = (conversationId: string, userId?: string) => {
    */
   const handleNewMessage = useCallback(
     (msg: any) => {
+      const normalized = normalizeIncomingMessage(msg) as
+        | (Message & { _id?: string; msg_id?: string; sender_id?: string })
+        | null;
+
+      const msgId = String(normalized?.msg_id || normalized?._id || "").trim();
+      if (
+        userId &&
+        conversationId &&
+        msgId &&
+        String(normalized?.sender_id || "") !== String(userId)
+      ) {
+        socketService.markMessageDelivered(conversationId, userId, msgId);
+      }
+
       appendMessage(msg);
     },
-    [appendMessage],
+    [appendMessage, conversationId, normalizeIncomingMessage, userId],
   );
 
   /**
