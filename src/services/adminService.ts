@@ -1,3 +1,5 @@
+import axios from "axios";
+import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 import type {
   DailyActivityPoint,
   DailyPostPoint,
@@ -13,7 +15,29 @@ import type {
 } from "../interfaces/admin.interface";
 
 const ADMIN_ANALYTIC_BASE_URL =
-  import.meta.env.VITE_ADMIN_ANALYTIC_BASE_URL || "http://localhost:8092";
+  (import.meta.env.VITE_ADMIN_ANALYTIC_BASE_URL as string | undefined) ??
+  "http://localhost:8092";
+
+// 1. Khởi tạo Axios Instance
+const adminApiClient = axios.create({
+  baseURL: ADMIN_ANALYTIC_BASE_URL,
+  timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  },
+});
+
+// 2. Interceptor tự động nhét Token vào Header
+adminApiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const token = localStorage.getItem("accessToken");
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+);
 
 class AdminApiError extends Error {
   status: number;
@@ -25,104 +49,93 @@ class AdminApiError extends Error {
   }
 }
 
-function normalizeBaseUrl(baseUrl: string) {
-  return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+interface PaginatedResponse<T> {
+  items: T[];
+  totalElements: number;
+  page: number;
+  size: number;
+  totalPages: number;
 }
 
-function buildUrl(path: string, timeRange?: TimeRange) {
-  const url = new URL(`${normalizeBaseUrl(ADMIN_ANALYTIC_BASE_URL)}${path}`);
-
-  if (timeRange) {
-    url.searchParams.set("timeRange", timeRange);
-  }
-
-  return url.toString();
-}
-
-function buildUrlWithParams(
+// 3. Hàm gọi API chung cực kỳ gọn nhẹ nhờ Axios (Xóa bỏ hoàn toàn buildUrl thủ công)
+async function getJson<T>(
   path: string,
-  params?: Record<string, string | number | undefined>,
-) {
-  const url = new URL(`${normalizeBaseUrl(ADMIN_ANALYTIC_BASE_URL)}${path}`);
-
-  Object.entries(params ?? {}).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && String(value).length > 0) {
-      url.searchParams.set(key, String(value));
-    }
-  });
-
-  return url.toString();
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const token = localStorage.getItem("accessToken");
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-
-  if (!response.ok) {
+  params?: Record<string, string | number | boolean | undefined>,
+): Promise<T> {
+  try {
+    const response = await adminApiClient.get<T>(path, { params });
+    return response.data;
+  } catch (error) {
+    const axiosError = error as AxiosError<{ message?: string }>;
+    const status = axiosError.response?.status ?? 500;
     throw new AdminApiError(
-      response.status,
-      `Request failed with status ${response.status}`,
+      status,
+      axiosError.response?.data?.message ??
+        `Request failed with status ${status}`,
     );
   }
+}
 
-  return (await response.json()) as T;
+async function getPaginatedItems<T>(
+  path: string,
+  timeRange?: TimeRange,
+): Promise<T[]> {
+  const response = await getJson<PaginatedResponse<T>>(path, { timeRange });
+  return response.items;
 }
 
 function isNotFoundError(error: unknown): error is AdminApiError {
   return error instanceof AdminApiError && error.status === 404;
 }
 
+// 4. Các Service Methods
 export const adminService = {
   getOverview: (timeRange: TimeRange = "allTime") =>
-    getJson<OverviewResponse>(
-      buildUrl("/api/v1/admin/analytics/overview", timeRange),
-    ),
+    getJson<OverviewResponse>("/api/v1/admin/analytics/overview", {
+      timeRange,
+    }),
 
   getRecentUsers: (timeRange: TimeRange = "allTime") =>
-    getJson<UserSummary[]>(
-      buildUrl("/api/v1/admin/analytics/users/recent", timeRange),
+    getPaginatedItems<UserSummary>(
+      "/api/v1/admin/analytics/users/recent",
+      timeRange,
     ),
 
   getMessageTypes: (timeRange: TimeRange = "allTime") =>
-    getJson<MessageTypesResponse>(
-      buildUrl("/api/v1/admin/analytics/messages/types", timeRange),
-    ),
+    getJson<MessageTypesResponse>("/api/v1/admin/analytics/messages/types", {
+      timeRange,
+    }),
 
   getLoginMethods: (timeRange: TimeRange = "allTime") =>
-    getJson<LoginMethodCount[]>(
-      buildUrl("/api/v1/admin/analytics/logins/methods", timeRange),
-    ),
+    getJson<LoginMethodCount[]>("/api/v1/admin/analytics/logins/methods", {
+      timeRange,
+    }),
 
   getRecentUsersPage: (
     timeRange: TimeRange = "allTime",
     params?: { query?: string; page?: number; size?: number },
   ) =>
     getJson<PaginatedRecentUsersResponse>(
-      buildUrlWithParams("/api/v1/admin/analytics/users/recent", {
+      "/api/v1/admin/analytics/users/recent",
+      {
         timeRange,
         query: params?.query,
         page: params?.page ?? 0,
         size: params?.size ?? 10,
-      }),
+      },
     ),
 
   getUserDailyTrend: (timeRange: TimeRange = "allTime") =>
     getJson<DailyUserTrendPoint[]>(
-      buildUrl("/api/v1/admin/analytics/users/daily-trend", timeRange),
+      "/api/v1/admin/analytics/users/daily-trend",
+      { timeRange },
     ),
 
   getDailyActivity: async (timeRange: TimeRange = "allTime") => {
     try {
       return await getJson<DailyActivityPoint[]>(
-        buildUrl("/api/v1/admin/analytics/social/activity/daily", timeRange),
+        "/api/v1/admin/analytics/social/activity/daily",
+        { timeRange },
       );
     } catch (error) {
       if (!isNotFoundError(error)) {
@@ -130,7 +143,8 @@ export const adminService = {
       }
 
       const legacyPosts = await getJson<DailyPostPoint[]>(
-        buildUrl("/api/v1/admin/analytics/social/posts/daily", timeRange),
+        "/api/v1/admin/analytics/social/posts/daily",
+        { timeRange },
       );
 
       return legacyPosts.map((item) => ({
@@ -142,20 +156,18 @@ export const adminService = {
   },
 
   getDailyPosts: (timeRange: TimeRange = "allTime") =>
-    getJson<DailyPostPoint[]>(
-      buildUrl("/api/v1/admin/analytics/social/posts/daily", timeRange),
-    ),
+    getJson<DailyPostPoint[]>("/api/v1/admin/analytics/social/posts/daily", {
+      timeRange,
+    }),
 
   getAuditLogsPage: (params?: { page?: number; size?: number }) =>
-    getJson<PaginatedAuditLogsResponse>(
-      buildUrlWithParams("/api/v1/admin/analytics/audit-logs", {
-        page: params?.page ?? 0,
-        size: params?.size ?? 10,
-      }),
-    ),
+    getJson<PaginatedAuditLogsResponse>("/api/v1/admin/analytics/audit-logs", {
+      page: params?.page ?? 0,
+      size: params?.size ?? 10,
+    }),
 
   getModerationDashboard: () =>
     getJson<ModerationDashboardResponse>(
-      buildUrl("/api/v1/analytics/moderation/dashboard"),
+      "/api/v1/analytics/moderation/dashboard",
     ),
 };

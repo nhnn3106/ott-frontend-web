@@ -1,8 +1,6 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import AdminRoute from "./AdminRoute";
-import type { AdminRole } from "../types";
 
 import LandingPage from "../pages/LandingPage";
 import LoginPage from "../pages/LoginPage";
@@ -15,6 +13,9 @@ import ForgotPasswordPage from "../pages/ForgotPasswordPage";
 import SocialPage from "../pages/SocialPage";
 import CallPage from "../pages/CallPage";
 import ProfilePage from "../pages/ProfilePage";
+import Dashboard from "../pages/admin/Dashboard";
+import ContentModeration from "../pages/admin/ContentModeration";
+import UserManagement from "../pages/admin/UserManagement";
 
 // Account settings pages
 import SetPasswordPage from "../pages/SetPasswordPage";
@@ -23,16 +24,14 @@ import ChangeEmailPage from "../pages/ChangeEmailPage";
 import ChangePhonePage from "../pages/ChangePhonePage";
 import TwoFactorAuthPage from "../pages/TwoFactorAuthPage";
 import DeleteAccountPage from "../pages/DeleteAccountPage";
-import Dashboard from "../pages/admin/Dashboard";
-import ContentModeration from "../pages/admin/ContentModeration";
-import UserManagement from "../pages/admin/UserManagement";
 import AuditLogs from "../pages/admin/AuditLogs";
-import AdminLayout from "../components/admin/AdminLayout";
 
 // Layout
 import MainLayout from "../layouts/MainLayout";
+import AdminLayout from "../components/admin/AdminLayout";
 import { ChatPage } from "../pages";
 import JoinGroupPage from "../pages/JoinGroupPage";
+import { RequireAdmin } from "./guards";
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -181,54 +180,23 @@ export const AppRouter: React.FC = () => {
         }
       />
 
+      {/* Join group by invite link – accessible when logged in OR not */}
+      <Route path="/join" element={<JoinGroupPage />} />
+
       {/* Admin routes */}
       <Route
         path="/admin"
         element={
-          <AdminRoute allowedRoles={["SUPER_ADMIN", "ANALYST"] as AdminRole[]}>
-            <AdminLayout>
-              <Dashboard />
-            </AdminLayout>
-          </AdminRoute>
+          <RequireAdmin>
+            <AdminLayout />
+          </RequireAdmin>
         }
-      />
-      <Route
-        path="/admin/moderation"
-        element={
-          <AdminRoute
-            allowedRoles={["SUPER_ADMIN", "MODERATOR"] as AdminRole[]}
-          >
-            <AdminLayout>
-              <ContentModeration />
-            </AdminLayout>
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/admin/users"
-        element={
-          <AdminRoute
-            allowedRoles={["SUPER_ADMIN", "MODERATOR"] as AdminRole[]}
-          >
-            <AdminLayout>
-              <UserManagement />
-            </AdminLayout>
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/admin/audit-logs"
-        element={
-          <AdminRoute allowedRoles={["SUPER_ADMIN"] as AdminRole[]}>
-            <AdminLayout>
-              <AuditLogs />
-            </AdminLayout>
-          </AdminRoute>
-        }
-      />
-
-      {/* Join group by invite link – accessible when logged in OR not */}
-      <Route path="/join" element={<JoinGroupPage />} />
+      >
+        <Route index element={<Dashboard />} />
+        <Route path="moderation" element={<ContentModeration />} />
+        <Route path="users" element={<UserManagement />} />
+        <Route path="audit-logs" element={<AuditLogs />} />
+      </Route>
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

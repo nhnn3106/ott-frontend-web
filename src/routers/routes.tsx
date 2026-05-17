@@ -1,5 +1,4 @@
 import type { RouteObject } from "react-router-dom";
-import { Navigate } from "react-router-dom";
 import ChatPage from "../pages/ChatPage";
 import ContactsPage from "../pages/ContactsPage";
 import SearchPage from "../pages/SearchPage";
@@ -15,21 +14,7 @@ import ContentModeration from "../pages/admin/ContentModeration";
 import UserManagement from "../pages/admin/UserManagement";
 import AuditLogs from "../pages/admin/AuditLogs";
 import AdminLayout from "../components/admin/AdminLayout";
-import { useAuth } from "../contexts/AuthContext";
-
-const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
-};
+import { RequireAdmin, RequireAuth } from "./guards";
 
 export const routes: RouteObject[] = [
   {
@@ -87,25 +72,31 @@ export const routes: RouteObject[] = [
   {
     path: "/admin",
     element: (
-      <AdminLayout>
-        <Dashboard />
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <Dashboard />
+        </AdminLayout>
+      </RequireAdmin>
     ),
   },
   {
     path: "/admin/moderation",
     element: (
-      <AdminLayout>
-        <ContentModeration />
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <ContentModeration />
+        </AdminLayout>
+      </RequireAdmin>
     ),
   },
   {
     path: "/admin/users",
     element: (
-      <AdminLayout>
-        <UserManagement />
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <UserManagement />
+        </AdminLayout>
+      </RequireAdmin>
     ),
   },
   {
