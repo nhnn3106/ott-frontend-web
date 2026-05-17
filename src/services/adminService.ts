@@ -15,15 +15,17 @@ import type {
 } from "../interfaces/admin.interface";
 
 const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, "");
+const stripRiffApiSuffix = (url: string) =>
+  normalizeBaseUrl(url).replace(/\/riff\/api$/i, "");
 
 const resolveGatewayBaseUrl = (): string => {
   const apiUrl = import.meta.env.VITE_API_URL as string | undefined;
 
   if (!apiUrl) {
-    return "http://localhost:8080/riff/api";
+    return "http://localhost:8080";
   }
 
-  return normalizeBaseUrl(apiUrl);
+  return stripRiffApiSuffix(apiUrl);
 };
 
 // 1. Khởi tạo Axios Instance
