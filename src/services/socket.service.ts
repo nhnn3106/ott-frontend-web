@@ -107,7 +107,7 @@ class SocketService {
 
     const token = localStorage.getItem("accessToken");
     const socket = io(SOCKET_CHAT_SERVER_URL, {
-      transports: ["websocket", "polling"],
+      transports: ["polling", "websocket"],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       auth: {
