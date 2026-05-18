@@ -88,26 +88,42 @@ const GROUP_CALL_PENDING_LOCK_MS = 15000;
 const MAX_GROUP_CALL_PARTICIPANTS = 8;
 const RIGHT_SIDEBAR_DOCK_MIN_WIDTH = 1536;
 
+const messageLoadingShimmerStyle: React.CSSProperties = {
+  backgroundImage:
+    "linear-gradient(90deg, rgba(226,232,240,0.82) 0%, rgba(248,250,252,0.96) 46%, rgba(226,232,240,0.82) 86%)",
+  backgroundSize: "220% 100%",
+};
+
 const messageLoadingRows = [
   {
     side: "left",
-    width: "w-[58%]",
-    lines: ["w-28", "w-full", "w-3/5"],
-  },
-  {
-    side: "right",
-    width: "w-[36%]",
-    lines: ["w-full", "w-1/2"],
+    width: "w-[224px]",
+    height: "h-11",
+    showAvatar: true,
   },
   {
     side: "left",
-    width: "w-[46%]",
-    lines: ["w-24", "w-4/5"],
+    width: "w-[164px]",
+    height: "h-10",
+    showAvatar: false,
   },
   {
     side: "right",
-    width: "w-[52%]",
-    lines: ["w-full", "w-2/3"],
+    width: "w-[196px]",
+    height: "h-10",
+    showAvatar: false,
+  },
+  {
+    side: "left",
+    width: "w-[252px]",
+    height: "h-14",
+    showAvatar: true,
+  },
+  {
+    side: "right",
+    width: "w-[132px]",
+    height: "h-10",
+    showAvatar: false,
   },
 ] as const;
 
@@ -115,55 +131,40 @@ const MessageLoadingSkeleton = () => (
   <div
     role="status"
     aria-live="polite"
-    className="flex min-h-[360px] flex-1 flex-col justify-end gap-4 px-1 py-6 sm:px-2"
+    className="flex min-h-[360px] flex-1 flex-col justify-end gap-2.5 px-2 pb-5 pt-3 sm:px-4"
   >
     <span className="sr-only">Đang tải tin nhắn</span>
 
-    <div className="mx-auto mb-1 h-7 w-28 animate-pulse rounded-full bg-white/75 shadow-sm ring-1 ring-slate-200/70" />
+    <div
+      className="animate-shimmer mx-auto mb-3 h-6 w-24 rounded-full"
+      style={messageLoadingShimmerStyle}
+    />
 
-    <div className="space-y-4">
-      {messageLoadingRows.map((row, index) => (
+    {messageLoadingRows.map((row, index) => (
+      <div
+        key={`${row.side}-${index}`}
+        className={`flex items-end gap-2 ${
+          row.side === "right" ? "justify-end" : "justify-start"
+        }`}
+      >
+        {row.side === "left" &&
+          (row.showAvatar ? (
+            <div
+              className="animate-shimmer h-8 w-8 shrink-0 rounded-full"
+              style={messageLoadingShimmerStyle}
+            />
+          ) : (
+            <div className="w-8 shrink-0" />
+          ))}
+
         <div
-          key={`${row.side}-${index}`}
-          className={`flex items-end gap-2 ${
-            row.side === "right" ? "justify-end" : "justify-start"
+          className={`animate-shimmer ${row.width} ${row.height} rounded-[18px] ${
+            row.side === "right" ? "rounded-br-md" : "rounded-bl-md"
           }`}
-        >
-          {row.side === "left" && (
-            <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-white shadow-sm ring-1 ring-slate-200/80">
-              <div className="m-2 h-5 w-5 rounded-full bg-slate-200/80" />
-            </div>
-          )}
-
-          <div
-            className={`max-w-[420px] ${row.width} animate-pulse rounded-2xl px-4 py-3 shadow-sm ring-1 ${
-              row.side === "right"
-                ? "rounded-br-md bg-primary-100/80 ring-primary-200/60"
-                : "rounded-bl-md bg-white ring-slate-200/80"
-            }`}
-          >
-            <div className="space-y-2">
-              {row.lines.map((lineClass, lineIndex) => (
-                <div
-                  key={`${lineClass}-${lineIndex}`}
-                  className={`h-2.5 rounded-full ${
-                    row.side === "right" ? "bg-primary-300/40" : "bg-slate-200"
-                  } ${lineClass}`}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-
-    <div className="mx-auto mt-1 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[12px] font-medium text-slate-500 shadow-sm">
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-400 opacity-60" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary-500" />
-      </span>
-      Đang tải tin nhắn
-    </div>
+          style={messageLoadingShimmerStyle}
+        />
+      </div>
+    ))}
   </div>
 );
 
@@ -3627,13 +3628,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           {/* Loading indicator for older messages */}
           {loading && messages.length > 0 && (
             <div className="flex justify-center py-1">
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/85 px-3 py-1.5 text-[12px] font-semibold text-slate-500 shadow-sm">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-400 opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary-500" />
-                </span>
-                Đang tải tin nhắn cũ
-              </div>
+              <div
+                className="animate-shimmer h-6 w-24 rounded-full"
+                style={messageLoadingShimmerStyle}
+              />
             </div>
           )}
 
