@@ -87,7 +87,7 @@ const REVOKE_EXPIRED_MESSAGE =
   "Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ";
 const GROUP_CALL_PENDING_LOCK_MS = 15000;
 const MAX_GROUP_CALL_PARTICIPANTS = 8;
-const RIGHT_SIDEBAR_DOCK_MIN_WIDTH = 1536;
+const RIGHT_SIDEBAR_DOCK_MIN_WIDTH = 1280;
 const TYPING_TTL_MS = 4500;
 
 const messageLoadingShimmerStyle: React.CSSProperties = {
@@ -145,9 +145,8 @@ const MessageLoadingSkeleton = () => (
     {messageLoadingRows.map((row, index) => (
       <div
         key={`${row.side}-${index}`}
-        className={`flex items-end gap-2 ${
-          row.side === "right" ? "justify-end" : "justify-start"
-        }`}
+        className={`flex items-end gap-2 ${row.side === "right" ? "justify-end" : "justify-start"
+          }`}
       >
         {row.side === "left" &&
           (row.showAvatar ? (
@@ -160,9 +159,8 @@ const MessageLoadingSkeleton = () => (
           ))}
 
         <div
-          className={`animate-shimmer ${row.width} ${row.height} rounded-[18px] ${
-            row.side === "right" ? "rounded-br-md" : "rounded-bl-md"
-          }`}
+          className={`animate-shimmer ${row.width} ${row.height} rounded-[18px] ${row.side === "right" ? "rounded-br-md" : "rounded-bl-md"
+            }`}
           style={messageLoadingShimmerStyle}
         />
       </div>
@@ -1096,7 +1094,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               (firstContent as { url?: string; text?: string; name?: string }).text ||
               (firstContent as { url?: string; text?: string; name?: string }).name ||
               "",
-              )
+            )
             : "";
 
       const fallbackLabel =
@@ -2170,7 +2168,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         }
 
         const isCenteredInView = () => {
-           const containerRect = container.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
           const targetRect = target.getBoundingClientRect();
           const targetCenterY = targetRect.top + targetRect.height / 2;
           return (
@@ -3206,7 +3204,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         }
         wasNearBottomRef.current = true;
         setShowScrollButton(false); // Hide button when scrolling to bottom
-        
+
         if (
           isIncomingLatestMessage &&
           latestCursorMsgId &&
@@ -3279,6 +3277,18 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   // AI Smart Replies Logic
   useEffect(() => {
     let cancelled = false;
+
+    if (isDissolved) {
+      setSmartReplies([]);
+      setIsSmartReplyLoading(false);
+      setIsSmartReplyOpen(false);
+      setSummaryResult(null);
+      lastSmartReplyMessageIdRef.current = null;
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const source = latestSmartReplySource;
     const smartReplySourceKey = source?.key || "";
     const isEligibleIncomingSmartReplySource =
@@ -3299,15 +3309,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       const fetchSuggestions = async () => {
         setIsSmartReplyLoading(true);
         try {
-          const aiConvId = activeConversation._id.startsWith('VIRTUAL_CONV_')
-            ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+          const aiConvId = activeConversation._id.startsWith("VIRTUAL_CONV_")
+            ? activeConversation._id.replace("VIRTUAL_CONV_", "")
             : activeConversation._id;
 
-          const suggestions = await AiService.getSmartReplies(aiConvId, normalizedUserId);
+          const suggestions = await AiService.getSmartReplies(
+            aiConvId,
+            normalizedUserId,
+          );
           if (!cancelled) {
             setSmartReplies(suggestions || []);
           }
-
         } catch (error) {
           console.error("Error fetching smart replies:", error);
         } finally {
@@ -3328,6 +3340,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     };
   }, [
     activeConversation._id,
+    isDissolved,
     latestSmartReplySource,
     normalizedUserId,
   ]);
@@ -3342,23 +3355,28 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleSelectSmartReply = (reply: string) => {
     setSmartReplies([]);
-    window.dispatchEvent(new CustomEvent('chat:send-smart-reply', { detail: { text: reply } }));
+    window.dispatchEvent(
+      new CustomEvent("chat:send-smart-reply", { detail: { text: reply } }),
+    );
   };
 
   const handleSummarize = async () => {
+    if (isDissolved || !normalizedUserId) return;
+
     setIsSummarizing(true);
 
     try {
-      const aiConvId = activeConversation._id.startsWith('VIRTUAL_CONV_')
-        ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+      const aiConvId = activeConversation._id.startsWith("VIRTUAL_CONV_")
+        ? activeConversation._id.replace("VIRTUAL_CONV_", "")
         : activeConversation._id;
 
-      const summary = await AiService.summarizeConversation(aiConvId, normalizedUserId);
+      const summary = await AiService.summarizeConversation(
+        aiConvId,
+        normalizedUserId,
+      );
       setSummaryResult(summary);
-
     } catch (error) {
       console.error("Summarization error:", error);
-
     } finally {
       setIsSummarizing(false);
     }
@@ -3648,11 +3666,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   return (
     <div className="relative flex h-full min-w-0 flex-1 overflow-hidden">
       {/* Main Chat Area */}
-      <div
-        className={`relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[#F2F4F7] transition-all duration-300 ${
-          sidebarOpen ? "2xl:mr-80" : ""
-        }`}
-      >
+      <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[#F2F4F7] transition-all duration-300">
         <ChatHeader
           conversation={activeConversation}
           currentUserId={normalizedUserId}
@@ -3666,7 +3680,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           }
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
-          onSummarize={handleSummarize}
+          onSummarize={isDissolved ? undefined : handleSummarize}
           isSummarizing={isSummarizing}
           hideCallActions={
             Boolean(activeConversation?.is_self_conversation) ||
@@ -3700,7 +3714,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         >
           {primaryPinnedMessage && (
             <div
-               className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
+              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
               style={{
                 transform: "translate3d(0, 0, 0)",
                 willChange: "transform", // Báo trước cho trình duyệt để tối ưu
@@ -3735,9 +3749,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 </button>
 
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                    <button
+                  <button
                     type="button"
-                     onClick={(event) => {
+                    onClick={(event) => {
                       event.stopPropagation();
                       void handlePinMessage(primaryPinnedMessage);
                     }}
@@ -3798,7 +3812,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                             }}
                             className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 mt-0.5"
                             title="Bỏ ghim"
-                           >
+                          >
                             <PinOff size={14} />
                           </button>
                         </div>
@@ -3833,39 +3847,34 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           {isInitialLoading ? (
             <MessageLoadingSkeleton />
           ) : isDissolved ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4 animate-fade-in px-4 py-8 bg-slate-50/30">
-              <div className="relative group overflow-hidden bg-white/70 backdrop-blur-xl px-10 py-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-white flex flex-col items-center gap-6 max-w-sm transition-all hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
-                {/* Decorative background element */}
-                <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-100/30 rounded-full blur-3xl" />
-                 <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-amber-100/30 rounded-full blur-3xl" />
-
-                <div className="relative w-16 h-16 rounded-3xl bg-amber-50 flex items-center justify-center text-amber-500 shadow-inner">
-                  <AlertTriangle size={32} strokeWidth={2} />
+            <div className="flex h-full items-center justify-center px-5 py-10 animate-fade-in">
+              <div className="flex w-full max-w-[360px] flex-col items-center text-center">
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm">
+                  <Info size={22} strokeWidth={2.2} />
                 </div>
 
-                 <div className="relative flex flex-col items-center gap-2">
-                  <h3 className="text-[19px] font-bold text-slate-800 text-center leading-tight">
+                <div className="flex flex-col items-center gap-2">
+                  <h3 className="text-[20px] font-bold leading-tight text-slate-900">
                     Nhóm đã được giải tán
                   </h3>
-                  <p className="text-[14px] text-slate-500 text-center max-w-[240px] leading-relaxed">
-                    Trưởng nhóm đã đóng cuộc hội thoại này.
-Bạn vẫn có thể xem lại lịch sử tin nhắn.
-</p>
+                  <p className="max-w-[310px] text-[14px] leading-6 text-slate-500">
+                    Cuộc trò chuyện đã đóng. Bạn không thể xem lại lịch sử tin nhắn, không thể gửi tin mới.
+                  </p>
                 </div>
 
                 <button
                   onClick={() => {
                     setConfirmModal({
                       isOpen: true,
-                       action: "delete-history" as any,
+                      action: "delete-history" as any,
                       message: { msg_id: "DUMMY_ID" } as any,
                     });
-}}
-                  className="relative px-6 py-2.5 bg-primary-50 hover:bg-primary-100 text-primary-600 font-bold text-[15px] rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 shadow-sm"
+                  }}
+                  className="mt-6 inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-[14px] font-semibold text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 active:bg-red-100"
                 >
-                  <Trash2 size={16} />
-                  Xóa trò chuyện
-                 </button>
+                  <Trash2 size={15} />
+                  Xóa lịch sử trò chuyện
+                </button>
               </div>
             </div>
 
@@ -3876,14 +3885,14 @@ Bạn vẫn có thể xem lại lịch sử tin nhắn.
               if (item.kind === "system-group") {
                 const isExpanded = !!expandedSystemGroups[item.key];
                 const shouldCollapseGroup = item.messages.length >= 2;
-                 const visibleSystemMessages =
+                const visibleSystemMessages =
                   shouldCollapseGroup && !isExpanded ? [] : item.messages;
 
                 return (
                   <React.Fragment key={item.key}>
                     {item.showTime && <ChatTimeSeparator time={item.time} />}
 
-                     {visibleSystemMessages.map((systemMsg) => {
+                    {visibleSystemMessages.map((systemMsg) => {
                       const notificationContent = Array.isArray(
                         systemMsg.content,
                       )
@@ -3892,7 +3901,7 @@ Bạn vẫn có thể xem lại lịch sử tin nhắn.
 
                       return (
                         <div
-                           key={`system-${String(systemMsg.msg_id || systemMsg._id)}`}
+                          key={`system-${String(systemMsg.msg_id || systemMsg._id)}`}
                           id={`chat-msg-${systemMsg.msg_id || systemMsg._id}`}
                           data-message-id={String(
                             systemMsg.msg_id || systemMsg._id,
@@ -3908,7 +3917,7 @@ Bạn vẫn có thể xem lại lịch sử tin nhắn.
                           />
                         </div>
                       );
-})}
+                    })}
 
                     {shouldCollapseGroup &&
                       visibleSystemMessages.length === 0 && (
@@ -3917,37 +3926,37 @@ Bạn vẫn có thể xem lại lịch sử tin nhắn.
                             type="button"
                             onClick={() =>
                               setExpandedSystemGroups((prev) => ({
-                               ...prev,
+                                ...prev,
                                 [item.key]: !isExpanded,
                               }))
-                             }
+                            }
                             className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
                           >
-                             Xem {item.messages.length} thông báo
+                            Xem {item.messages.length} thông báo
                           </button>
                         </div>
                       )}
 
-                    {shouldCollapseGroup && 
-isExpanded && (
-                      <div className="flex justify-center mb-2">
-                        <button
-                          type="button"
-                           onClick={() =>
-                            setExpandedSystemGroups((prev) => ({
-                              ...prev,
-                              [item.key]: false,
-                             }))
-                          }
-                          className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
-                        >
-                          Thu gọn thông báo
-                        </button>
-                      </div>
-                     )}
+                    {shouldCollapseGroup &&
+                      isExpanded && (
+                        <div className="flex justify-center mb-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedSystemGroups((prev) => ({
+                                ...prev,
+                                [item.key]: false,
+                              }))
+                            }
+                            className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+                          >
+                            Thu gọn thông báo
+                          </button>
+                        </div>
+                      )}
                   </React.Fragment>
                 );
-}
+              }
 
               const msg = item.message;
               const index = item.index;
@@ -3990,37 +3999,37 @@ isExpanded && (
                         ...msg,
                         is_pinned:
                           Boolean(msg.is_pinned) ||
-                           pinnedMessageIdSet.has(
+                          pinnedMessageIdSet.has(
                             String(msg.msg_id || msg._id || ""),
                           ),
                         __show_delivery_status:
-                           isMe &&
+                          isMe &&
                           !isCallMessage &&
                           Boolean(stableMessageId) &&
                           stableMessageId === latestOwnMessageId,
                       }}
-                       isMe={isMe}
+                      isMe={isMe}
                       currentUserId={normalizedUserId}
                       isFirstInSequence={isFirstInSequence}
                       isLastInSequence={isLastInSequence}
-                       isTopBoundary={isTopBoundary}
+                      isTopBoundary={isTopBoundary}
                       onMediaClick={(imageIndex) =>
                         handleOpenMedia(msg._id, imageIndex)
                       }
                       onReply={handleReplyMessage}
-                       onReact={handleReactMessage}
+                      onReact={handleReactMessage}
                       onRevoke={handleRevokeMessage}
                       onDelete={handleDeleteMessage}
                       onPin={handlePinMessage}
-                       onForward={handleForwardMessage}
+                      onForward={handleForwardMessage}
                       onRecallCall={handleRecallFromCallMessage}
                       disableRecallCall={disableGroupRecallCall}
                       conversation={messageConversation}
                     />
                   </div>
-                 </React.Fragment>
+                </React.Fragment>
               );
-})
+            })
           )}
 
           {typingUsers.length > 0 && !isInvited && (
@@ -4039,24 +4048,24 @@ isExpanded && (
                   style={{ animationDelay: "0ms" }}
                 />
                 <span
-                   className="w-1 h-1 rounded-full bg-slate-400  animate-bounce-high"
+                  className="w-1 h-1 rounded-full bg-slate-400  animate-bounce-high"
                   style={{ animationDelay: "140ms" }}
                 />
                 <span
                   className="w-1 h-1 rounded-full bg-slate-400  animate-bounce-high"
-                   style={{ animationDelay: "280ms" }}
+                  style={{ animationDelay: "280ms" }}
                 />
                 {typingUsers.length > 1 && (
                   <span className="ml-1 text-[11px] font-medium text-slate-500">
                     +{typingUsers.length - 1}
-                   </span>
+                  </span>
                 )}
               </div>
             </div>
           )}
 
           <div ref={messagesEndRef} />
-         </div>
+        </div>
 
         {/* Scroll to bottom button */}
         {showScrollButton && (
@@ -4079,7 +4088,7 @@ isExpanded && (
                 <ChatInput
                   key={
                     activeConversation.type === 'private' ||
-                    activeConversation._id.startsWith('VIRTUAL_CONV_')
+                      activeConversation._id.startsWith('VIRTUAL_CONV_')
                       ? (activeConversation._id.startsWith('VIRTUAL_CONV_')
                         ? activeConversation._id.replace('VIRTUAL_CONV_', '')
                         : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
@@ -4118,11 +4127,18 @@ isExpanded && (
               </div>
             </div>
           </>
-        ) : (
+        ) : isDissolved ? null : (
           <div className="px-5 py-4 bg-white border-t border-slate-100">
-            <div className={`flex items-center gap-3 ${isDissolved || relationshipStatus?.status === "BLOCKED" ? "text-primary-600" : "text-slate-500"} bg-slate-50 px-4 py-3 rounded-xl border border-slate-100`}>
-              {isDissolved || relationshipStatus?.status === "BLOCKED" ? (
-                <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600">
+            <div
+              className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${relationshipStatus?.status === "BLOCKED"
+                ? "border-primary-100 bg-primary-50 text-primary-600"
+                : "border-slate-100 bg-slate-50 text-slate-500"
+                }`}
+            >
+              {relationshipStatus?.status === "BLOCKED" ? (
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-primary-600"
+                >
                   <Info size={18} strokeWidth={2.5} />
                 </div>
               ) : (
@@ -4131,13 +4147,11 @@ isExpanded && (
                 </div>
               )}
               <p className="text-[14px] font-semibold">
-                 {isDissolved
-                  ? "Bạn không thể gửi tin nhắn vào nhóm được nữa"
-                  : relationshipStatus?.status === "BLOCKED"
-                    ? ((relationshipStatus.requester_id === normalizedUserId || relationshipStatus.requesterId === normalizedUserId)
-                      ? "Bạn đã chặn người dùng này. Bỏ chặn để tiếp tục trò chuyện."
-                      : "Bạn không thể gửi tin nhắn cho người dùng này.")
-                    : "Bạn không còn là thành viên của nhóm này"}
+                {relationshipStatus?.status === "BLOCKED"
+                  ? ((relationshipStatus.requester_id === normalizedUserId || relationshipStatus.requesterId === normalizedUserId)
+                    ? "Bạn đã chặn người dùng này. Bỏ chặn để tiếp tục trò chuyện."
+                    : "Bạn không thể gửi tin nhắn cho người dùng này.")
+                  : "Bạn không còn là thành viên của nhóm này"}
               </p>
             </div>
           </div>
@@ -4151,7 +4165,7 @@ isExpanded && (
         onClose={toggleSidebar}
       />
 
-       {/* Media Viewer Overlay */}
+      {/* Media Viewer Overlay */}
       {viewerOpen && (
         <MediaViewer
           isOpen={viewerOpen}
@@ -4163,7 +4177,7 @@ isExpanded && (
         />
       )}
 
-       {/* Confirm Modal */}
+      {/* Confirm Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={
@@ -4175,7 +4189,7 @@ isExpanded && (
           confirmModal.action === "revoke"
             ? "Tin nhắn này sẽ bị thu hồi với tất cả mọi người trong đoạn chat"
             : "Tin nhắn này sẽ bị xóa khỏi thiết bị của bạn, nhưng vẫn hiện thị với các thành viên khác trong đoạn chat."
-}
+        }
         confirmText={
           confirmModal.action === "revoke"
             ? "Thu Hồi"
@@ -4196,7 +4210,7 @@ isExpanded && (
       />
 
       <ConfirmModal
-         isOpen={removedMessageNotice.isOpen}
+        isOpen={removedMessageNotice.isOpen}
         title={removedMessageNotice.title}
         message={removedMessageNotice.message}
         confirmText="Đóng"
@@ -4206,7 +4220,7 @@ isExpanded && (
             ...prev,
             isOpen: false,
           }))
-         }
+        }
         onCancel={() =>
           setRemovedMessageNotice((prev) => ({
             ...prev,
@@ -4218,13 +4232,13 @@ isExpanded && (
       <ReplacePinnedModal
         isOpen={replacePinModalOpen}
         pinnedMessages={pinnedMessages}
-         pendingMessage={pendingPinMessage}
+        pendingMessage={pendingPinMessage}
         getSenderName={getPinnedSenderName}
         getPreviewText={getPinnedPreviewText}
         renderTypeVisual={renderPinnedTypeVisual}
         onClose={() => {
           setReplacePinModalOpen(false);
-setPendingPinMessage(null);
+          setPendingPinMessage(null);
         }}
         onConfirm={handleConfirmReplacePinned}
       />
@@ -4238,7 +4252,7 @@ setPendingPinMessage(null);
         isSubmitting={isForwarding}
         onClose={() => {
           setForwardModalOpen(false);
-setForwardingMessage(null);
+          setForwardingMessage(null);
         }}
         onConfirm={handleConfirmForwardMessage}
       />
@@ -4263,89 +4277,106 @@ setForwardingMessage(null);
         />
       )}
 
-      {/* AI Summary Modal */}
-      <ConfirmModal
-        isOpen={!!summaryResult}
-        title="Tóm tắt hội thoại (AI)"
-        message={
-          <div className="text-left py-2">
-             <div className="bg-white rounded-2xl p-5 border border-primary-100 shadow-inner max-h-[60vh] overflow-y-auto space-y-4">
-              {summaryResult?.summary.split('\n').map((line, i) => {
-                const cleanLine = line.trim();
-                if (!cleanLine) return null;
-const isBullet = cleanLine.startsWith('-') || cleanLine.startsWith('*');
-                
-                return (
-                  <div key={i} className={`flex items-start gap-3 ${isBullet ? 'pl-2' : ''}`}>
-                    {isBullet ? (
-                      <div className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-400 flex-shrink-0 shadow-sm" />
-                     ) : (
-                      <div className="mt-1 p-1.5 bg-primary-50 text-primary-600 rounded-lg shadow-sm flex-shrink-0">
-                        <Sparkles size={14} />
-                      </div>
-                     )}
-                    <p className={`text-sm leading-relaxed ${isBullet ? 'text-gray-700' : 'text-gray-800 font-medium'}`}>
-                      {cleanLine.replace(/^[-*]\s*/, '')}
-                    </p>
-                  </div>
-                 );
-})}
-              {summaryResult?.highlights?.length ? (
-                <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                  <div className="mb-2 text-[12px] font-bold uppercase text-slate-500">
-                    Ý chính
-                  </div>
-                  <div className="space-y-2">
-                    {summaryResult.highlights.map((item, index) => (
-                      <div key={`highlight-${index}`} className="flex items-start gap-2">
-                        <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-400" />
-                        <p className="text-sm leading-relaxed text-slate-700">{item}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+      {!isDissolved && (
+        <ConfirmModal
+          isOpen={!!summaryResult}
+          title="Tóm tắt hội thoại (AI)"
+          message={
+            <div className="py-2 text-left">
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto rounded-2xl border border-primary-100 bg-white p-5 shadow-inner">
+                {summaryResult?.summary.split("\n").map((line, index) => {
+                  const cleanLine = line.trim();
+                  if (!cleanLine) return null;
+                  const isBullet = cleanLine.startsWith("-") || cleanLine.startsWith("*");
 
-              {summaryResult?.actionItems?.length ? (
-                <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
-                  <div className="mb-2 text-[12px] font-bold uppercase text-amber-700">
-                    Việc cần làm
-                  </div>
-                  <div className="space-y-2">
-                    {summaryResult.actionItems.map((item, index) => (
-                      <div key={`action-${index}`} className="text-sm leading-relaxed text-slate-700">
-                        <span className="font-semibold text-slate-800">{item.owner || "Chưa rõ"}: </span>
-                        {item.task}
-                        {item.due ? <span className="text-amber-700"> ({item.due})</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {summaryResult?.questions?.length ? (
-                <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
-                  <div className="mb-2 text-[12px] font-bold uppercase text-sky-700">
-                    Còn bỏ ngỏ
-                  </div>
-                  <div className="space-y-2">
-                    {summaryResult.questions.map((item, index) => (
-                      <p key={`question-${index}`} className="text-sm leading-relaxed text-slate-700">
-                        {item}
+                  return (
+                    <div
+                      key={index}
+                      className={`flex items-start gap-3 ${isBullet ? "pl-2" : ""}`}
+                    >
+                      {isBullet ? (
+                        <div className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary-400 shadow-sm" />
+                      ) : (
+                        <div className="mt-1 flex-shrink-0 rounded-lg bg-primary-50 p-1.5 text-primary-600 shadow-sm">
+                          <Sparkles size={14} />
+                        </div>
+                      )}
+                      <p
+                        className={`text-sm leading-relaxed ${isBullet ? "text-gray-700" : "font-medium text-gray-800"}`}
+                      >
+                        {cleanLine.replace(/^[-*]\s*/, "")}
                       </p>
-                    ))}
+                    </div>
+                  );
+                })}
+
+                {summaryResult?.highlights?.length ? (
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                    <div className="mb-2 text-[12px] font-bold uppercase text-slate-500">
+                      Ý chính
+                    </div>
+                    <div className="space-y-2">
+                      {summaryResult.highlights.map((item, index) => (
+                        <div key={`highlight-${index}`} className="flex items-start gap-2">
+                          <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-400" />
+                          <p className="text-sm leading-relaxed text-slate-700">{item}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
+
+                {summaryResult?.actionItems?.length ? (
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                    <div className="mb-2 text-[12px] font-bold uppercase text-amber-700">
+                      Việc cần làm
+                    </div>
+                    <div className="space-y-2">
+                      {summaryResult.actionItems.map((item, index) => (
+                        <div
+                          key={`action-${index}`}
+                          className="text-sm leading-relaxed text-slate-700"
+                        >
+                          <span className="font-semibold text-slate-800">
+                            {item.owner || "Chưa rõ"}:{" "}
+                          </span>
+                          {item.task}
+                          {item.due ? (
+                            <span className="text-amber-700"> ({item.due})</span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {summaryResult?.questions?.length ? (
+                  <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
+                    <div className="mb-2 text-[12px] font-bold uppercase text-sky-700">
+                      Còn bỏ ngỏ
+                    </div>
+                    <div className="space-y-2">
+                      {summaryResult.questions.map((item, index) => (
+                        <p
+                          key={`question-${index}`}
+                          className="text-sm leading-relaxed text-slate-700"
+                        >
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
-        }
-        confirmText="Đóng"
-        hideCancelButton
-        maxWidthClassName="max-w-lg"
-        onConfirm={() => setSummaryResult(null)}
-        onCancel={() => setSummaryResult(null)}
-      />
+          }
+          confirmText="Đóng"
+          hideCancelButton
+          maxWidthClassName="max-w-lg"
+          onConfirm={() => setSummaryResult(null)}
+          onCancel={() => setSummaryResult(null)}
+        />
+      )}
     </div>
   );
 };

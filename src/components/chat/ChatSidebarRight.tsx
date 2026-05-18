@@ -828,7 +828,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
 
   if (loading) {
     return (
-      <div className="custom-scrollbar fixed inset-y-0 right-0 z-[70] h-full w-full max-w-sm overflow-y-auto border-l border-gray-200 bg-white shadow-2xl sm:w-[360px] 2xl:z-40 2xl:w-80 2xl:max-w-none 2xl:shadow-none">
+      <div className="custom-scrollbar fixed inset-y-0 right-0 z-[70] h-full w-full max-w-sm overflow-y-auto border-l border-gray-200 bg-white shadow-2xl sm:w-[360px] xl:relative xl:inset-auto xl:z-auto xl:w-[360px] xl:max-w-none xl:shrink-0 xl:shadow-none">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
           <h2 className="text-lg font-semibold text-gray-900">
             {isGroupChat ? "Thông tin nhóm" : "Thông tin đoạn chat"}
@@ -912,7 +912,7 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
           <button onClick={() => setError(null)} className="ml-2 font-bold cursor-pointer">×</button>
         </div>
       )}
-      <div className="custom-scrollbar fixed inset-y-0 right-0 z-[70] h-full w-full max-w-sm overflow-y-auto border-l border-gray-200 bg-white shadow-2xl sm:w-[360px] 2xl:z-40 2xl:w-80 2xl:max-w-none 2xl:shadow-none">
+      <div className="custom-scrollbar fixed inset-y-0 right-0 z-[70] h-full w-full max-w-sm overflow-y-auto border-l border-gray-200 bg-white shadow-2xl sm:w-[360px] xl:relative xl:inset-auto xl:z-auto xl:w-[360px] xl:max-w-none xl:shrink-0 xl:shadow-none">
         {/* MAIN VIEW */}
         {viewMode === "main" && (
           <>
@@ -929,7 +929,11 @@ const ChatSidebarRight: React.FC<ChatSidebarRightProps> = ({
               <div className="flex-1 flex flex-col bg-white">
                 <div className="px-4 py-8 text-center">
                   <Avatar
-                    src={getConversationDisplayAvatar(activeConversation, currentUser?.id)}
+                    src={
+                      isDissolved && activeConversation.type === "group"
+                        ? undefined
+                        : getConversationDisplayAvatar(activeConversation, currentUser?.id)
+                    }
                     name={getConversationDisplayName(activeConversation, currentUser?.id)}
                     size={80}
                     className="mx-auto mb-3 shadow-md"
