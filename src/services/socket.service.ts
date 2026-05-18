@@ -251,7 +251,7 @@ class SocketService {
   }
 
   onRelationshipUpdate(callback: (relationship: any) => void) {
-    this.socket?.on("cap_nhat_quan_he", callback);
+    this.ensureSocket().on("cap_nhat_quan_he", callback);
   }
 
   offRelationshipUpdate(callback?: (relationship: any) => void) {

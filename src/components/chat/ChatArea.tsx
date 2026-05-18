@@ -380,26 +380,43 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   useEffect(() => {
     if (!normalizedUserId) return;
 
+    const normalizeRelationshipPayload = (payload: any) => ({
+      ...payload,
+      _id: payload?._id || payload?.id || payload?.relationship_id,
+      requester_id: payload?.requester_id || payload?.requesterId,
+      receiver_id: payload?.receiver_id || payload?.receiverId,
+      requesterId: payload?.requesterId || payload?.requester_id,
+      receiverId: payload?.receiverId || payload?.receiver_id,
+      status: payload?.status ? String(payload.status).toUpperCase() : payload?.status,
+    });
+
     const handleRelationshipUpdate = (payload: any) => {
+      const normalizedPayload = normalizeRelationshipPayload(payload);
       // If the update involves the current user and the other participant in this private chat
       if (activeConversation?.type === "private") {
         const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-        const requesterId = payload.requesterId || payload.requester_id;
-        const receiverId = payload.receiverId || payload.receiver_id;
+        const requesterId = normalizedPayload.requester_id;
+        const receiverId = normalizedPayload.receiver_id;
 
         if (otherParticipantId &&
           (String(requesterId) === String(otherParticipantId) ||
             String(receiverId) === String(otherParticipantId))) {
-          console.log("ChatArea: Relationship status updated via socket:", payload.status);
-          setRelationshipStatus(payload);
+          console.log("ChatArea: Relationship status updated via socket:", normalizedPayload.status);
+          setRelationshipStatus(normalizedPayload);
         }
       }
     };
 
+    const handleLocalRelationshipUpdate = (event: Event) => {
+      handleRelationshipUpdate((event as CustomEvent).detail);
+    };
+
     socketService.onRelationshipUpdate(handleRelationshipUpdate);
+    window.addEventListener("chat:relationship-updated", handleLocalRelationshipUpdate);
 
     return () => {
       socketService.offRelationshipUpdate(handleRelationshipUpdate);
+      window.removeEventListener("chat:relationship-updated", handleLocalRelationshipUpdate);
     };
   }, [activeConversation, normalizedUserId]);
 
