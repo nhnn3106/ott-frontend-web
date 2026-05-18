@@ -10,7 +10,6 @@ import React, {
 import {
   ChevronDown,
   FileText,
-  Loader2,
   MessageCircle,
   PinOff,
   Play,
@@ -88,6 +87,85 @@ const REVOKE_EXPIRED_MESSAGE =
 const GROUP_CALL_PENDING_LOCK_MS = 15000;
 const MAX_GROUP_CALL_PARTICIPANTS = 8;
 const RIGHT_SIDEBAR_DOCK_MIN_WIDTH = 1536;
+
+const messageLoadingRows = [
+  {
+    side: "left",
+    width: "w-[58%]",
+    lines: ["w-28", "w-full", "w-3/5"],
+  },
+  {
+    side: "right",
+    width: "w-[36%]",
+    lines: ["w-full", "w-1/2"],
+  },
+  {
+    side: "left",
+    width: "w-[46%]",
+    lines: ["w-24", "w-4/5"],
+  },
+  {
+    side: "right",
+    width: "w-[52%]",
+    lines: ["w-full", "w-2/3"],
+  },
+] as const;
+
+const MessageLoadingSkeleton = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    className="flex min-h-[360px] flex-1 flex-col justify-end gap-4 px-1 py-6 sm:px-2"
+  >
+    <span className="sr-only">Đang tải tin nhắn</span>
+
+    <div className="mx-auto mb-1 h-7 w-28 animate-pulse rounded-full bg-white/75 shadow-sm ring-1 ring-slate-200/70" />
+
+    <div className="space-y-4">
+      {messageLoadingRows.map((row, index) => (
+        <div
+          key={`${row.side}-${index}`}
+          className={`flex items-end gap-2 ${
+            row.side === "right" ? "justify-end" : "justify-start"
+          }`}
+        >
+          {row.side === "left" && (
+            <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-white shadow-sm ring-1 ring-slate-200/80">
+              <div className="m-2 h-5 w-5 rounded-full bg-slate-200/80" />
+            </div>
+          )}
+
+          <div
+            className={`max-w-[420px] ${row.width} animate-pulse rounded-2xl px-4 py-3 shadow-sm ring-1 ${
+              row.side === "right"
+                ? "rounded-br-md bg-primary-100/80 ring-primary-200/60"
+                : "rounded-bl-md bg-white ring-slate-200/80"
+            }`}
+          >
+            <div className="space-y-2">
+              {row.lines.map((lineClass, lineIndex) => (
+                <div
+                  key={`${lineClass}-${lineIndex}`}
+                  className={`h-2.5 rounded-full ${
+                    row.side === "right" ? "bg-primary-300/40" : "bg-slate-200"
+                  } ${lineClass}`}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div className="mx-auto mt-1 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[12px] font-medium text-slate-500 shadow-sm">
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-400 opacity-60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary-500" />
+      </span>
+      Đang tải tin nhắn
+    </div>
+  </div>
+);
 
 const isRevokeWindowExpired = (msg: Message) => {
   const rawTime = msg.created_at || msg.createdAt;
@@ -245,6 +323,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   const lastLayoutClientHeightRef = useRef(0);
   const isFirstLoadRef = useRef(true); // Track if this is first load for this conversation
   const initialScrollRafRef = useRef<number | null>(null);
+  const bottomPinRafRef = useRef<number | null>(null);
+  const mediaSettleCleanupRef = useRef<(() => void) | null>(null);
 
   const prevMessageCountRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
@@ -1594,6 +1674,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       window.cancelAnimationFrame(initialScrollRafRef.current);
       initialScrollRafRef.current = null;
     }
+    if (bottomPinRafRef.current !== null) {
+      window.cancelAnimationFrame(bottomPinRafRef.current);
+      bottomPinRafRef.current = null;
+    }
+    mediaSettleCleanupRef.current?.();
+    mediaSettleCleanupRef.current = null;
     prevMessageCountRef.current = 0;
     prevLastMessageIdRef.current = null;
     lastLayoutScrollHeightRef.current = 0;
@@ -1603,6 +1689,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     suppressAutoScrollAfterNewerLoadRef.current = false;
     lastScrollTopRef.current = 0;
     suppressBottomLoadUntilRef.current = 0;
+    suppressAutoScrollUntilRef.current = 0;
 
     // Immediately clear unread when entering a conversation
     updateParticipant(activeConversation._id, { unread_count: 0 });
@@ -1611,6 +1698,21 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   useEffect(() => {
     primeMessageSenderCache(activeConversation?.participants);
   }, [activeConversation?.participants]);
+
+  useEffect(() => {
+    return () => {
+      if (initialScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(initialScrollRafRef.current);
+        initialScrollRafRef.current = null;
+      }
+      if (bottomPinRafRef.current !== null) {
+        window.cancelAnimationFrame(bottomPinRafRef.current);
+        bottomPinRafRef.current = null;
+      }
+      mediaSettleCleanupRef.current?.();
+      mediaSettleCleanupRef.current = null;
+    };
+  }, []);
 
   const latestMessageForCursor = messages[messages.length - 1] as
     | (ChatMessageType & { _id?: string; msg_id?: string; sender_id?: string })
@@ -1765,6 +1867,110 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         window.requestAnimationFrame(() => resolve()),
       ),
     [],
+  );
+
+  const pinMessagesToBottom = useCallback(
+    (options: { force?: boolean } = {}) => {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+
+      const distanceToBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      const shouldPin =
+        options.force ||
+        forceScrollToBottomRef.current ||
+        wasNearBottomRef.current ||
+        distanceToBottom < 180;
+
+      if (
+        !shouldPin ||
+        isLoadingMoreRef.current ||
+        isLoadingNewerRef.current ||
+        suppressAutoScrollAfterNewerLoadRef.current ||
+        Date.now() <= suppressAutoScrollUntilRef.current
+      ) {
+        return;
+      }
+
+      if (bottomPinRafRef.current !== null) {
+        window.cancelAnimationFrame(bottomPinRafRef.current);
+      }
+
+      bottomPinRafRef.current = window.requestAnimationFrame(() => {
+        const activeContainer = messagesContainerRef.current;
+        bottomPinRafRef.current = null;
+        if (!activeContainer) return;
+
+        activeContainer.scrollTop = activeContainer.scrollHeight;
+        wasNearBottomRef.current = true;
+        setShowScrollButton(false);
+      });
+    },
+    [],
+  );
+
+  const keepBottomWhileMediaSettles = useCallback(
+    (container: HTMLElement, timeoutMs: number = 3500) => {
+      mediaSettleCleanupRef.current?.();
+
+      const mediaElements = Array.from(
+        container.querySelectorAll("img, video"),
+      ) as Array<HTMLImageElement | HTMLVideoElement>;
+
+      if (mediaElements.length === 0) {
+        mediaSettleCleanupRef.current = null;
+        return null;
+      }
+
+      let disposed = false;
+      let timeoutId: number | null = null;
+      const observer =
+        typeof ResizeObserver !== "undefined"
+          ? new ResizeObserver(() => pinMessagesToBottom())
+          : null;
+
+      const handleMediaSettled = () => {
+        if (disposed) return;
+        pinMessagesToBottom();
+      };
+
+      const cleanup = () => {
+        if (disposed) return;
+        disposed = true;
+
+        mediaElements.forEach((element) => {
+          element.removeEventListener("load", handleMediaSettled);
+          element.removeEventListener("error", handleMediaSettled);
+          element.removeEventListener("loadedmetadata", handleMediaSettled);
+          element.removeEventListener("loadeddata", handleMediaSettled);
+        });
+
+        observer?.disconnect();
+
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+
+        if (mediaSettleCleanupRef.current === cleanup) {
+          mediaSettleCleanupRef.current = null;
+        }
+      };
+
+      mediaElements.forEach((element) => {
+        element.addEventListener("load", handleMediaSettled);
+        element.addEventListener("error", handleMediaSettled);
+        element.addEventListener("loadedmetadata", handleMediaSettled);
+        element.addEventListener("loadeddata", handleMediaSettled);
+        observer?.observe(element);
+      });
+
+      timeoutId = window.setTimeout(cleanup, timeoutMs);
+      mediaSettleCleanupRef.current = cleanup;
+
+      return cleanup;
+    },
+    [pinMessagesToBottom],
   );
 
   const waitForInitialMediaToSettle = useCallback(
@@ -2777,7 +2983,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       return;
     }
 
-    // First load of new conversation: wait for media to stabilize, then scroll to bottom.
+    // First load of new conversation: jump to bottom immediately, then keep
+    // the viewport pinned while images/videos finish measuring.
     if (isFirstLoadRef.current && messages.length > 0 && !loading) {
       if (initialScrollRafRef.current !== null) {
         window.cancelAnimationFrame(initialScrollRafRef.current);
@@ -2785,11 +2992,25 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       initialScrollRafRef.current = window.requestAnimationFrame(() => {
         void (async () => {
+          const initialContainer = messagesContainerRef.current;
+          if (!initialContainer) {
+            initialScrollRafRef.current = null;
+            return;
+          }
+
+          pinMessagesToBottom({ force: true });
+          keepBottomWhileMediaSettles(initialContainer);
+
           await waitForNextFrame();
-          await waitForInitialMediaToSettle(container);
+          pinMessagesToBottom({ force: true });
+
+          await waitForInitialMediaToSettle(initialContainer, 1800);
 
           const activeContainer = messagesContainerRef.current;
-          if (!activeContainer) return;
+          if (!activeContainer) {
+            initialScrollRafRef.current = null;
+            return;
+          }
           if (
             !isFirstLoadRef.current ||
             scrollHeightRef.current > 0 ||
@@ -2799,10 +3020,23 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             return;
           }
 
-          activeContainer.scrollTop = activeContainer.scrollHeight;
+          const finalDistanceToBottom =
+            activeContainer.scrollHeight -
+            activeContainer.scrollTop -
+            activeContainer.clientHeight;
+          const shouldStayPinned =
+            wasNearBottomRef.current || finalDistanceToBottom < 180;
+
+          if (shouldStayPinned) {
+            pinMessagesToBottom();
+            wasNearBottomRef.current = true;
+            setShowScrollButton(false);
+          } else {
+            wasNearBottomRef.current = false;
+            setShowScrollButton(shouldShowScrollToBottomButton(activeContainer));
+          }
+
           isFirstLoadRef.current = false;
-          wasNearBottomRef.current = true;
-          setShowScrollButton(false);
           prevMessageCountRef.current = currentMessageCount;
           prevLastMessageIdRef.current = currentLastMessageId;
           initialScrollRafRef.current = null;
@@ -2833,7 +3067,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       Date.now() > suppressAutoScrollUntilRef.current
     ) {
       requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
+        pinMessagesToBottom({ force: true });
+        const activeContainer = messagesContainerRef.current;
+        if (activeContainer) {
+          keepBottomWhileMediaSettles(activeContainer);
+        }
         wasNearBottomRef.current = true;
         setShowScrollButton(false); // Hide button when scrolling to bottom
         
@@ -2861,6 +3099,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     markMessageSeenUpTo,
     normalizedUserId,
     shouldShowScrollToBottomButton,
+    keepBottomWhileMediaSettles,
+    pinMessagesToBottom,
     waitForInitialMediaToSettle,
     waitForNextFrame,
   ]);
@@ -3382,14 +3622,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               </div>
             </div>
           )}
-           <div className="flex-1 min-h-0" />
+          {!isInitialLoading && <div className="flex-1 min-h-0" />}
 
           {/* Loading indicator for older messages */}
           {loading && messages.length > 0 && (
-            <div className="flex items-center justify-center gap-2 text-sm text-gray-500 py-1">
-              <Loader2 size={14} className="animate-spin " />
-              Đang tải tin nhắn cũ...
-             </div>
+            <div className="flex justify-center py-1">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/85 px-3 py-1.5 text-[12px] font-semibold text-slate-500 shadow-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary-500" />
+                </span>
+                Đang tải tin nhắn cũ
+              </div>
+            </div>
           )}
 
           {/* No more messages indicator */}
@@ -3402,9 +3647,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           )}
 
           {isInitialLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 size={20} className="animate-spin text-gray-100" />
-            </div>
+            <MessageLoadingSkeleton />
           ) : isDissolved ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 animate-fade-in px-4 py-8 bg-slate-50/30">
               <div className="relative group overflow-hidden bg-white/70 backdrop-blur-xl px-10 py-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-white flex flex-col items-center gap-6 max-w-sm transition-all hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
