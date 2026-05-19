@@ -56,6 +56,28 @@ interface PaginatedResponse<T> {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  return fallback;
+};
+
+const toNullableFiniteNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = toFiniteNumber(value, Number.NaN);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const unwrapResponseData = <T>(value: unknown): T => {
   if (!isRecord(value)) {
     return value as T;
@@ -74,6 +96,55 @@ const unwrapResponseData = <T>(value: unknown): T => {
   }
 
   return value as T;
+};
+
+const normalizeOverviewResponse = (value: unknown): OverviewResponse => {
+  const record = isRecord(value) ? value : {};
+
+  return {
+    totalUsers: toFiniteNumber(record.totalUsers),
+    totalLogins: toFiniteNumber(record.totalLogins),
+    totalMessages: toFiniteNumber(record.totalMessages),
+    totalPosts: toFiniteNumber(record.totalPosts),
+    dau: toFiniteNumber(record.dau),
+    mau: toFiniteNumber(record.mau),
+    userDelta: toNullableFiniteNumber(record.userDelta),
+    loginDelta: toNullableFiniteNumber(record.loginDelta),
+    messageDelta: toNullableFiniteNumber(record.messageDelta),
+    postDelta: toNullableFiniteNumber(record.postDelta),
+  };
+};
+
+const normalizeMessageTypesResponse = (value: unknown): MessageTypesResponse => {
+  const record = isRecord(value) ? value : {};
+
+  return {
+    text: toFiniteNumber(record.text),
+    image: toFiniteNumber(record.image),
+    voice: toFiniteNumber(record.voice),
+  };
+};
+
+const normalizeLoginMethodCount = (value: unknown): LoginMethodCount => {
+  const record = isRecord(value) ? value : {};
+
+  return {
+    method:
+      typeof record.method === "string" && record.method.trim() !== ""
+        ? record.method
+        : "unknown",
+    count: toFiniteNumber(record.count),
+  };
+};
+
+const normalizeDailyUserTrendPoint = (value: unknown): DailyUserTrendPoint => {
+  const record = isRecord(value) ? value : {};
+
+  return {
+    date: typeof record.date === "string" ? record.date : "",
+    registrations: toFiniteNumber(record.registrations),
+    logins: toFiniteNumber(record.logins),
+  };
 };
 
 const asArray = <T>(value: unknown): T[] => {
@@ -137,10 +208,13 @@ function isNotFoundError(error: unknown): error is AdminApiError {
 
 // 4. Các Service Methods
 export const adminService = {
-  getOverview: (timeRange: TimeRange = "allTime") =>
-    getJson<OverviewResponse>("/v1/admin/analytics/overview", {
+  getOverview: async (timeRange: TimeRange = "allTime") => {
+    const response = await getJson<unknown>("/v1/admin/analytics/overview", {
       timeRange,
-    }),
+    });
+
+    return normalizeOverviewResponse(response);
+  },
 
   getRecentUsers: (timeRange: TimeRange = "allTime") =>
     getPaginatedItems<UserSummary>(
@@ -148,15 +222,21 @@ export const adminService = {
       timeRange,
     ),
 
-  getMessageTypes: (timeRange: TimeRange = "allTime") =>
-    getJson<MessageTypesResponse>("/v1/admin/analytics/messages/types", {
+  getMessageTypes: async (timeRange: TimeRange = "allTime") => {
+    const response = await getJson<unknown>("/v1/admin/analytics/messages/types", {
       timeRange,
-    }),
+    });
 
-  getLoginMethods: (timeRange: TimeRange = "allTime") =>
-    getArrayJson<LoginMethodCount>("/v1/admin/analytics/logins/methods", {
+    return normalizeMessageTypesResponse(response);
+  },
+
+  getLoginMethods: async (timeRange: TimeRange = "allTime") => {
+    const response = await getArrayJson<unknown>("/v1/admin/analytics/logins/methods", {
       timeRange,
-    }),
+    });
+
+    return response.map(normalizeLoginMethodCount);
+  },
 
   getRecentUsersPage: (
     timeRange: TimeRange = "allTime",
@@ -169,10 +249,16 @@ export const adminService = {
       size: params?.size ?? 10,
     }).then(asPaginatedResponse<UserSummary>),
 
-  getUserDailyTrend: (timeRange: TimeRange = "allTime") =>
-    getArrayJson<DailyUserTrendPoint>("/v1/admin/analytics/users/daily-trend", {
-      timeRange,
-    }),
+  getUserDailyTrend: async (timeRange: TimeRange = "allTime") => {
+    const response = await getArrayJson<unknown>(
+      "/v1/admin/analytics/users/daily-trend",
+      {
+        timeRange,
+      },
+    );
+
+    return response.map(normalizeDailyUserTrendPoint);
+  },
 
   getDailyActivity: async (timeRange: TimeRange = "allTime") => {
     try {
