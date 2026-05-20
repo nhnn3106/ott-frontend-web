@@ -88,14 +88,22 @@ export const useChat = (conversationId: string, userId?: string) => {
 
       setMessages((prev) => {
         const incomingMsgId = String(normalized.msg_id || normalized._id || "");
-        if (
-          incomingMsgId &&
-          prev.some(
+        if (incomingMsgId) {
+          const existingIndex = prev.findIndex(
             (item: Message & { _id?: string; msg_id?: string }) =>
               String(item.msg_id || item._id || "") === incomingMsgId,
-          )
-        ) {
-          return prev;
+          );
+
+          if (existingIndex !== -1) {
+            const nextMessages = [...prev];
+            nextMessages[existingIndex] = {
+              ...(prev[existingIndex] as Message),
+              ...(normalized as Message),
+            };
+
+            messagesRef.current = nextMessages;
+            return nextMessages;
+          }
         }
 
         const nextMessages = [...prev, normalized as Message];
@@ -107,12 +115,55 @@ export const useChat = (conversationId: string, userId?: string) => {
     [conversationId, normalizeIncomingMessage],
   );
 
+  const removeMessage = useCallback((payload: unknown) => {
+    const payloadRecord =
+      payload && typeof payload === "object"
+        ? (payload as { msg_id?: unknown; _id?: unknown; messageId?: unknown })
+        : null;
+    const targetMsgId = String(
+      payloadRecord?.msg_id || payloadRecord?._id || payloadRecord?.messageId || "",
+    );
+    if (!targetMsgId) return;
+
+    setMessages((prev) => {
+      const nextMessages = prev
+        .filter(
+          (message) =>
+            String(message._id || "") !== targetMsgId &&
+            String(message.msg_id || "") !== targetMsgId,
+        )
+        .map((message) => {
+          const replyTargetId =
+            message.reply_to_msg_id || message.reply_to?.msg_id;
+
+          if (String(replyTargetId || "") !== targetMsgId) {
+            return message;
+          }
+
+          return {
+            ...message,
+            reply_to: {
+              ...(message.reply_to || {}),
+              msg_id: targetMsgId,
+              is_deleted: true,
+              is_revoked: false,
+            },
+          };
+        });
+
+      messagesRef.current = nextMessages;
+      return nextMessages;
+    });
+  }, []);
+
+  const isVirtual = conversationId.startsWith("VIRTUAL_CONV_");
+
   // Reset messages khi đổi conversation, tránh dùng tin nhắn cũ
   useEffect(() => {
     setMessages([]);
-    setHasMore(true);
+    setHasMore(!isVirtual);
     setHasMoreAfter(false);
-  }, [conversationId]);
+  }, [conversationId, isVirtual]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -123,7 +174,7 @@ export const useChat = (conversationId: string, userId?: string) => {
    * Use new REST API with Redis caching
    */
   const loadMessages = useCallback(async () => {
-    if (!conversationId) return;
+    if (!conversationId || isVirtual) return;
     setLoading(true);
     try {
       const listUrl = userId
@@ -354,9 +405,23 @@ export const useChat = (conversationId: string, userId?: string) => {
    */
   const handleNewMessage = useCallback(
     (msg: any) => {
+      const normalized = normalizeIncomingMessage(msg) as
+        | (Message & { _id?: string; msg_id?: string; sender_id?: string })
+        | null;
+
+      const msgId = String(normalized?.msg_id || normalized?._id || "").trim();
+      if (
+        userId &&
+        conversationId &&
+        msgId &&
+        String(normalized?.sender_id || "") !== String(userId)
+      ) {
+        socketService.markMessageDelivered(conversationId, userId, msgId);
+      }
+
       appendMessage(msg);
     },
-    [appendMessage],
+    [appendMessage, conversationId, normalizeIncomingMessage, userId],
   );
 
   /**
@@ -393,34 +458,9 @@ export const useChat = (conversationId: string, userId?: string) => {
 
       if (payloadConvId !== conversationId) return;
 
-      setMessages((prev) =>
-        prev
-          .filter(
-            (message: any) =>
-              message._id !== payload.messageId &&
-              message.msg_id !== payload.msg_id,
-          )
-          .map((message: any) => {
-            const replyTargetId =
-              message.reply_to_msg_id || message.reply_to?.msg_id;
-
-            if (replyTargetId !== payload.msg_id) {
-              return message;
-            }
-
-            return {
-              ...message,
-              reply_to: {
-                ...(message.reply_to || {}),
-                msg_id: payload.msg_id,
-                is_deleted: true,
-                is_revoked: false,
-              },
-            };
-          }),
-      );
+      removeMessage(payload);
     },
-    [conversationId],
+    [conversationId, removeMessage],
   );
 
   const handleMessageRevoked = useCallback(
@@ -460,6 +500,9 @@ export const useChat = (conversationId: string, userId?: string) => {
             ...message,
             content: payload.content || ["Tin nhắn đã được thu hồi"],
             is_revoked: true,
+            is_pinned: false,
+            pinned_at: null,
+            pinned_by: null,
             reactions: [],
           };
         }),
@@ -608,6 +651,7 @@ export const useChat = (conversationId: string, userId?: string) => {
   return {
     messages,
     appendMessage,
+    removeMessage,
     loadMessages,
     loadOlderMessages,
     loadMessageContext,

@@ -33,6 +33,7 @@ const SocialFeed: React.FC = () => {
     handleDeletePost,
     handleNewPost,
     handleUpdatePost,
+    handleSharePost,
   } = useSocialFeed();
 
   const { isAuthenticated, isLoading } = useAuth();
@@ -105,6 +106,7 @@ const SocialFeed: React.FC = () => {
     <>
       <SocialFeedLayout
         containerRef={containerRef}
+        currentUser={currentUser}
         left={<SocialLeftSidebar currentUser={currentUser} />}
         center={
           <>
@@ -125,6 +127,7 @@ const SocialFeed: React.FC = () => {
               onToggleLike={toggleLikePost}
               onDelete={(id) => setDeleteTargetId(id)}
               onEdit={openEditModal}
+              onShare={handleSharePost}
               currentUser={currentUser}
               loading={loadingDB}
             />

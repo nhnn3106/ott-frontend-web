@@ -127,12 +127,17 @@ const StoryReel: React.FC<Props> = ({
           ))
         : (() => {
             let storyIndex = -1;
-            return visibleItems.map((item) => {
+            return visibleItems.map((item, index) => {
+              const uniqueKey =
+                item.type === "story" ? item.group.userId
+                : `suggest-${item.user.id || index}`;
+
               if (item.type === "story") {
                 storyIndex += 1;
+                const latestUpdate = Math.max(...item.group.stories.map(s => s.lastUpdated || 0));
                 return (
                   <StoryGroupCard
-                    key={item.group.userId}
+                    key={`${uniqueKey}-${latestUpdate}`}
                     group={item.group}
                     gradientClass={GRADIENTS[storyIndex % GRADIENTS.length]}
                     onOpenUserStories={onOpenUserStories}
@@ -141,11 +146,12 @@ const StoryReel: React.FC<Props> = ({
               }
 
               return (
-                <SuggestedFriendCards
-                  key={`suggested-${item.user.id}`}
-                  users={[item.user]}
-                  currentUserId={currentUserId}
-                />
+                <div key={uniqueKey}>
+                  <SuggestedFriendCards
+                    users={[item.user]}
+                    currentUserId={currentUserId}
+                  />
+                </div>
               );
             });
           })()

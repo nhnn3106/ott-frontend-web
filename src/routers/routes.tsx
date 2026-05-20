@@ -1,5 +1,4 @@
 import type { RouteObject } from "react-router-dom";
-import { Navigate } from "react-router-dom";
 import ChatPage from "../pages/ChatPage";
 import ContactsPage from "../pages/ContactsPage";
 import SearchPage from "../pages/SearchPage";
@@ -15,26 +14,8 @@ import ContentModeration from "../pages/admin/ContentModeration";
 import UserManagement from "../pages/admin/UserManagement";
 import AuditLogs from "../pages/admin/AuditLogs";
 import AdminLayout from "../components/admin/AdminLayout";
-import { useAuth } from "../contexts/AuthContext";
+import { RequireAdmin, RequireAuth } from "./guards";
 
-const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-12 h-12 border-b-2 border-blue-600 rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
-};
-
-/**
- * Application route configuration
- * Centralized route definitions for better maintainability
- */
 export const routes: RouteObject[] = [
   {
     path: "/chat",
@@ -91,25 +72,31 @@ export const routes: RouteObject[] = [
   {
     path: "/admin",
     element: (
-      <AdminLayout>
-        <Dashboard />
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <Dashboard />
+        </AdminLayout>
+      </RequireAdmin>
     ),
   },
   {
     path: "/admin/moderation",
     element: (
-      <AdminLayout>
-        <ContentModeration />
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <ContentModeration />
+        </AdminLayout>
+      </RequireAdmin>
     ),
   },
   {
     path: "/admin/users",
     element: (
-      <AdminLayout>
-        <UserManagement />
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <UserManagement />
+        </AdminLayout>
+      </RequireAdmin>
     ),
   },
   {
@@ -126,9 +113,6 @@ export const routes: RouteObject[] = [
   },
 ];
 
-/**
- * Route paths constants for type-safe navigation
- */
 export const ROUTE_PATHS = {
   CHAT: "/chat",
   CONTACTS: "/contacts",

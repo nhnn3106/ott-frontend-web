@@ -2,8 +2,9 @@ import { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { authApi, profileApi, userApi } from "../services/api";
 import type { UserProfileResponse } from "../types";
-import { AccountType } from "../types/enums/user.enum";
+import { isAdminAccountType } from "../types/enums/user.enum";
 import type { AdminRole } from "../types";
+import { emitAuthLogoutSignal } from "../utils/authLogoutSignal";
 
 interface AuthContextType {
   user: UserProfileResponse | null;
@@ -51,7 +52,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const inferredRole = (user as any)?.role ?? (user as any)?.adminRole ?? null;
   const userRole: AdminRole | null = inferredRole
     ? (inferredRole as AdminRole)
-    : user?.accountType === AccountType.ADMIN
+    : isAdminAccountType(user?.accountType)
       ? "ANALYST"
       : null;
   const isAdmin = userRole !== null;
@@ -94,7 +95,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
 
-    let socketServiceRef: any = null;
+    let socketServiceRef:
+      | typeof import("../services/socket.service").socketService
+      | null = null;
+    let presenceHeartbeatTimer: ReturnType<typeof window.setInterval> | null =
+      null;
+    let disposed = false;
+
+    const syncPresence = () => {
+      if (!socketServiceRef || !user?.id) return;
+      if (document.visibilityState === "hidden") return;
+
+      socketServiceRef.connect();
+      socketServiceRef.joinUserRoom(user.id);
+      socketServiceRef.refreshPresence?.(user.id);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncPresence();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      syncPresence();
+    };
 
     const handleUserInfoUpdated = (payload: {
       userId: string;
@@ -139,7 +164,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (action === "ALL") {
         clearLocalSession();
-        window.dispatchEvent(new Event("auth:logout"));
+        emitAuthLogoutSignal();
         window.location.href = "/login";
       } else if (
         action === "SPECIFIC" &&
@@ -147,7 +172,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         myDeviceId === payload.deviceId
       ) {
         clearLocalSession();
-        window.dispatchEvent(new Event("auth:logout"));
+        emitAuthLogoutSignal();
         window.location.href = "/login";
       } else if (
         action === "OTHERS" &&
@@ -155,27 +180,48 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         payload.revokedDeviceIds?.includes(myDeviceId)
       ) {
         clearLocalSession();
-        window.dispatchEvent(new Event("auth:logout"));
+        emitAuthLogoutSignal();
         window.location.href = "/login";
       } else if (action === "SPECIFIC" || action === "OTHERS") {
         fetchUser().catch(() => {
-          window.dispatchEvent(new Event("auth:logout"));
+          emitAuthLogoutSignal();
           window.location.href = "/login";
         });
       }
     };
 
     import("../services/socket.service").then(({ socketService }) => {
+      if (disposed) return;
+
       socketServiceRef = socketService;
 
       socketService.connect();
       socketService.joinUserRoom(user.id);
+      socketService.refreshPresence(user.id);
 
       socketService.onUserInfoUpdated(handleUserInfoUpdated);
       socketService.onForceLogout(handleForceLogout);
+
+      presenceHeartbeatTimer = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          socketService.refreshPresence(user.id);
+        }
+      }, 20000);
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("focus", handleWindowFocus);
+      window.addEventListener("online", handleWindowFocus);
     });
 
     return () => {
+      disposed = true;
+      if (presenceHeartbeatTimer) {
+        window.clearInterval(presenceHeartbeatTimer);
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("online", handleWindowFocus);
+
       if (socketServiceRef) {
         socketServiceRef.offUserInfoUpdated(handleUserInfoUpdated);
         socketServiceRef.offForceLogout(handleForceLogout);
@@ -294,6 +340,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = async () => {
     console.log("AuthContext: Logout initiated");
+    const rawUser = user as {
+      id?: string;
+      user_id?: string;
+      _id?: string;
+    } | null;
+    const logoutUserId = rawUser?.id || rawUser?.user_id || rawUser?._id || "";
+    emitAuthLogoutSignal();
+
+    const socketCleanupPromise = import("../services/socket.service")
+      .then(async ({ socketService }) => {
+        if (logoutUserId) {
+          await socketService.leaveAllCallsForLogout(logoutUserId);
+        }
+        return socketService;
+      })
+      .catch((err) => {
+        console.error("Could not notify call logout cleanup:", err);
+        return null;
+      });
 
     try {
       const token = localStorage.getItem("accessToken");
@@ -304,6 +369,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error("AuthContext: Logout error:", error);
     } finally {
+      // Ngắt kết nối socket ngay lập tức để backend ghi nhận trạng thái offline
+      const socketService = await socketCleanupPromise;
+      socketService?.disconnect();
+
       clearLocalSession();
       console.log("AuthContext: Logout completed, tokens cleared");
     }

@@ -1,7 +1,44 @@
 import { Phone, PhoneMissed, PhoneOff, Video } from "lucide-react";
-import type { Message } from "../../../types";
+import type { Conversation, Message } from "../../../types";
 import { MessageLayout } from "./MessageLayout";
 import { getConversationDisplayAvatar, getConversationDisplayName } from "../../../utils";
+import { useConversations } from "../../../contexts/ConversationsContext";
+
+const formatCallDuration = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds || 0)));
+  const minutes = Math.floor(safeSeconds / 60);
+  const secs = safeSeconds % 60;
+
+  if (minutes > 0) {
+    return `${minutes} phút ${secs} giây`;
+  }
+
+  return `${secs} giây`;
+};
+
+const getRawContent = (msg: Message) => {
+  const content = Array.isArray(msg.content)
+    ? msg.content.filter(Boolean).join(" ")
+    : msg.content;
+
+  return String(content || "").trim();
+};
+
+const getCallDurationLabel = (msg: Message, rawText: string) => {
+  const explicitLabel = rawText.split(/\s+-\s+/).slice(1).join(" - ").trim();
+  if (explicitLabel) return explicitLabel;
+
+  const meta = (msg as Message & {
+    system_meta?: { durationSeconds?: number; duration_seconds?: number };
+  }).system_meta;
+  const durationSeconds = Number(
+    meta?.durationSeconds ?? meta?.duration_seconds ?? NaN,
+  );
+
+  return Number.isFinite(durationSeconds)
+    ? formatCallDuration(durationSeconds)
+    : rawText;
+};
 
 const getCallMeta = (type: string) => {
   switch (type) {
@@ -27,6 +64,8 @@ export const CallMessage = ({
   isTopBoundary,
   onDelete,
   conversation,
+  onRecall,
+  disableRecall = false,
 }: {
   msg: Message;
   isMe: boolean;
@@ -35,21 +74,42 @@ export const CallMessage = ({
   isLastInSequence: boolean;
   isTopBoundary?: boolean;
   onDelete?: (msg: Message) => void;
-  conversation?: any;
+  conversation?: Conversation;
+  onRecall?: (callType: "voice" | "video", msg: Message) => void;
+  disableRecall?: boolean;
 }) => {
-  const rawText = Array.isArray(msg.content)
-    ? msg.content.join("")
-    : String(msg.content || "");
+  const { conversations } = useConversations();
+  const rawText = getRawContent(msg);
   const normalizedType = String(msg.type || "").toLowerCase();
   if (normalizedType === "call_start" || normalizedType === "call_join") {
     return null;
   }
 
-  const isVideoCall = /video/i.test(rawText);
+  const messageConversationId = String(
+    msg.conversation_id || conversation?._id || "",
+  );
+  const liveConversation =
+    conversations.find(
+      (item) => String(item.conversation._id) === messageConversationId,
+    )?.conversation || conversation;
+
+  const meta = (msg as Message & {
+    system_meta?: { callType?: string; call_type?: string };
+  }).system_meta;
+  const metaCallType = String(
+    meta?.callType || meta?.call_type || "",
+  ).toLowerCase();
+  const isVideoCall = metaCallType
+    ? metaCallType === "video"
+    : /video/i.test(rawText);
+  const isGroupConversation = liveConversation?.type === "group";
+  const isGroupCallActive =
+    isGroupConversation && Boolean(liveConversation?.is_calling);
   const isMissedCall =
     normalizedType === "call_missed" ||
     normalizedType === "call_cancel" ||
     normalizedType === "call_no_answer";
+  const durationLabel = getCallDurationLabel(msg, rawText);
   const messageTime = new Date(
     String(msg.createdAt || (msg as { created_at?: string }).created_at || ""),
   );
@@ -60,20 +120,34 @@ export const CallMessage = ({
       minute: "2-digit",
     });
   const { label, Icon } = getCallMeta(normalizedType);
+  const secondaryLabel = isGroupConversation
+    ? ""
+    : isMissedCall
+      ? callTimeLabel
+      : durationLabel || label;
+  const canRecall = Boolean(onRecall || msg.conversation_id) && !isGroupCallActive;
+  const isRecallDisabled = disableRecall || !canRecall;
 
   const handleRecall = () => {
+    if (isRecallDisabled) return;
+
+    if (onRecall) {
+      onRecall(isVideoCall ? "video" : "voice", msg);
+      return;
+    }
+
     const conversationId = String(msg.conversation_id || "");
     if (!conversationId) return;
 
-    const avatar = conversation && currentUserId
-      ? getConversationDisplayAvatar(conversation, currentUserId) || ""
+    const avatar = liveConversation && currentUserId
+      ? getConversationDisplayAvatar(liveConversation, currentUserId) || ""
       : "";
 
     const queryParams: Record<string, string> = {
       conversationId,
       type: isVideoCall ? "video" : "voice",
       action: "start",
-      name: (conversation && currentUserId ? getConversationDisplayName(conversation, currentUserId) : "") || "Cuộc gọi",
+      name: (liveConversation && currentUserId ? getConversationDisplayName(liveConversation, currentUserId) : "") || "Cuộc gọi",
       // Tránh truyền base64 quá dài gây lỗi HTTP 431
       avatar: avatar.startsWith("data:") ? "" : avatar,
     };
@@ -100,11 +174,13 @@ export const CallMessage = ({
       isLast={isLastInSequence}
       isTopBoundary={isTopBoundary}
       onDelete={onDelete}
+      participants={conversation?.participants}
+      conversationType={conversation?.type}
     >
       {(borderRadius) => (
         <div
           className={`min-w-56 max-w-[320px] p-3 text-[13px] shadow-sm  transition-all ${isMe
-              ? "bg-[var(--color-chat-me)] text-[var(--color-chat-me-text)] ]"
+              ? "bg-[var(--color-chat-me)] text-[var(--color-chat-me-text)]"
               : "bg-[var(--color-chat-other)] text-[var(--color-chat-other-text)] shadow-lg border-[var(--color-chat-other-border)]"
             } ${borderRadius}`}
         >
@@ -126,21 +202,30 @@ export const CallMessage = ({
                   ? `Đã bỏ lỡ cuộc gọi ${isVideoCall ? "video" : "thoại"}`
                   : `Cuộc gọi ${isVideoCall ? "video" : "thoại"}`}
               </div>
-              <div className="mt-1 text-[12px] opacity-70 font-medium">
-                {isMissedCall ? callTimeLabel : (rawText.split(" - ")[1] || rawText || label)}
-              </div>
+              {secondaryLabel && (
+                <div className="mt-1 text-[12px] opacity-70 font-medium">
+                  {secondaryLabel}
+                </div>
+              )}
             </div>
           </div>
 
           <button
             type="button"
             onClick={handleRecall}
-            disabled={!msg.conversation_id}
-            className={`mt-3 w-full rounded-lg disabled:opacity-50 disabled:cursor-not-allowed py-2 text-[15px] font-semibold transition-all ${isMe
+            disabled={isRecallDisabled}
+            className={`mt-3 w-full rounded-lg py-2 text-[15px] font-semibold transition-all ${
+              isRecallDisabled
+                ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                : isMe
                 ? "bg-[var(--color-primary-400)] text-white hover:bg-[var(--color-primary-500)]"
                 : "bg-[var(--color-primary-100)] text-[var(--color-primary-700)] hover:bg-[var(--color-primary-200)]"
               }`}
-            title="Gọi lại"
+            title={
+              disableRecall || isGroupCallActive
+                ? "Đang có cuộc gọi nhóm"
+                : "Gọi lại"
+            }
           >
             Gọi lại
           </button>

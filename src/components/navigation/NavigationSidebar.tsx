@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   MessageCircle,
   Phone,
@@ -11,8 +11,14 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { useConversations } from "../../contexts/ConversationsContext";
+import {
+  getParticipantUnreadCount,
+  isConversationMuted,
+} from "../../utils/conversationNotification";
 import NavigationItem from "./NavigationItem";
 import UserProfile from "./UserProfile";
+import NotificationMenu from "./NotificationMenu";
 import logo from "../../assets/logo_tach_nen.jpg";
 import type { NavigationItem as NavigationItemType } from "../../interfaces";
 interface NavigationSidebarProps {
@@ -26,8 +32,18 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const { conversations } = useConversations();
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const chatUnreadCount = useMemo(
+    () =>
+      conversations.reduce((total, item) => {
+        if (isConversationMuted(item.participant)) return total;
+        return total + getParticipantUnreadCount(item.participant);
+      }, 0),
+    [conversations],
+  );
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -51,6 +67,7 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
       icon: <MessageCircle className="w-6 h-6" />,
       label: "Tin nhắn",
       isActive: activeItem === "chat",
+      badge: chatUnreadCount,
     },
     {
       id: "social",
@@ -67,7 +84,7 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
   ];
 
   return (
-    <div className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4">
+    <div className="relative z-30 flex h-full w-16 shrink-0 flex-col items-center overflow-visible border-r border-gray-200 bg-white py-4">
       {/* User Avatar với Logout */}
       <UserProfile />
 
@@ -78,8 +95,9 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
         ))}
       </div>
 
-      {/* Profile & Settings */}
+      {/* Profile & Settings & Notifications */}
       <div className="flex flex-col space-y-2">
+        <NotificationMenu />
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setShowSettingsMenu((value) => !value)}
@@ -90,7 +108,7 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
           </button>
 
           {showSettingsMenu && (
-            <div className="absolute bottom-12 left-0 z-50 w-52 overflow-hidden rounded-2xl border border-[#ead9cc] bg-white shadow-xl">
+            <div className="absolute bottom-12 left-0 z-[120] w-52 overflow-hidden rounded-2xl border border-[#ead9cc] bg-white shadow-xl">
               <div className="flex items-center gap-2 border-b border-[#f1e4d7] px-4 py-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#f1e4d7] bg-[#fffaf6] shadow-sm">
                   <img src={logo} alt="Riff" className="h-5 w-5 object-contain" />

@@ -1,13 +1,8 @@
 import { useCallback } from "react";
 
-import {
-    createPost,
-    deletePost,
-    toggleLike,
-    updatePost,
-} from "../../services/post.service";
 import type { Post, User } from "../../components/social/types";
 import type { UploadedMedia } from "../../components/social/create-post";
+import { createPost, deletePost, sharePost, toggleLike, updatePost } from "../../services/post.service";
 
 
 type Params = {
@@ -70,9 +65,15 @@ export const useSocialFeedActions = ({
 
     const handleDeletePost = useCallback(
         async (id: string) => {
-            await deletePost(id);
+            // Immediate update
+            setPosts((prev) => prev.filter((p) => p.id !== id));
+            const success = await deletePost(id);
+            if (!success) {
+                // If failed, we might want to reload or show an error
+                console.error("Xóa bài viết thất bại");
+            }
         },
-        [],
+        [setPosts],
     );
 
     const handleUpdatePost = useCallback(
@@ -95,12 +96,28 @@ export const useSocialFeedActions = ({
                 accessControls,
             );
             if (result.post) {
+                // Patch media URLs with local blob URLs to avoid "S3 upload lag" (broken images)
+                const patchedPost = { ...result.post };
+                if (patchedPost.media && patchedPost.media.length > 0) {
+                    patchedPost.media = patchedPost.media.map((m, idx) => {
+                        const local = media[idx];
+                        if (local && local.url?.startsWith("blob:")) {
+                            return { ...m, url: local.url };
+                        }
+                        return m;
+                    });
+                }
+
+                // Immediate update
+                setPosts((prev) =>
+                    prev.map((p) => (p.id === postId ? patchedPost : p)),
+                );
                 return { ok: true };
             }
 
             return { ok: false, error: result.error };
         },
-        [currentUser.id],
+        [currentUser.id, setPosts],
     );
 
     const handleNewPost = useCallback(
@@ -126,6 +143,20 @@ export const useSocialFeedActions = ({
             );
 
             if (result.post) {
+                // Patch media URLs with local blob URLs to avoid "S3 upload lag" (broken images)
+                const patchedPost = { ...result.post };
+                if (patchedPost.media && patchedPost.media.length > 0) {
+                    patchedPost.media = patchedPost.media.map((m, idx) => {
+                        const local = media[idx];
+                        if (local && local.url?.startsWith("blob:")) {
+                            return { ...m, url: local.url };
+                        }
+                        return m;
+                    });
+                }
+
+                // Immediate update
+                setPosts((prev) => [patchedPost, ...prev]);
                 return { ok: true };
             }
             return { ok: false, error: result.error };
@@ -133,5 +164,29 @@ export const useSocialFeedActions = ({
         [currentUser],
     );
 
-    return { toggleLikePost, handleDeletePost, handleNewPost, handleUpdatePost };
+    const handleSharePost = useCallback(
+        async (
+            postId: string,
+            caption?: string,
+            visibility: string = "PUBLIC",
+        ): Promise<{ ok: boolean; error?: string }> => {
+            if (!currentUser.id) {
+                return { ok: false, error: "Không tìm thấy tài khoản." };
+            }
+            const result = await sharePost(
+                postId,
+                currentUser.id,
+                caption,
+                visibility,
+            );
+            if (result.post) {
+                setPosts((prev) => [result.post!, ...prev]);
+                return { ok: true };
+            }
+            return { ok: false, error: result.error };
+        },
+        [currentUser.id, setPosts],
+    );
+
+    return { toggleLikePost, handleDeletePost, handleNewPost, handleUpdatePost, handleSharePost };
 };

@@ -5,6 +5,7 @@ import avatar from "../../../assets/avatar.png";
 import type { FriendRequestOption } from "../../../services/social.service";
 
 const getInitials = (name: string) => {
+  if (!name) return "?";
   const parts = name.trim().split(" ");
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
@@ -12,6 +13,7 @@ const getInitials = (name: string) => {
 };
 
 const stringToColor = (str: string) => {
+  if (!str) return "#ccc";
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -20,12 +22,33 @@ const stringToColor = (str: string) => {
   return "#" + "00000".substring(0, 6 - c.length) + c;
 };
 
+const formatRelativeTime = (dateStr?: string) => {
+  if (!dateStr) return "Vừa gửi lời mời";
+  try {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Vừa gửi lời mời";
+    if (diffMins < 60) return `${diffMins} phút trước`;
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+    if (diffDays < 7) return `${diffDays} ngày trước`;
+    return date.toLocaleDateString("vi-VN");
+  } catch {
+    return "Vừa gửi lời mời";
+  }
+};
+
 interface Props {
   requests: FriendRequestOption[];
   loading: boolean;
   busyRequestId: string | null;
   onAccept: (relationshipId: string) => void;
   onReject: (relationshipId: string) => void;
+  onViewAll?: () => void;
 }
 
 const FriendRequestsPanel: React.FC<Props> = ({
@@ -34,6 +57,7 @@ const FriendRequestsPanel: React.FC<Props> = ({
   busyRequestId,
   onAccept,
   onReject,
+  onViewAll,
 }) => {
   const navigate = useNavigate();
   const goProfile = (userId: string) => {
@@ -45,7 +69,10 @@ const FriendRequestsPanel: React.FC<Props> = ({
     <div className="border-t border-primary-200 pt-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-primary-800">Lời mời kết bạn</h3>
-        <button className="text-primary-500 font-medium text-sm hover:underline">
+        <button 
+          onClick={onViewAll}
+          className="text-primary-500 font-medium text-sm hover:underline"
+        >
           Xem tất cả
         </button>
       </div>
@@ -87,7 +114,7 @@ const FriendRequestsPanel: React.FC<Props> = ({
                   className="font-semibold text-gray-800 text-sm truncate text-left hover:underline">
                   {req.name}
                 </button>
-                <p className="text-xs text-gray-400 mt-0.5">Vừa gửi lời mời</p>
+                <p className="text-xs text-gray-400 mt-0.5">{formatRelativeTime(req.createdAt)}</p>
                 <div className="flex gap-2 mt-2">
                   <button
                     onClick={() => onAccept(req.id)}

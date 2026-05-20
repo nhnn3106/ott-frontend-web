@@ -5,6 +5,7 @@ import avatar from "../../../assets/avatar.png";
 import type { FriendOption } from "../../../services/social.service";
 
 const getInitials = (name: string) => {
+  if (!name) return "?";
   const parts = name.trim().split(" ");
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
@@ -12,6 +13,7 @@ const getInitials = (name: string) => {
 };
 
 const stringToColor = (str: string) => {
+  if (!str) return "#ccc";
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -23,9 +25,10 @@ const stringToColor = (str: string) => {
 interface Props {
   friends: FriendOption[];
   loading: boolean;
+  onViewAll?: () => void;
 }
 
-const FriendsPanel: React.FC<Props> = ({ friends, loading }) => {
+const FriendsPanel: React.FC<Props> = ({ friends, loading, onViewAll }) => {
   const navigate = useNavigate();
   const goProfile = (userId: string) => {
     if (!userId) return;
@@ -36,7 +39,10 @@ const FriendsPanel: React.FC<Props> = ({ friends, loading }) => {
     <div className="border-t border-primary-200 pt-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-primary-800">Bạn bè</h3>
-        <button className="text-primary-500 font-medium text-sm hover:underline">
+        <button 
+          onClick={onViewAll}
+          className="text-primary-500 font-medium text-sm hover:underline"
+        >
           Xem tất cả
         </button>
       </div>
@@ -79,7 +85,6 @@ const FriendsPanel: React.FC<Props> = ({ friends, loading }) => {
                   onClick={() => goProfile(friend.id)}
                   className="font-semibold text-gray-800 text-sm truncate text-left hover:underline">
                   {friend.name}
-                  <div>{friend.avatarUrl}</div>
                 </button>
                 <p className="text-xs text-gray-400 mt-0.5">Bạn bè</p>
               </div>

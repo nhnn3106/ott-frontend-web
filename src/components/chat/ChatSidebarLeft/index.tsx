@@ -5,7 +5,7 @@ import LoadingSkeleton from "../../common/LoadingSkeleton";
 import CreateGroupModal from "../../modal/group/CreateGroupModal";
 import AddFriendModal from "../../modal/friend/AddFriendModal";
 import { ConversationService } from "../../../services/conversation.service";
-import { CategoryService, socketService, fetchFriends } from "../../../services";
+import { CategoryService, socketService, fetchFriends, MessageService } from "../../../services";
 import { useConversations } from "../../../contexts/ConversationsContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import type {
@@ -17,9 +17,21 @@ import type { SidebarProps } from "../../../interfaces";
 import { SearchResultsPanel, SidebarHeader } from "./components";
 import useChatSearch from "../../../hooks/useChatSearch";
 
+const isMessageIdAfter = (left?: string, right?: string) => {
+  const normalizedLeft = String(left || "0").trim();
+  const normalizedRight = String(right || "0").trim();
+
+  try {
+    return BigInt(normalizedLeft || "0") > BigInt(normalizedRight || "0");
+  } catch {
+    return normalizedLeft > normalizedRight;
+  }
+};
+
 const ChatSidebarLeft: React.FC<SidebarProps> = ({
   onConversationSelect,
   selectedConversationId,
+  className = "",
 }) => {
   const { user: currentUser } = useAuth();
   const rawUser = currentUser as { id?: string; user_id?: string; _id?: string } | null;
@@ -123,7 +135,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
       const lastMsgId = item.conversation.last_message?.msg_id;
       const deletedMsgId = item.participant.deleted_msg_id || "0";
       if (deletedMsgId === "0") return true;
-      if (lastMsgId) return BigInt(lastMsgId) > BigInt(deletedMsgId);
+      if (lastMsgId) return isMessageIdAfter(lastMsgId, deletedMsgId);
       return false;
     });
 
@@ -171,19 +183,48 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
     }
 
     try {
-      const memberIds = selectedUsers
-        .map((user) => user.user_id || user._id)
+      const friendIds = selectedUsers
+        .filter(u => availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)))
+        .map(u => u.user_id || u._id)
         .filter((id): id is string => !!id);
 
+      const strangers = selectedUsers.filter(u => !availableUsers.some(f => (f.user_id || f._id) === (u.user_id || u._id)));
+      const strangerIds = strangers.map(u => u.user_id || u._id).filter((id): id is string => !!id);
+
+      // Create group with creator + friends only
       const result = await ConversationService.createGroup(
         normalizedUserId,
         groupName,
-        memberIds,
+        friendIds,
         avatar,
-        memberNames,
+        memberNames?.filter((_, idx) => availableUsers.some(f => (f.user_id || f._id) === (selectedUsers[idx].user_id || selectedUsers[idx]._id))),
       );
 
       if (result && result._id) {
+        // Handle strangers: send invite link
+        if (strangerIds.length > 0) {
+          try {
+            const link = await ConversationService.getInviteLink(result._id, normalizedUserId);
+            for (const sId of strangerIds) {
+              const existingConv = conversations.find(c => 
+                c.conversation.type === "private" && 
+                c.conversation.participants?.some(p => String(p.user_id || (p as any)._id) === String(sId))
+              );
+
+              let targetConvId: string;
+              if (existingConv) {
+                targetConvId = existingConv.conversation._id;
+              } else {
+                const directConv = await ConversationService.getOrCreatePrivateConversation(normalizedUserId, sId);
+                targetConvId = (directConv as any).conversation?._id || (directConv as any)._id;
+              }
+              await MessageService.sendMessage(targetConvId, normalizedUserId, link, "link");
+            }
+          } catch (linkErr) {
+            console.error("Failed to send invite links to strangers:", linkErr);
+          }
+        }
+
         // Dispatch event to open the new conversation
         window.dispatchEvent(new CustomEvent("chat:open-conversation", {
           detail: {
@@ -232,7 +273,11 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
 
   return (
     <>
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
+      <div
+        className={`flex h-full min-h-0 flex-col border-r border-gray-200 bg-white ${
+          className || "w-80"
+        }`}
+      >
         <SidebarHeader
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
@@ -258,7 +303,7 @@ const ChatSidebarLeft: React.FC<SidebarProps> = ({
           onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
         />
 
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {isSearchPanelOpen ? (
             <SearchResultsPanel
               isSearchPanelOpen={isSearchPanelOpen}

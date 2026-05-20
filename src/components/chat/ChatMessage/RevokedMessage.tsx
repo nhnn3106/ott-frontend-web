@@ -1,4 +1,5 @@
 import { MessageLayout } from "./MessageLayout";
+import type { ConversationParticipant, Message } from "../../../types";
 
 export const RevokedMessage = ({
   msg,
@@ -9,15 +10,17 @@ export const RevokedMessage = ({
   isTopBoundary,
   onDelete,
   participants,
+  conversationType,
 }: {
-  msg: any;
+  msg: Message;
   isMe: boolean;
   currentUserId?: string;
   isFirstInSequence: boolean;
   isLastInSequence: boolean;
   isTopBoundary?: boolean;
-  onDelete?: (msg: any) => void;
-  participants?: any[];
+  onDelete?: (msg: Message) => void;
+  participants?: ConversationParticipant[];
+  conversationType?: string;
 }) => {
   const placeholder = isMe
     ? "Bạn đã thu hồi một tin nhắn"
@@ -31,7 +34,7 @@ export const RevokedMessage = ({
     reply_to_msg_id: null,
     reactions: [],
     is_revoked: true,
-  };
+  } as unknown as Message;
 
   return (
     <MessageLayout
@@ -43,16 +46,22 @@ export const RevokedMessage = ({
       isTopBoundary={isTopBoundary}
       onDelete={onDelete}
       participants={participants}
+      conversationType={conversationType}
     >
-      {(borderRadius) => (
+      {(borderRadius, renderMessageMeta) => (
         <div
-          className={`h-10 px-3 text-[13px] leading-relaxed shadow-sm flex items-center gap-2 overflow-hidden ${borderRadius} ${
+          className={`min-h-10 px-3 py-2 text-[13px] leading-relaxed shadow-sm overflow-hidden ${borderRadius} ${
             isMe
               ? "bg-[#e8e8e8] border-[#d7c7af] text-[#7b6648]"
-              : "bg-gray-2s00 border-slate-300 text-slate-500"
+              : "bg-gray-200 border-slate-300 text-slate-500"
           }`}
         >
           <span className="italic">{placeholder}</span>
+          {renderMessageMeta() && (
+            <div className={`mt-1 flex ${isMe ? "justify-end" : "justify-start"}`}>
+              {renderMessageMeta()}
+            </div>
+          )}
         </div>
       )}
     </MessageLayout>

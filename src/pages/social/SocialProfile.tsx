@@ -22,7 +22,7 @@ const SocialProfile: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>("posts");
 
   /* ── Custom Hooks ─────────────────────────────────── */
-  const { currentUser: feedCurrentUser } = useSocialFeed();
+  const { currentUser: feedCurrentUser, handleSharePost } = useSocialFeed();
 
   const {
     profileUser,
@@ -123,7 +123,7 @@ const SocialProfile: React.FC = () => {
     userId ||
     "Người dùng";
 
-  const shownAvatar = getFullUrl(localAvatar || profileUser?.avatarUrl || fallbackUser?.avatarUrl);
+  const shownAvatar = getFullUrl(localAvatar || profileUser?.avatarUrl);
   const shownCover = getFullUrl(localCover || profileUser?.coverUrl);
 
   return (
@@ -161,6 +161,7 @@ const SocialProfile: React.FC = () => {
               onToggleLike={handleToggleLike}
               onDeletePost={handleDeletePost}
               onEditPost={() => { }}
+              onSharePost={handleSharePost}
             />
           )}
 

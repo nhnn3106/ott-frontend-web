@@ -10,35 +10,34 @@ import React, {
 import {
   ChevronDown,
   FileText,
-  Loader2,
   MessageCircle,
   PinOff,
   Play,
   Volume2,
-  X,
   AlertTriangle,
   Info,
   Trash2,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
+import { useToast } from "../../contexts/ToastContext";
 import { useChat } from "../../hooks/useChat";
 import { primeMessageSenderCache } from "../../hooks/useMessageSender";
 import {
   MessageService,
   ParticipantService,
-  UserService,
-  ConversationService,
   fetchRelationshipStatusViaChat,
   socketService,
+  AiService,
 } from "../../services";
+import type { AiSummaryResult } from "../../services";
 import type { ChatAreaProps } from "../../interfaces";
 import type {
   ImageSendError,
   ImageSendSuccess,
   Message as ChatMessageType,
 } from "../../types/message.type";
-
 // Components
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
@@ -47,13 +46,12 @@ import { ChatMessage } from "./ChatMessage";
 import { ChatNotification } from "./ChatNotification";
 import { ChatTimeSeparator } from "./ChatTimeSeparator";
 import ChatSidebarRight from "./ChatSidebarRight";
+import Avatar from "../common/Avatar";
 import { ConfirmModal } from "../modal/ConfirmModal";
 import { ReplacePinnedModal } from "../modal/ReplacePinnedModal";
 import { ForwardMessageModal } from "../modal/ForwardMessageModal";
 import { FriendRequestBar } from "./FriendRequestBar";
-import { GroupInvitationBar } from "./GroupInvitationBar";
 import GroupCallModal from "./Modal/GroupCallModal";
-
 // Utils
 import {
   shouldShowTimestamp,
@@ -74,26 +72,135 @@ import type { Message } from "../../types";
 interface ExtendedChatAreaProps extends ChatAreaProps {
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  onBackToList?: () => void;
 }
 
 const isSystemLikeType = (type?: string) =>
-  String(type || "").startsWith("system_");
+  String(type || "").startsWith("system_") ||
+  String(type || "").toLowerCase() === "call_join";
+
+const isPollMessageType = (type?: string) =>
+  String(type || "").toLowerCase() === "poll";
+
+const isCallMessageType = (type?: string) =>
+  String(type || "").startsWith("call_");
+
+const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REVOKE_EXPIRED_MESSAGE =
+  "Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ";
+const GROUP_CALL_PENDING_LOCK_MS = 15000;
+const MAX_GROUP_CALL_PARTICIPANTS = 8;
+const RIGHT_SIDEBAR_DOCK_MIN_WIDTH = 1280;
+const TYPING_TTL_MS = 4500;
+
+const messageLoadingShimmerStyle: React.CSSProperties = {
+  backgroundImage:
+    "linear-gradient(90deg, rgba(226,232,240,0.82) 0%, rgba(248,250,252,0.96) 46%, rgba(226,232,240,0.82) 86%)",
+  backgroundSize: "220% 100%",
+};
+
+const messageLoadingRows = [
+  {
+    side: "left",
+    width: "w-[224px]",
+    height: "h-11",
+    showAvatar: true,
+  },
+  {
+    side: "left",
+    width: "w-[164px]",
+    height: "h-10",
+    showAvatar: false,
+  },
+  {
+    side: "right",
+    width: "w-[196px]",
+    height: "h-10",
+    showAvatar: false,
+  },
+  {
+    side: "left",
+    width: "w-[252px]",
+    height: "h-14",
+    showAvatar: true,
+  },
+  {
+    side: "right",
+    width: "w-[132px]",
+    height: "h-10",
+    showAvatar: false,
+  },
+] as const;
+
+const MessageLoadingSkeleton = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    className="flex min-h-[360px] flex-1 flex-col justify-end gap-2.5 px-2 pb-5 pt-3 sm:px-4"
+  >
+    <span className="sr-only">Đang tải tin nhắn</span>
+
+    <div
+      className="animate-shimmer mx-auto mb-3 h-6 w-24 rounded-full"
+      style={messageLoadingShimmerStyle}
+    />
+
+    {messageLoadingRows.map((row, index) => (
+      <div
+        key={`${row.side}-${index}`}
+        className={`flex items-end gap-2 ${row.side === "right" ? "justify-end" : "justify-start"
+          }`}
+      >
+        {row.side === "left" &&
+          (row.showAvatar ? (
+            <div
+              className="animate-shimmer h-8 w-8 shrink-0 rounded-full"
+              style={messageLoadingShimmerStyle}
+            />
+          ) : (
+            <div className="w-8 shrink-0" />
+          ))}
+
+        <div
+          className={`animate-shimmer ${row.width} ${row.height} rounded-[18px] ${row.side === "right" ? "rounded-br-md" : "rounded-bl-md"
+            }`}
+          style={messageLoadingShimmerStyle}
+        />
+      </div>
+    ))}
+  </div>
+);
+
+const isRevokeWindowExpired = (msg: Message) => {
+  const rawTime = msg.created_at || msg.createdAt;
+  if (!rawTime) return false;
+
+  const createdTime = new Date(rawTime).getTime();
+  if (Number.isNaN(createdTime)) return false;
+
+  return Date.now() - createdTime > REVOKE_WINDOW_MS;
+};
 
 const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   conversation,
   isSidebarOpen = false,
   onToggleSidebar,
+  onBackToList,
 }) => {
+  const { showToast } = useToast();
   const { user: currentUser } = useAuth();
   const {
     conversations,
+    addConversation,
     updateConversation,
     updateParticipant,
-    updateConversationParticipant,
-    refreshConversations,
   } = useConversations();
-
   const normalizedUserId = currentUser?.id;
+  const [isOpeningCall, setIsOpeningCall] = useState(false);
+  const [
+    pendingGroupCallConversationId,
+    setPendingGroupCallConversationId,
+  ] = useState<string | null>(null);
 
   const activeConversation = useMemo(() => {
     const matched = conversations.find(
@@ -101,10 +208,27 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     )?.conversation;
     return matched || conversation;
   }, [conversations, conversation]);
+  const isPendingGroupCallStart =
+    activeConversation?.type === "group" &&
+    pendingGroupCallConversationId === activeConversation._id;
+  const messageConversation = useMemo(() => {
+    if (!activeConversation || !isPendingGroupCallStart) {
+      return activeConversation;
+    }
+
+    return {
+      ...activeConversation,
+      is_calling: true,
+    };
+  }, [activeConversation, isPendingGroupCallStart]);
+  const disableGroupRecallCall =
+    activeConversation?.type === "group" &&
+    (isPendingGroupCallStart || Boolean(activeConversation.is_calling));
 
   const {
     messages,
     appendMessage,
+    removeMessage,
     loadMessages,
     loadOlderMessages,
     loadMessageContext,
@@ -113,13 +237,67 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     hasMore,
     hasMoreAfter,
   } = useChat(activeConversation?._id, normalizedUserId);
-  const isInitialLoading = loading && messages.length === 0;
 
-  const [isOpeningCall, setIsOpeningCall] = useState(false);
+  const isInitialLoading = loading && messages.length === 0;
+  const latestSmartReplySource = useMemo(() => {
+    const conversationId = String(activeConversation?._id || "").trim();
+    if (!conversationId) return null;
+
+    const createSource = (message?: Partial<Message> | null) => {
+      if (!message) return null;
+
+      const type = String((message as any).type || "").toLowerCase();
+      const messageId = String(
+        (message as any).msg_id || (message as any)._id || "",
+      ).trim();
+      if (
+        !messageId ||
+        isSystemLikeType(type) ||
+        isCallMessageType(type) ||
+        type === "poll" ||
+        type === "system_poll"
+      ) {
+        return null;
+      }
+
+      const senderId = String(
+        (message as any).sender_id || (message as any).senderId || "",
+      ).trim();
+      const messageConversationId = String(
+        (message as any).conversation_id || (message as any).conversationId || "",
+      ).trim();
+      if (messageConversationId && messageConversationId !== conversationId) {
+        return null;
+      }
+
+      return {
+        conversationId,
+        messageId,
+        senderId,
+        type,
+        key: `${conversationId}:${messageId}:${senderId}:${type}`,
+      };
+    };
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const source = createSource(messages[index]);
+      if (source) return source;
+    }
+
+    return createSource(activeConversation?.last_message as any);
+  }, [
+    activeConversation?._id,
+    activeConversation?.last_message?.msg_id,
+    activeConversation?.last_message?.sender_id,
+    activeConversation?.last_message?.type,
+    messages,
+  ]);
+
   const [callBlockModal, setCallBlockModal] = useState<{
     title: string;
     message: string;
   } | null>(null);
+
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     action: "revoke" | "delete" | "delete-history" | null;
@@ -129,56 +307,137 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     action: null,
     message: null,
   });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const composerContainerRef = useRef<HTMLDivElement>(null);
+  const lastComposerHeightRef = useRef<number | null>(null);
   const lastMarkedRef = useRef<string>("0");
+  const lastDeliveredRef = useRef<string>("0");
+
+  const seenMarkTimerRef = useRef<number | null>(null);
+  const allowInitialSeenRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
   const isLoadingNewerRef = useRef(false);
+  const typingExpiryTimersRef = useRef<Map<string, number>>(new Map());
+
   const suppressAutoScrollAfterNewerLoadRef = useRef(false);
+  const newerLoadScrollTopRef = useRef<number | null>(null);
   const suppressTopLoadUntilRef = useRef(0);
   const suppressBottomLoadUntilRef = useRef(0);
+
+  const suppressAutoScrollUntilRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const wasNearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
   const scrollHeightRef = useRef(0);
+  const scrollTopBeforeLoadMoreRef = useRef(0);
+
+  const lastLayoutScrollHeightRef = useRef(0);
+  const lastLayoutClientHeightRef = useRef(0);
   const isFirstLoadRef = useRef(true); // Track if this is first load for this conversation
   const initialScrollRafRef = useRef<number | null>(null);
+  const bottomPinRafRef = useRef<number | null>(null);
+  const mediaSettleCleanupRef = useRef<(() => void) | null>(null);
+
   const prevMessageCountRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
+  const lastSmartReplyMessageIdRef = useRef<string | null>(null);
+  const smartReplyCacheRef = useRef<Map<string, string[]>>(new Map());
+  const smartReplyLoadingTimerRef = useRef<number | null>(null);
+  const scrollAnchorRef = useRef<{
+    messageId: string;
+    topOffset: number;
+  } | null>(null);
   const autoFillOlderRef = useRef(false);
+
   const pendingCallParamsRef = useRef<{
     type: "voice" | "video";
     action: "start" | "join";
     displayName: string;
     displayAvatar: string;
   } | null>(null);
+  const pendingGroupCallTimerRef = useRef<number | null>(null);
+
+  const clearPendingGroupCallLock = useCallback(() => {
+    if (pendingGroupCallTimerRef.current !== null) {
+      window.clearTimeout(pendingGroupCallTimerRef.current);
+      pendingGroupCallTimerRef.current = null;
+    }
+    setPendingGroupCallConversationId(null);
+  }, []);
+
+  const lockPendingGroupCall = useCallback((conversationId: string) => {
+    if (pendingGroupCallTimerRef.current !== null) {
+      window.clearTimeout(pendingGroupCallTimerRef.current);
+    }
+
+    setPendingGroupCallConversationId(conversationId);
+    pendingGroupCallTimerRef.current = window.setTimeout(() => {
+      setPendingGroupCallConversationId((currentConversationId) =>
+        currentConversationId === conversationId ? null : currentConversationId,
+      );
+      pendingGroupCallTimerRef.current = null;
+    }, GROUP_CALL_PENDING_LOCK_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pendingGroupCallTimerRef.current !== null) {
+        window.clearTimeout(pendingGroupCallTimerRef.current);
+        pendingGroupCallTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      activeConversation?.is_calling &&
+      pendingGroupCallConversationId === activeConversation._id
+    ) {
+      clearPendingGroupCallLock();
+    }
+  }, [
+    activeConversation?._id,
+    activeConversation?.is_calling,
+    clearPendingGroupCallLock,
+    pendingGroupCallConversationId,
+  ]);
 
   // State quản lý Media Viewer & Tin nhắn
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(112);
   const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
   const [showPinnedMenu, setShowPinnedMenu] = useState(false);
+
   const [expandedSystemGroups, setExpandedSystemGroups] = useState<
     Record<string, boolean>
   >({});
   const [replacePinModalOpen, setReplacePinModalOpen] = useState(false);
+
   const [pendingPinMessage, setPendingPinMessage] = useState<Message | null>(
     null,
   );
   const [forwardModalOpen, setForwardModalOpen] = useState(false);
+
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(
     null,
   );
   const [isForwarding, setIsForwarding] = useState(false);
+
   const [typingUserIds, setTypingUserIds] = useState<Record<string, number>>(
     {},
   );
+
   const [locallyRemovedPinnedMap, setLocallyRemovedPinnedMap] = useState<
     Record<string, Message>
   >({});
+
   const [removedMessageNotice, setRemovedMessageNotice] = useState<{
     isOpen: boolean;
     title: string;
@@ -190,18 +449,23 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   });
 
   const [isGroupCallModalOpen, setIsGroupCallModalOpen] = useState(false);
-  const [initialCallTypeForGroup, setInitialCallTypeForGroup] = useState<"voice" | "video">("voice");
 
   const [relationshipStatus, setRelationshipStatus] = useState<any>(null);
   const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
+  const canShowPrivatePresence =
+    activeConversation?.type === "private" &&
+    String(relationshipStatus?.status || "").toUpperCase() === "ACCEPTED";
+  const [smartReplies, setSmartReplies] = useState<string[]>([]);
+  const [isSmartReplyLoading, setIsSmartReplyLoading] = useState(false);
+  const [isSmartReplyOpen, setIsSmartReplyOpen] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const isSummarizingRef = useRef(false);
+  const [summaryResult, setSummaryResult] = useState<AiSummaryResult | null>(null);
 
   const fetchStatus = useCallback(async () => {
     if (activeConversation?.type === "private" && !activeConversation.is_self_conversation && normalizedUserId) {
       const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-      
-      // If participants list is not in activeConversation, try to find from members if it's a private chat
-      // Actually, private conversations should have user_id if we fetch correctly.
-      
+
       if (otherParticipantId) {
         setIsRelationshipLoading(true);
         const status = await fetchRelationshipStatusViaChat(normalizedUserId, otherParticipantId);
@@ -221,22 +485,43 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   useEffect(() => {
     if (!normalizedUserId) return;
 
+    const normalizeRelationshipPayload = (payload: any) => ({
+      ...payload,
+      _id: payload?._id || payload?.id || payload?.relationship_id,
+      requester_id: payload?.requester_id || payload?.requesterId,
+      receiver_id: payload?.receiver_id || payload?.receiverId,
+      requesterId: payload?.requesterId || payload?.requester_id,
+      receiverId: payload?.receiverId || payload?.receiver_id,
+      status: payload?.status ? String(payload.status).toUpperCase() : payload?.status,
+    });
+
     const handleRelationshipUpdate = (payload: any) => {
+      const normalizedPayload = normalizeRelationshipPayload(payload);
       // If the update involves the current user and the other participant in this private chat
       if (activeConversation?.type === "private") {
         const otherParticipantId = activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id;
-        if (otherParticipantId && 
-            (String(payload.requester_id) === String(otherParticipantId) || 
-             String(payload.receiver_id) === String(otherParticipantId))) {
-          console.log("ChatArea: Relationship status updated via socket:", payload.status);
-          setRelationshipStatus(payload);
+        const requesterId = normalizedPayload.requester_id;
+        const receiverId = normalizedPayload.receiver_id;
+
+        if (otherParticipantId &&
+          (String(requesterId) === String(otherParticipantId) ||
+            String(receiverId) === String(otherParticipantId))) {
+          console.log("ChatArea: Relationship status updated via socket:", normalizedPayload.status);
+          setRelationshipStatus(normalizedPayload);
         }
       }
     };
 
+    const handleLocalRelationshipUpdate = (event: Event) => {
+      handleRelationshipUpdate((event as CustomEvent).detail);
+    };
+
     socketService.onRelationshipUpdate(handleRelationshipUpdate);
+    window.addEventListener("chat:relationship-updated", handleLocalRelationshipUpdate);
+
     return () => {
       socketService.offRelationshipUpdate(handleRelationshipUpdate);
+      window.removeEventListener("chat:relationship-updated", handleLocalRelationshipUpdate);
     };
   }, [activeConversation, normalizedUserId]);
 
@@ -246,9 +531,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     )?.participant;
   }, [conversations, activeConversation?._id]);
 
-  const isInvited = useMemo(() => {
-    return myParticipant?.status === 'invited' || (myParticipant as any)?.status === 'invited';
-  }, [myParticipant]);
+  const isInvited = false;
 
   const isParticipant = useMemo(() => {
     if (!activeConversation || activeConversation.type === "private") return true;
@@ -259,7 +542,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const isDissolved = useMemo(() => {
     if (activeConversation?.status === "dissolved" || Boolean(activeConversation?.is_dissolved)) return true;
-    
+
     // Derived from messages
     return messages.some(
       (m) =>
@@ -285,49 +568,194 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   );
 
   const applyJumpHighlight = useCallback((container: HTMLElement | null) => {
-    // 1. Guard clause: Tránh lỗi crash app nếu container chưa tồn tại
     if (!container) return;
 
-    // 2. Tìm target gọn gàng, type-safe hơn với toán tử ??
     const bubbleTarget =
+      container.querySelector<HTMLElement>('[data-chat-message-bubble="true"]') ??
       container.querySelector<HTMLElement>(".group") ??
       (container.firstElementChild as HTMLElement) ??
       container;
 
-    // 3. Khai báo và chạy animation trực tiếp
+    const getHighlightBorderRadius = () => {
+      const candidates = [
+        bubbleTarget.firstElementChild as HTMLElement | null,
+        ...Array.from(bubbleTarget.querySelectorAll<HTMLElement>("*")),
+      ].filter(Boolean) as HTMLElement[];
+
+      for (const candidate of candidates) {
+        const style = getComputedStyle(candidate);
+        const hasRadius = [
+          style.borderTopLeftRadius,
+          style.borderTopRightRadius,
+          style.borderBottomRightRadius,
+          style.borderBottomLeftRadius,
+        ].some((value) => value && value !== "0px");
+
+        if (hasRadius) {
+          return {
+            borderTopLeftRadius: style.borderTopLeftRadius,
+            borderTopRightRadius: style.borderTopRightRadius,
+            borderBottomRightRadius: style.borderBottomRightRadius,
+            borderBottomLeftRadius: style.borderBottomLeftRadius,
+          };
+        }
+      }
+
+      return {
+        borderTopLeftRadius: "18px",
+        borderTopRightRadius: "18px",
+        borderBottomRightRadius: "18px",
+        borderBottomLeftRadius: "18px",
+      };
+    };
+
+    const previousPosition = bubbleTarget.style.position;
+    const previousZIndex = bubbleTarget.style.zIndex;
+    const previousFilter = bubbleTarget.style.filter;
+    const previousTransformOrigin = bubbleTarget.style.transformOrigin;
+    const highlightRadius = getHighlightBorderRadius();
+    const primaryColor =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--color-primary-500")
+        .trim() || "#B77C45";
+
+    bubbleTarget.style.position = previousPosition || "relative";
+    bubbleTarget.style.zIndex = "45";
+    bubbleTarget.style.transformOrigin = "center";
+
+    const ring = document.createElement("div");
+    ring.setAttribute("aria-hidden", "true");
+    ring.style.position = "absolute";
+    ring.style.inset = "0";
+    ring.style.borderTopLeftRadius = highlightRadius.borderTopLeftRadius;
+    ring.style.borderTopRightRadius = highlightRadius.borderTopRightRadius;
+    ring.style.borderBottomRightRadius = highlightRadius.borderBottomRightRadius;
+    ring.style.borderBottomLeftRadius = highlightRadius.borderBottomLeftRadius;
+    ring.style.pointerEvents = "none";
+    ring.style.border = `2px solid ${primaryColor}`;
+    ring.style.boxShadow = `0 0 0 6px rgba(183, 124, 69, 0.16), 0 14px 36px rgba(183, 124, 69, 0.22)`;
+    ring.style.opacity = "0";
+    ring.style.zIndex = "5";
+    ring.style.mixBlendMode = "normal";
+    bubbleTarget.appendChild(ring);
+
     bubbleTarget.animate(
       [
+        { transform: "scale(1)", filter: previousFilter || "brightness(1)" },
+        { transform: "scale(1.025)", filter: "brightness(1.06)", offset: 0.18 },
+        { transform: "scale(1)", filter: "brightness(1.02)", offset: 0.42 },
+        { transform: "scale(1.015)", filter: "brightness(1.05)", offset: 0.68 },
+        { transform: "scale(1)", filter: previousFilter || "brightness(1)" },
+      ],
+      {
+        duration: 2200,
+        easing: "cubic-bezier(0.2, 0, 0.2, 1)",
+      },
+    );
+
+    const ringAnimation = ring.animate(
+      [
         {
+          opacity: 0,
+          transform: "scale(0.96)",
+          boxShadow: "0 0 0 0 rgba(183, 124, 69, 0)",
+        },
+        {
+          opacity: 1,
           transform: "scale(1)",
+          boxShadow:
+            "0 0 0 6px rgba(183, 124, 69, 0.18), 0 14px 36px rgba(183, 124, 69, 0.24)",
+          offset: 0.16,
         },
         {
-          transform: "scale(1.10)",
-          offset: 0.3,
+          opacity: 0.72,
+          transform: "scale(1.015)",
+          boxShadow:
+            "0 0 0 10px rgba(183, 124, 69, 0.08), 0 12px 30px rgba(183, 124, 69, 0.16)",
+          offset: 0.45,
         },
         {
-          transform: "scale(0.9)",
-          offset: 0.7,
-        },
-        {
+          opacity: 1,
           transform: "scale(1)",
+          boxShadow:
+            "0 0 0 6px rgba(183, 124, 69, 0.16), 0 14px 36px rgba(183, 124, 69, 0.22)",
+          offset: 0.68,
+        },
+        {
+          opacity: 0,
+          transform: "scale(1.025)",
+          boxShadow: "0 0 0 14px rgba(183, 124, 69, 0)",
         },
       ],
       {
-        duration: 1000,
-        easing: "ease-in-out",
+        duration: 2200,
+        easing: "cubic-bezier(0.2, 0, 0.2, 1)",
       },
     );
+
+    ringAnimation.onfinish = () => {
+      ring.remove();
+      bubbleTarget.style.position = previousPosition;
+      bubbleTarget.style.zIndex = previousZIndex;
+      bubbleTarget.style.filter = previousFilter;
+      bubbleTarget.style.transformOrigin = previousTransformOrigin;
+    };
   }, []);
 
   // Sidebar state (Internal fallback nếu không truyền từ props)
   const [internalSidebarOpen, setInternalSidebarOpen] = useState(false);
   const sidebarOpen = onToggleSidebar ? isSidebarOpen : internalSidebarOpen;
+  const sidebarResponsiveCloseQueuedRef = useRef(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) {
+      sidebarResponsiveCloseQueuedRef.current = false;
+      return;
+    }
+
+    let lastWindowWidth =
+      typeof window === "undefined"
+        ? RIGHT_SIDEBAR_DOCK_MIN_WIDTH
+        : window.innerWidth;
+
+    const closeSidebarWhenEnteringCrowdedLayout = () => {
+      if (
+        typeof window === "undefined" ||
+        sidebarResponsiveCloseQueuedRef.current
+      ) {
+        return;
+      }
+
+      const currentWindowWidth = window.innerWidth;
+      const enteredCrowdedLayout =
+        lastWindowWidth >= RIGHT_SIDEBAR_DOCK_MIN_WIDTH &&
+        currentWindowWidth < RIGHT_SIDEBAR_DOCK_MIN_WIDTH;
+      lastWindowWidth = currentWindowWidth;
+
+      if (!enteredCrowdedLayout) return;
+
+      sidebarResponsiveCloseQueuedRef.current = true;
+      if (onToggleSidebar) {
+        onToggleSidebar();
+      } else {
+        setInternalSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", closeSidebarWhenEnteringCrowdedLayout);
+    return () => {
+      window.removeEventListener(
+        "resize",
+        closeSidebarWhenEnteringCrowdedLayout,
+      );
+    };
+  }, [onToggleSidebar, sidebarOpen]);
 
   const toggleSidebar = () => {
     if (onToggleSidebar) {
       onToggleSidebar();
     } else {
-      setInternalSidebarOpen(!internalSidebarOpen);
+      setInternalSidebarOpen((open) => !open);
     }
   };
 
@@ -393,10 +821,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           msg_id: draft.msg_id || clientMessageId,
           created_at: draft.created_at || new Date().toISOString(),
           createdAt: draft.createdAt || new Date().toISOString(),
-          sender_name:
-            draft.sender_name ||
-            currentUser?.fullName ||
-            "Bạn",
+          sender_name: draft.sender_name || currentUser?.fullName || "Bạn",
           reactions: Array.isArray(draft.reactions) ? draft.reactions : [],
           local_status: draft.local_status || "uploading",
           local_error: draft.local_error,
@@ -485,6 +910,123 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     [clearImageRemovalTimer, updateOptimisticImageMessage],
   );
 
+  const syncConversationAfterOwnMessage = useCallback(
+    (sentMessage?: Message | ChatMessageType | null) => {
+      if (!sentMessage || !activeConversation?._id) return;
+
+      const sentPayload = sentMessage as { message?: unknown; result?: unknown };
+      const sent = (sentPayload?.message || sentPayload?.result || sentPayload) as ChatMessageType & {
+        conversationId?: string;
+        content?: unknown;
+      };
+      const conversationId = String(
+        sent.conversation_id || sent.conversationId || activeConversation._id || "",
+      ).trim();
+
+      if (!conversationId || conversationId.startsWith("VIRTUAL_CONV_")) return;
+
+      const messageId = String(sent.msg_id || sent._id || Date.now()).trim();
+      const createdAt = String(
+        sent.createdAt || sent.created_at || new Date().toISOString(),
+      );
+      const messageType = String(sent.type || "text").toLowerCase();
+
+      const readContentValue = (value: unknown): string => {
+        if (typeof value === "string") return value;
+        if (value && typeof value === "object") {
+          const item = value as { text?: string; content?: string; url?: string; name?: string };
+          return String(item.text || item.content || item.name || item.url || "");
+        }
+        return String(value || "");
+      };
+
+      const contentItems = Array.isArray(sent.content)
+        ? sent.content
+        : [sent.content];
+      const rawContent = contentItems
+        .map(readContentValue)
+        .filter(Boolean)
+        .join(" ");
+      const mediaCount = contentItems.filter(Boolean).length;
+
+      let displayContent = rawContent;
+      switch (messageType) {
+        case "image":
+          displayContent = mediaCount > 1 ? `[${mediaCount} hình ảnh]` : "[Hình ảnh]";
+          break;
+        case "video":
+          displayContent = "[Video]";
+          break;
+        case "audio":
+          displayContent = "[Âm thanh]";
+          break;
+        case "file":
+          displayContent = sent.fileName || "[Tệp tin]";
+          break;
+        default:
+          displayContent = convertDisplayShortcodeToEmoji(
+            convertEmojiImageMarkupToText(rawContent || "Tin nhắn"),
+          );
+      }
+
+      if (displayContent.length > 50) {
+        displayContent = `${displayContent.slice(0, 50).trim()}...`;
+      }
+
+      const lastMessage = {
+        msg_id: messageId,
+        sender_id: String(sent.sender_id || normalizedUserId || ""),
+        sender_name:
+          sent.sender_name ||
+          (String(sent.sender_id || "") === String(normalizedUserId || "")
+            ? "Bạn"
+            : ""),
+        content: displayContent,
+        type: sent.type as any,
+        createdAt,
+      };
+
+      addConversation({
+        ...activeConversation,
+        _id: conversationId,
+        is_deleted: false,
+        last_message: lastMessage,
+        updatedAt: createdAt,
+      });
+
+      updateConversation(conversationId, {
+        is_deleted: false,
+        last_message: lastMessage,
+        updatedAt: createdAt,
+      });
+
+      updateParticipant(conversationId, {
+        deleted_msg_id: "0",
+        unread_count: 0,
+        last_read_message_id: messageId,
+        last_read_at: createdAt,
+        last_delivered_message_id: messageId,
+        last_delivered_at: createdAt,
+      });
+
+      window.dispatchEvent(
+        new CustomEvent("chat:message-upserted", {
+          detail: {
+            conversationId,
+            message: sent,
+          },
+        }),
+      );
+    },
+    [
+      activeConversation,
+      addConversation,
+      normalizedUserId,
+      updateConversation,
+      updateParticipant,
+    ],
+  );
+
   const handleImageSendSuccess = useCallback(
     ({ clientMessageId, sentMessage }: ImageSendSuccess) => {
       clearImageRemovalTimer(clientMessageId);
@@ -503,6 +1045,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       }));
 
       appendMessage(sentMessage);
+      syncConversationAfterOwnMessage(sentMessage);
 
       const timerId = window.setTimeout(() => {
         removeOptimisticImageMessage(clientMessageId);
@@ -519,6 +1062,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       appendMessage,
       clearImageRemovalTimer,
       removeOptimisticImageMessage,
+      syncConversationAfterOwnMessage,
       updateOptimisticImageMessage,
     ],
   );
@@ -594,12 +1138,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         ? firstContent
         : typeof firstContent === "object" && firstContent
           ? String(
-            (firstContent as { text?: string; url?: string; name?: string })
-              .text ||
-            (firstContent as { text?: string; url?: string; name?: string })
-              .url ||
-            (firstContent as { text?: string; url?: string; name?: string })
-              .name ||
+            (firstContent as { text?: string; url?: string; name?: string }).text ||
+            (firstContent as { text?: string; url?: string; name?: string }).url ||
+            (firstContent as { text?: string; url?: string; name?: string }).name ||
             "",
           )
           : String(firstContent || "");
@@ -615,22 +1156,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           ? firstContent
           : typeof firstContent === "object" && firstContent
             ? String(
-              (firstContent as { url?: string; text?: string; name?: string })
-                .url ||
-              (
-                firstContent as {
-                  url?: string;
-                  text?: string;
-                  name?: string;
-                }
-              ).text ||
-              (
-                firstContent as {
-                  url?: string;
-                  text?: string;
-                  name?: string;
-                }
-              ).name ||
+              (firstContent as { url?: string; text?: string; name?: string }).url ||
+              (firstContent as { url?: string; text?: string; name?: string }).text ||
+              (firstContent as { url?: string; text?: string; name?: string }).name ||
               "",
             )
             : "";
@@ -682,10 +1210,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (typeof firstContent === "object" && firstContent) {
       return String(
         (firstContent as { url?: string; text?: string; name?: string }).url ||
-        (firstContent as { url?: string; text?: string; name?: string })
-          .text ||
-        (firstContent as { url?: string; text?: string; name?: string })
-          .name ||
+        (firstContent as { url?: string; text?: string; name?: string }).text ||
+        (firstContent as { url?: string; text?: string; name?: string }).name ||
         "",
       );
     }
@@ -704,13 +1230,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         return "Bạn";
       }
 
-      if (msg.sender_name) {
-        return msg.sender_name;
-      }
-
       const participant = (activeConversation?.participants || []).find(
         (item) => String(item.user_id || item._id || "") === senderId,
       );
+      const participantNickname = String(participant?.nickname || "").trim();
+      if (participantNickname) {
+        return participantNickname;
+      }
+
+      if (msg.sender_name) {
+        return msg.sender_name;
+      }
 
       return (
         participant?.display_name ||
@@ -723,9 +1253,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   );
 
   const typingUsers = useMemo(() => {
-    const typingIds = Object.keys(typingUserIds).filter(
-      (userId) => userId && String(userId) !== String(normalizedUserId || ""),
-    );
+    const activeConversationId = String(activeConversation?._id || "");
+    const typingKeyPrefix = `${activeConversationId}:`;
+    const typingIds = Object.keys(typingUserIds)
+      .filter((key) => key.startsWith(typingKeyPrefix))
+      .map((key) => key.slice(typingKeyPrefix.length))
+      .filter(
+        (userId) => userId && String(userId) !== String(normalizedUserId || ""),
+      );
 
     return typingIds
       .map((userId) => {
@@ -754,8 +1289,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             "",
         };
       })
-      .filter(Boolean);
-  }, [activeConversation?.participants, normalizedUserId, typingUserIds]);
+      .filter((user) => Boolean(user.id));
+  }, [
+    activeConversation?._id,
+    activeConversation?.participants,
+    normalizedUserId,
+    typingUserIds,
+  ]);
 
   const jumpToPinnedMessage = useCallback(
     async (msg: Message) => {
@@ -801,6 +1341,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const primaryPinnedMessage = pinnedMessages[0] || null;
   const morePinnedCount = Math.max(0, pinnedMessages.length - 1);
+
   const pinnedMessageIdSet = useMemo(() => {
     return new Set(
       pinnedMessages.map((item) => String(item.msg_id || item._id || "")),
@@ -811,6 +1352,19 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     const mergedByKey = new Map<string, Message>();
 
     [...messages, ...optimisticImageMessages].forEach((item) => {
+      const activeConversationId = String(activeConversation?._id || "");
+      const itemConversationId = String(
+        item?.conversation_id || (item as Message & { conversationId?: string })?.conversationId || "",
+      );
+
+      if (
+        activeConversationId &&
+        itemConversationId &&
+        itemConversationId !== activeConversationId
+      ) {
+        return;
+      }
+
       const stableId = String(item?.msg_id || item?._id || "").trim();
 
       if (!stableId) {
@@ -863,6 +1417,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         | "call_end"
         | "call_cancel"
         | "call_no_answer";
+
       const rawReplyContent = Array.isArray(replyTarget.content)
         ? extractContentValue(replyTarget.content[0])
         : extractContentValue(replyTarget.content);
@@ -910,6 +1465,25 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     });
   }, [extractContentValue, renderedMessages]);
 
+  const latestOwnMessageId = useMemo(() => {
+    for (let index = hydratedMessages.length - 1; index >= 0; index -= 1) {
+      const message = hydratedMessages[index];
+      const stableId = String(
+        message.msg_id || message._id || message.local_client_id || "",
+      ).trim();
+
+      if (
+        stableId &&
+        !isSystemLikeType(message.type) &&
+        String(message.sender_id || "") === String(normalizedUserId || "")
+      ) {
+        return stableId;
+      }
+    }
+
+    return "";
+  }, [hydratedMessages, normalizedUserId]);
+
   const timelineItems = useMemo(() => {
     const items: Array<
       | {
@@ -935,14 +1509,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       const isSystemMsg = isSystemLikeType(currentMsg.type);
 
       if (!isSystemMsg) {
+        const stableMessageKey = String(
+          currentMsg.local_client_id ||
+          currentMsg.msg_id ||
+          currentMsg._id ||
+          `index-${index}`,
+        );
+
         items.push({
           kind: "message",
-          key: `message-${String(
-            currentMsg.local_client_id ||
-            currentMsg.msg_id ||
-            currentMsg._id ||
-            index,
-          )}-${index}`,
+          key: `message-${stableMessageKey}`,
           message: currentMsg,
           showTime: shouldShowTimestamp(
             currentMsg.createdAt || "",
@@ -962,6 +1538,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       let endIndex = index;
       while (endIndex + 1 < hydratedMessages.length) {
         const nextMsg = hydratedMessages[endIndex + 1];
+
         if (!isSystemLikeType(nextMsg.type)) {
           break;
         }
@@ -1067,41 +1644,81 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     action: "start" | "join",
     displayName: string,
     displayAvatar: string,
-    invitedUserIds?: string[]
+    invitedUserIds?: string[],
+    callId?: string,
   ) => {
-    const params = new URLSearchParams({
-      conversationId: activeConversation!._id,
-      type,
-      action,
-      name: displayName,
-      // Tránh truyền base64 quá dài gây lỗi HTTP 431 (Request Header Fields Too Large)
-      avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
-    });
+    const conversationId = activeConversation!._id;
+    const effectiveType =
+      activeConversation?.type === "group" ? "video" : type;
+    const windowName = `call_${conversationId}`;
+    const channelName = `call_channel_${conversationId}`;
 
-    if (invitedUserIds && invitedUserIds.length > 0) {
-      params.append("invitedUserIds", invitedUserIds.join(","));
-    }
+    // Premium: Kiểm tra xem cửa sổ gọi cho cuộc hội thoại này đã mở chưa
+    // Nếu đã mở thì chỉ focus, không tải lại (để không ngắt kết nối LiveKit)
+    const bc = new BroadcastChannel(channelName);
+    let isHandled = false;
 
-    setIsOpeningCall(true);
-    const callWindow = window.open(
-      `/call?${params.toString()}`,
-      "riff-call-window",
-      "width=1180,height=760,menubar=no,toolbar=no,location=no,status=no",
-    );
+    // Lắng nghe phản hồi từ cửa sổ đang mở
+    bc.onmessage = (ev) => {
+      if (ev.data.type === "PONG_ALIVE") {
+        isHandled = true;
+        bc.close();
+      }
+    };
 
-    if (!callWindow) {
-      window.location.href = `/call?${params.toString()}`;
-    }
-    setTimeout(() => setIsOpeningCall(false), 500);
+    // Gửi tín hiệu yêu cầu focus
+    bc.postMessage({ type: "PING_FOCUS" });
+
+    // Sau một khoảng thời gian ngắn, nếu không có ai phản hồi thì mới mở cửa sổ mới
+    setTimeout(() => {
+      if (!isHandled) {
+        const params = new URLSearchParams({
+          conversationId,
+          type: effectiveType,
+          action,
+          name: displayName,
+          avatar: displayAvatar.startsWith("data:") ? "" : displayAvatar,
+        });
+
+        if (activeConversation?.type === "group") {
+          params.append("isGroup", "true");
+          params.append("transport", "livekit");
+        }
+
+        if (callId) {
+          params.append("callId", callId);
+        }
+
+        if (invitedUserIds && invitedUserIds.length > 0) {
+          params.append("invitedUserIds", invitedUserIds.join(","));
+        }
+
+        setIsOpeningCall(true);
+        const callWindow = window.open(
+          `/call?${params.toString()}`,
+          windowName,
+          "width=1180,height=760,menubar=no,toolbar=no,location=no,status=no",
+        );
+
+        if (!callWindow) {
+          window.location.href = `/call?${params.toString()}`;
+        }
+        setTimeout(() => setIsOpeningCall(false), 500);
+      }
+      bc.close();
+    }, 250);
   };
 
-  const handleGroupCallStart = (selectedUserIds: string[], callType: "voice" | "video") => {
+  const handleGroupCallStart = (selectedUserIds: string[]) => {
+    if (!activeConversation?._id) return;
+
     setIsGroupCallModalOpen(false);
-    
+    lockPendingGroupCall(activeConversation._id);
+
     const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
     const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
 
-    doOpenCallWindow(callType, "start", displayName, displayAvatar, selectedUserIds);
+    doOpenCallWindow("video", "start", displayName, displayAvatar, selectedUserIds);
   };
 
   const openCallWindow = (
@@ -1110,14 +1727,48 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   ) => {
     if (!activeConversation?._id) return;
 
+    if (
+      activeConversation.type === "group" &&
+      isPendingGroupCallStart &&
+      !activeConversation.is_calling
+    ) {
+      return;
+    }
+
+    // Nếu cuộc gọi đang diễn ra -> Chuyển sang join luôn, không hiện modal chọn người
+    if (activeConversation.is_calling && activeConversation.type === "group") {
+      const activeParticipantCount = Number(
+        activeConversation.call_participant_count || 0,
+      );
+      if (activeParticipantCount >= MAX_GROUP_CALL_PARTICIPANTS) {
+        setCallBlockModal({
+          title: "Cuộc gọi đã đủ người",
+          message: `Cuộc gọi nhóm tối đa ${MAX_GROUP_CALL_PARTICIPANTS} người tham gia.`,
+        });
+        return;
+      }
+
+      const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
+      const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
+      doOpenCallWindow(
+        "video",
+        "join",
+        displayName,
+        displayAvatar,
+        undefined,
+        activeConversation.active_call_id,
+      );
+      return;
+    }
+
     // Nếu là bắt đầu gọi nhóm -> hiện modal chọn thành viên trước
     if (action === "start" && activeConversation.type === "group") {
-      setInitialCallTypeForGroup(type);
       setIsGroupCallModalOpen(true);
       return;
     }
 
     const blockReason = getCallOpenBlockReason(activeConversation._id);
+
     if (blockReason === "other") {
       setCallBlockModal({
         title: "Đang trong cuộc gọi",
@@ -1138,6 +1789,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       activeConversation,
       normalizedUserId,
     );
+
     const displayAvatar =
       getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
 
@@ -1154,10 +1806,23 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       displayName,
       displayAvatar,
     };
+
     socketService.checkCallAvailability(
       activeConversation._id,
       normalizedUserId as string,
     );
+  };
+
+  const handleRecallFromCallMessage = (type: "voice" | "video") => {
+    if (!activeConversation?._id) return;
+
+    if (activeConversation.type === "group") {
+      if (activeConversation.is_calling || isPendingGroupCallStart) return;
+      openCallWindow("video");
+      return;
+    }
+
+    openCallWindow(type);
   };
 
   useEffect(() => {
@@ -1185,20 +1850,40 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   // Logic đánh dấu đã đọc
   useEffect(() => {
     lastMarkedRef.current = "0";
+    lastDeliveredRef.current = "0";
+    allowInitialSeenRef.current = true;
+    if (seenMarkTimerRef.current !== null) {
+      window.clearTimeout(seenMarkTimerRef.current);
+      seenMarkTimerRef.current = null;
+    }
     setReplyToMessage(null);
     scrollHeightRef.current = 0; // Reset scroll position when conversation changes
+    scrollTopBeforeLoadMoreRef.current = 0;
     isLoadingMoreRef.current = false; // Reset loading state
     isFirstLoadRef.current = true; // Mark as first load for new conversation
     if (initialScrollRafRef.current !== null) {
       window.cancelAnimationFrame(initialScrollRafRef.current);
       initialScrollRafRef.current = null;
     }
+    if (bottomPinRafRef.current !== null) {
+      window.cancelAnimationFrame(bottomPinRafRef.current);
+      bottomPinRafRef.current = null;
+    }
+    mediaSettleCleanupRef.current?.();
+    mediaSettleCleanupRef.current = null;
     prevMessageCountRef.current = 0;
     prevLastMessageIdRef.current = null;
+    lastLayoutScrollHeightRef.current = 0;
+    lastLayoutClientHeightRef.current = 0;
+    newerLoadScrollTopRef.current = null;
+    wasNearBottomRef.current = true;
     forceScrollToBottomRef.current = false;
     suppressAutoScrollAfterNewerLoadRef.current = false;
     lastScrollTopRef.current = 0;
+    suppressTopLoadUntilRef.current = Date.now() + 800;
     suppressBottomLoadUntilRef.current = 0;
+    suppressAutoScrollUntilRef.current = 0;
+    setShowScrollButton(false);
 
     // Immediately clear unread when entering a conversation
     updateParticipant(activeConversation._id, { unread_count: 0 });
@@ -1209,42 +1894,163 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   }, [activeConversation?.participants]);
 
   useEffect(() => {
-    if (!messages.length || !normalizedUserId || !activeConversation?._id)
+    return () => {
+      if (initialScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(initialScrollRafRef.current);
+        initialScrollRafRef.current = null;
+      }
+      if (bottomPinRafRef.current !== null) {
+        window.cancelAnimationFrame(bottomPinRafRef.current);
+        bottomPinRafRef.current = null;
+      }
+      mediaSettleCleanupRef.current?.();
+      mediaSettleCleanupRef.current = null;
+      if (smartReplyLoadingTimerRef.current !== null) {
+        window.clearTimeout(smartReplyLoadingTimerRef.current);
+        smartReplyLoadingTimerRef.current = null;
+      }
+      typingExpiryTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      typingExpiryTimersRef.current.clear();
+    };
+  }, []);
+
+  const latestMessageForCursor = messages[messages.length - 1] as
+    | (ChatMessageType & { _id?: string; msg_id?: string; sender_id?: string })
+    | undefined;
+
+  const latestCursorMsgId = String(latestMessageForCursor?.msg_id || "").trim();
+  const latestStableMsgId = String(
+    latestMessageForCursor?.msg_id ||
+    latestMessageForCursor?._id ||
+    latestMessageForCursor?.local_client_id ||
+    "",
+  ).trim();
+
+  const latestMessageSenderId = String(
+    latestMessageForCursor?.sender_id || "",
+  ).trim();
+
+  const latestMessageConversationId = String(
+    latestMessageForCursor?.conversation_id ||
+    (latestMessageForCursor as
+      | (ChatMessageType & { conversationId?: string })
+      | undefined)?.conversationId ||
+    "",
+  ).trim();
+
+  const latestMessageMatchesActiveConversation =
+    !latestMessageConversationId ||
+    latestMessageConversationId === String(activeConversation?._id || "");
+
+  useEffect(() => {
+    if (
+      !latestCursorMsgId ||
+      !latestMessageMatchesActiveConversation ||
+      !normalizedUserId ||
+      !activeConversation?._id
+    ) {
       return;
+    }
 
-    // Mark ALL visible messages as read (including our own)
-    // This is correct because we're viewing them
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg.msg_id || lastMsg.msg_id === lastMarkedRef.current) return;
+    if (latestCursorMsgId === lastDeliveredRef.current) return;
 
-    lastMarkedRef.current = lastMsg.msg_id;
-
-    console.log(
-      `📖 Marking conversation as read up to msg_id: ${lastMsg.msg_id}`,
-    );
-
-    // Cập nhật UI ngay lập tức thông qua context
+    lastDeliveredRef.current = latestCursorMsgId;
     updateParticipant(activeConversation._id, {
-      last_read_message_id: lastMsg.msg_id,
+      last_delivered_message_id: latestCursorMsgId,
+      last_delivered_at: new Date().toISOString(),
     });
 
-    // Lưu dự phòng và gọi API
-    localStorage.setItem(
-      `read_${activeConversation._id}_${normalizedUserId}`,
-      lastMsg.msg_id,
-    );
-    ParticipantService.markAsRead(
+    socketService.markMessagesDeliveredUpTo(
       activeConversation._id,
       normalizedUserId,
-      lastMsg.msg_id,
-    )
-      .then((updated) => {
-        console.log(`✓ Backend confirmed read status update:`, updated);
-      })
-      .catch((error) => {
-        console.error(`✗ Failed to mark as read:`, error);
-      });
-  }, [messages, normalizedUserId, activeConversation?._id, updateParticipant]);
+      latestCursorMsgId,
+    );
+  }, [
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    normalizedUserId,
+    activeConversation?._id,
+    updateParticipant,
+  ]);
+
+  const markMessageSeenUpTo = useCallback(
+    (msgId: string, options: { immediate?: boolean } = {}) => {
+      if (!msgId || !normalizedUserId || !activeConversation?._id) return;
+      if (msgId === lastMarkedRef.current) return;
+
+      if (seenMarkTimerRef.current !== null) {
+        window.clearTimeout(seenMarkTimerRef.current);
+        seenMarkTimerRef.current = null;
+      }
+
+      const markSeen = () => {
+        lastMarkedRef.current = msgId;
+        seenMarkTimerRef.current = null;
+
+        const now = new Date().toISOString();
+        updateParticipant(activeConversation._id, {
+          last_delivered_message_id: msgId,
+          last_delivered_at: now,
+          last_read_message_id: msgId,
+          last_read_at: now,
+          unread_count: 0,
+        });
+
+        socketService.markMessageSeenUpTo(
+          activeConversation._id,
+          normalizedUserId,
+          msgId,
+        );
+      };
+
+      if (options.immediate) {
+        markSeen();
+        return;
+      }
+
+      seenMarkTimerRef.current = window.setTimeout(markSeen, 120);
+    },
+    [activeConversation?._id, normalizedUserId, updateParticipant],
+  );
+
+  const markLatestMessageSeen = useCallback(
+    (requireNearBottom: boolean = true) => {
+      if (!latestCursorMsgId) return;
+      if (!latestMessageMatchesActiveConversation) return;
+
+      if (requireNearBottom) {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const distanceToBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceToBottom > 180) return;
+      }
+
+      markMessageSeenUpTo(latestCursorMsgId);
+    },
+    [
+      latestCursorMsgId,
+      latestMessageMatchesActiveConversation,
+      markMessageSeenUpTo,
+    ],
+  );
+
+  useEffect(() => {
+    if (!allowInitialSeenRef.current) return;
+    if (!latestCursorMsgId) return;
+    if (!latestMessageMatchesActiveConversation) return;
+    if (latestCursorMsgId === lastMarkedRef.current) return;
+
+    allowInitialSeenRef.current = false;
+    markMessageSeenUpTo(latestCursorMsgId, { immediate: true });
+  }, [
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    markMessageSeenUpTo,
+  ]);
 
   const handleOpenMedia = (msgId: string, imageIndex: number = 0) => {
     setSelectedMediaId(msgId);
@@ -1263,6 +2069,110 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         window.requestAnimationFrame(() => resolve()),
       ),
     [],
+  );
+
+  const pinMessagesToBottom = useCallback(
+    (options: { force?: boolean } = {}) => {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+
+      const distanceToBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      const shouldPin =
+        options.force ||
+        forceScrollToBottomRef.current ||
+        wasNearBottomRef.current ||
+        distanceToBottom < 80;
+
+      if (
+        !shouldPin ||
+        isLoadingMoreRef.current ||
+        isLoadingNewerRef.current ||
+        suppressAutoScrollAfterNewerLoadRef.current ||
+        Date.now() <= suppressAutoScrollUntilRef.current
+      ) {
+        return;
+      }
+
+      if (bottomPinRafRef.current !== null) {
+        window.cancelAnimationFrame(bottomPinRafRef.current);
+      }
+
+      bottomPinRafRef.current = window.requestAnimationFrame(() => {
+        const activeContainer = messagesContainerRef.current;
+        bottomPinRafRef.current = null;
+        if (!activeContainer) return;
+
+        activeContainer.scrollTop = activeContainer.scrollHeight;
+        wasNearBottomRef.current = true;
+        setShowScrollButton(false);
+      });
+    },
+    [],
+  );
+
+  const keepBottomWhileMediaSettles = useCallback(
+    (container: HTMLElement, timeoutMs: number = 3500) => {
+      mediaSettleCleanupRef.current?.();
+
+      const mediaElements = Array.from(
+        container.querySelectorAll("img, video"),
+      ) as Array<HTMLImageElement | HTMLVideoElement>;
+
+      if (mediaElements.length === 0) {
+        mediaSettleCleanupRef.current = null;
+        return null;
+      }
+
+      let disposed = false;
+      let timeoutId: number | null = null;
+      const observer =
+        typeof ResizeObserver !== "undefined"
+          ? new ResizeObserver(() => pinMessagesToBottom())
+          : null;
+
+      const handleMediaSettled = () => {
+        if (disposed) return;
+        pinMessagesToBottom();
+      };
+
+      const cleanup = () => {
+        if (disposed) return;
+        disposed = true;
+
+        mediaElements.forEach((element) => {
+          element.removeEventListener("load", handleMediaSettled);
+          element.removeEventListener("error", handleMediaSettled);
+          element.removeEventListener("loadedmetadata", handleMediaSettled);
+          element.removeEventListener("loadeddata", handleMediaSettled);
+        });
+
+        observer?.disconnect();
+
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+
+        if (mediaSettleCleanupRef.current === cleanup) {
+          mediaSettleCleanupRef.current = null;
+        }
+      };
+
+      mediaElements.forEach((element) => {
+        element.addEventListener("load", handleMediaSettled);
+        element.addEventListener("error", handleMediaSettled);
+        element.addEventListener("loadedmetadata", handleMediaSettled);
+        element.addEventListener("loadeddata", handleMediaSettled);
+        observer?.observe(element);
+      });
+
+      timeoutId = window.setTimeout(cleanup, timeoutMs);
+      mediaSettleCleanupRef.current = cleanup;
+
+      return cleanup;
+    },
+    [pinMessagesToBottom],
   );
 
   const waitForInitialMediaToSettle = useCallback(
@@ -1424,17 +2334,41 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         const loadedContext = await loadMessageContext(messageId, 20, 20);
 
         if (loadedContext) {
+          // Prevent auto-scroll to bottom from fighting with our jump.
+          suppressAutoScrollUntilRef.current = Date.now() + 1500;
+          isFirstLoadRef.current = false;
+          wasNearBottomRef.current = false;
+
           // Prevent immediate top-trigger load burst after context replacement.
           suppressTopLoadUntilRef.current = Date.now() + 600;
-          await waitForNextFrame();
-          targetElement = findTarget();
+
+          // React batches state updates - the DOM may not be ready after just
+          // one animation frame.
+          // Poll up to 20 times (x50ms = 1s) so the
+          // element is found as soon as React commits the new messages to DOM.
+          const MAX_RETRIES = 20;
+          const RETRY_INTERVAL_MS = 50;
+          for (let i = 0; i < MAX_RETRIES; i++) {
+            await waitForNextFrame();
+            targetElement = findTarget();
+            if (targetElement) break;
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, RETRY_INTERVAL_MS),
+            );
+          }
         }
       }
 
       if (!targetElement) return false;
 
+      // Ensure auto-scroll doesn't override our manual scroll.
+      suppressAutoScrollUntilRef.current = Date.now() + 1000;
+      wasNearBottomRef.current = false;
+      setShowScrollButton(true);
+
       centerTargetInContainer(targetElement);
       await waitForNextFrame();
+
       if (targetElement.isConnected) {
         centerTargetInContainer(targetElement);
       }
@@ -1461,6 +2395,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     async (sentMessage?: Message | null) => {
       if (sentMessage) {
         appendMessage(sentMessage);
+        syncConversationAfterOwnMessage(sentMessage);
       } else {
         await loadMessageContextAfterLast();
       }
@@ -1481,11 +2416,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       window.requestAnimationFrame(pinToBottom);
       window.setTimeout(pinToBottom, 120);
     },
-    [appendMessage, loadMessageContextAfterLast],
+    [appendMessage, loadMessageContextAfterLast, syncConversationAfterOwnMessage],
   );
 
   const handleReactMessage = async (msg: Message, reactionType: string) => {
     if (!activeConversation?._id || !normalizedUserId || !msg.msg_id) return;
+
     try {
       await MessageService.reactToMessage(
         activeConversation._id,
@@ -1500,6 +2436,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleRevokeMessage = async (msg: Message) => {
     if (!activeConversation?._id || !normalizedUserId || !msg.msg_id) return;
+
+    if (isRevokeWindowExpired(msg)) {
+      showToast(REVOKE_EXPIRED_MESSAGE, "warning", "Thông báo", 3000);
+      return;
+    }
 
     setConfirmModal({
       isOpen: true,
@@ -1527,6 +2468,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (!forwardingMessage || !normalizedUserId || !activeConversation?._id) return;
 
     setIsForwarding(true);
+
     try {
       const response = await MessageService.forwardMessage(
         forwardingMessage.msg_id || forwardingMessage._id || "",
@@ -1602,6 +2544,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       }
 
       const systemMessage = pinResult?.systemMessage;
+
       if (systemMessage) {
         const rawSystemContent = Array.isArray(systemMessage.content)
           ? String(systemMessage.content[0] || "")
@@ -1624,11 +2567,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       await loadMessages();
       await loadPinnedMessages();
+
       window.dispatchEvent(
         new CustomEvent("chat:pinned-updated", {
           detail: { conversationId: activeConversation._id },
         }),
       );
+
     } catch (error) {
       console.error("Ghim/Bỏ ghim tin nhắn thất bại:", error);
 
@@ -1711,6 +2656,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       await loadMessages();
       await loadPinnedMessages();
+
       window.dispatchEvent(
         new CustomEvent("chat:pinned-updated", {
           detail: { conversationId: activeConversation._id },
@@ -1721,6 +2667,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       setPendingPinMessage(null);
     } catch (error) {
       console.error("Thay thế ghim thất bại:", error);
+
       const errorMessage =
         error instanceof Error ? error.message : "Không thể cập nhật ghim";
       alert(errorMessage);
@@ -1729,6 +2676,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
   const handleConfirmAction = async () => {
     const { action, message } = confirmModal;
+
     if (
       !action ||
       !message ||
@@ -1741,11 +2689,15 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     try {
       if (action === "delete-history") {
         await ParticipantService.deleteConversation(activeConversation._id, normalizedUserId);
+
         setConfirmModal({ isOpen: false, action: null, message: null });
 
         // Remove from list
         window.dispatchEvent(new CustomEvent("chat:remove-conversation", {
-          detail: { conversationId: activeConversation._id }
+          detail: {
+            conversationId: activeConversation._id,
+            reason: "delete-history",
+          }
         }));
 
         // Back to welcome screen or another conversation
@@ -1754,38 +2706,177 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       }
 
       if (action === "revoke") {
+        if (isRevokeWindowExpired(message)) {
+          showToast(REVOKE_EXPIRED_MESSAGE, "warning", "Thông báo", 3000);
+          return;
+        }
+
+        const revokedMessageId = getStableMessageId(message);
+        const containerBeforeRevoke = messagesContainerRef.current;
+        const targetBeforeRevoke = revokedMessageId
+          ? document.getElementById(`chat-msg-${revokedMessageId}`) ||
+            (document.querySelector(
+              `[data-message-id="${revokedMessageId}"]`,
+            ) as HTMLElement | null)
+          : null;
+        const revokeAnchor =
+          containerBeforeRevoke && targetBeforeRevoke
+            ? {
+              messageId: revokedMessageId,
+              topOffset:
+                targetBeforeRevoke.getBoundingClientRect().top -
+                containerBeforeRevoke.getBoundingClientRect().top,
+            }
+            : null;
+
+        if (revokeAnchor) {
+          scrollAnchorRef.current = revokeAnchor;
+        }
+        suppressAutoScrollUntilRef.current = Date.now() + 1800;
+        forceScrollToBottomRef.current = false;
+        wasNearBottomRef.current = false;
+        isFirstLoadRef.current = false;
+
         const revokedResult = await MessageService.revokeMessage(
           activeConversation._id,
           message.msg_id,
           normalizedUserId,
         );
 
-        if (revokedResult?.last_message) {
+        const lastMessageSource =
+          revokedResult?.systemMessage || revokedResult?.last_message;
+
+        if (lastMessageSource) {
+          const lastContent = Array.isArray(lastMessageSource.content)
+            ? String(lastMessageSource.content[0] || "")
+            : String(lastMessageSource.content || "");
+
           updateConversation(activeConversation._id, {
             last_message: {
-              msg_id: String(revokedResult.last_message.msg_id || ""),
-              sender_id: String(revokedResult.last_message.sender_id || ""),
-              sender_name: String(revokedResult.last_message.sender_name || ""),
-              content: String(revokedResult.last_message.content || ""),
+              msg_id: String(lastMessageSource.msg_id || ""),
+              sender_id: String(lastMessageSource.sender_id || ""),
+              sender_name: String(lastMessageSource.sender_name || ""),
+              content: lastContent,
               type: "text",
               createdAt:
-                revokedResult.last_message.createdAt ||
+                lastMessageSource.createdAt ||
                 new Date().toISOString(),
             },
           });
         }
 
-        await loadMessages();
+        const revokedMessagePatch = {
+          ...message,
+          ...revokedResult,
+          content: revokedResult?.content || ["Tin nhắn đã được thu hồi"],
+          is_revoked: true,
+          is_deleted: Boolean(revokedResult?.is_deleted),
+          is_pinned: false,
+          pinned_at: null,
+          pinned_by: null,
+          reactions: [],
+        };
+
+        appendMessage(revokedMessagePatch);
+        if (revokedResult?.systemMessage) {
+          appendMessage(revokedResult.systemMessage);
+        }
+
+        window.dispatchEvent(
+          new CustomEvent("chat:message-upserted", {
+            detail: {
+              conversationId: activeConversation._id,
+              message: revokedMessagePatch,
+            },
+          }),
+        );
+
+        if (revokedResult?.systemMessage) {
+          window.dispatchEvent(
+            new CustomEvent("chat:message-upserted", {
+              detail: {
+                conversationId: activeConversation._id,
+                message: revokedResult.systemMessage,
+              },
+            }),
+          );
+        }
+
+        if (revokeAnchor) {
+          window.requestAnimationFrame(() => {
+            const container = messagesContainerRef.current;
+            if (!container) return;
+
+            const target =
+              document.getElementById(`chat-msg-${revokeAnchor.messageId}`) ||
+              (document.querySelector(
+                `[data-message-id="${revokeAnchor.messageId}"]`,
+              ) as HTMLElement | null);
+            if (!target) return;
+
+            const containerRect = container.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            const nextOffset = targetRect.top - containerRect.top;
+            container.scrollTop += nextOffset - revokeAnchor.topOffset;
+            lastScrollTopRef.current = container.scrollTop;
+            wasNearBottomRef.current = false;
+            setShowScrollButton(shouldShowScrollToBottomButton(container));
+          });
+        }
+
         await loadPinnedMessages();
+
         window.dispatchEvent(
           new CustomEvent("chat:pinned-updated", {
             detail: { conversationId: activeConversation._id },
           }),
         );
+
       } else if (action === "delete") {
         const wasCurrentLastMessage =
           String(activeConversation?.last_message?.msg_id || "") ===
           String(message.msg_id || "");
+        const deletedMessageId = getStableMessageId(message);
+        const containerBeforeDelete = messagesContainerRef.current;
+        const deleteScrollTop = containerBeforeDelete?.scrollTop ?? 0;
+        const deleteAnchor =
+          containerBeforeDelete && deletedMessageId
+            ? (() => {
+              const containerRect =
+                containerBeforeDelete.getBoundingClientRect();
+              const messageElements =
+                containerBeforeDelete.querySelectorAll<HTMLElement>(
+                  "[data-message-id]",
+                );
+
+              for (const element of Array.from(messageElements)) {
+                const messageId = element.dataset.messageId || "";
+                if (!messageId || messageId === deletedMessageId) continue;
+
+                const rect = element.getBoundingClientRect();
+                const isVisible =
+                  rect.bottom >= containerRect.top + 8 &&
+                  rect.top <= containerRect.bottom - 8;
+
+                if (isVisible) {
+                  return {
+                    messageId,
+                    topOffset: rect.top - containerRect.top,
+                  };
+                }
+              }
+
+              return null;
+            })()
+            : null;
+
+        if (deleteAnchor) {
+          scrollAnchorRef.current = deleteAnchor;
+        }
+        suppressAutoScrollUntilRef.current = Date.now() + 1800;
+        forceScrollToBottomRef.current = false;
+        wasNearBottomRef.current = false;
+        isFirstLoadRef.current = false;
 
         await MessageService.deleteMessage(
           activeConversation._id,
@@ -1793,7 +2884,6 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           normalizedUserId,
         );
 
-        const deletedMessageId = getStableMessageId(message);
         const shouldKeepPinnedOnBar =
           Boolean(deletedMessageId) &&
           (Boolean(message.is_pinned) ||
@@ -1804,6 +2894,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
             activeConversation._id,
             deletedMessageId,
           );
+
           setLocallyRemovedPinnedMap((prev) => ({
             ...prev,
             [scopedKey]: {
@@ -1865,8 +2956,56 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           }
         }
 
-        await loadMessages();
+        removeMessage({
+          msg_id: message.msg_id,
+          _id: message._id,
+          messageId: deletedMessageId,
+        });
+
+        window.dispatchEvent(
+          new CustomEvent("chat:message-upserted", {
+            detail: {
+              conversationId: activeConversation._id,
+              message: {
+                ...message,
+                conversation_id: activeConversation._id,
+                is_deleted: true,
+              },
+            },
+          }),
+        );
+
+        window.requestAnimationFrame(() => {
+          const container = messagesContainerRef.current;
+          if (!container) return;
+
+          if (deleteAnchor) {
+            const target =
+              document.getElementById(`chat-msg-${deleteAnchor.messageId}`) ||
+              (document.querySelector(
+                `[data-message-id="${deleteAnchor.messageId}"]`,
+              ) as HTMLElement | null);
+
+            if (target) {
+              const containerRect = container.getBoundingClientRect();
+              const targetRect = target.getBoundingClientRect();
+              const nextOffset = targetRect.top - containerRect.top;
+              container.scrollTop += nextOffset - deleteAnchor.topOffset;
+            }
+          } else {
+            container.scrollTop = Math.min(
+              deleteScrollTop,
+              Math.max(0, container.scrollHeight - container.clientHeight),
+            );
+          }
+
+          lastScrollTopRef.current = container.scrollTop;
+          wasNearBottomRef.current = false;
+          setShowScrollButton(shouldShowScrollToBottomButton(container));
+        });
+
         await loadPinnedMessages();
+
         window.dispatchEvent(
           new CustomEvent("chat:pinned-updated", {
             detail: { conversationId: activeConversation._id },
@@ -1878,6 +3017,13 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         `${action === "revoke" ? "Thu hồi" : "Xóa"} tin nhắn thất bại:`,
         error,
       );
+      const errorMessage = error instanceof Error ? error.message : "";
+      if (
+        action === "revoke" &&
+        /24|thu hồi|thu hoi|revoke/i.test(errorMessage)
+      ) {
+        showToast(REVOKE_EXPIRED_MESSAGE, "warning", "Thông báo", 3000);
+      }
     } finally {
       setConfirmModal({
         isOpen: false,
@@ -1924,13 +3070,16 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         // Auto-fill runs right after initial open for short histories.
         // Keep viewport anchored to newest message instead of jumping to top.
         const latestContainer = messagesContainerRef.current;
+
         if (latestContainer && wasNearBottomRef.current) {
           latestContainer.scrollTop = latestContainer.scrollHeight;
+
           window.requestAnimationFrame(() => {
             const finalContainer = messagesContainerRef.current;
             if (!finalContainer) return;
             finalContainer.scrollTop = finalContainer.scrollHeight;
           });
+
           setShowScrollButton(false);
         }
       } finally {
@@ -1941,11 +3090,121 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     void runAutoFill();
   }, [messages.length, hasMore, loading, loadOlderMessages]);
 
+  const shouldShowScrollToBottomButton = useCallback(
+    (container: HTMLDivElement | null = messagesContainerRef.current) => {
+      if (messages.length === 0) return false;
+      if (hasMoreAfter) return true;
+      if (!container) return false;
+
+      const hasScrollableOverflow =
+        container.scrollHeight > container.clientHeight + 8;
+      if (!hasScrollableOverflow) return false;
+
+      const distanceToBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+
+      return distanceToBottom >= 100;
+    },
+    [hasMoreAfter, messages.length],
+  );
+
+  const captureScrollAnchor = useCallback(
+    (container: HTMLDivElement | null = messagesContainerRef.current) => {
+      if (!container) {
+        scrollAnchorRef.current = null;
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const messageElements =
+        container.querySelectorAll<HTMLElement>("[data-message-id]");
+
+      for (const element of Array.from(messageElements)) {
+        const messageId = element.dataset.messageId || "";
+        if (!messageId) continue;
+
+        const rect = element.getBoundingClientRect();
+        const isVisible =
+          rect.bottom >= containerRect.top + 8 &&
+          rect.top <= containerRect.bottom - 8;
+
+        if (isVisible) {
+          scrollAnchorRef.current = {
+            messageId,
+            topOffset: rect.top - containerRect.top,
+          };
+          return;
+        }
+      }
+
+      scrollAnchorRef.current = null;
+    },
+    [],
+  );
+
+  const restoreScrollAnchor = useCallback(
+    (container: HTMLDivElement, anchor = scrollAnchorRef.current) => {
+      if (!anchor?.messageId) return false;
+
+      const target = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-message-id]"),
+      ).find((element) => element.dataset.messageId === anchor.messageId);
+
+      if (!target) return false;
+
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const nextOffset = targetRect.top - containerRect.top;
+      const delta = nextOffset - anchor.topOffset;
+
+      if (Math.abs(delta) < 1) return true;
+
+      container.scrollTop += delta;
+      lastScrollTopRef.current = container.scrollTop;
+      return true;
+    },
+    [],
+  );
+
+  const syncScrollButtonAfterLayout = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+
+      const distanceToBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      const isNearBottom = distanceToBottom < 100;
+
+      wasNearBottomRef.current = isNearBottom;
+      setShowScrollButton(shouldShowScrollToBottomButton(container));
+      captureScrollAnchor(container);
+    });
+  }, [captureScrollAnchor, shouldShowScrollToBottomButton]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+
+    if (messages.length === 0) {
+      wasNearBottomRef.current = true;
+      setShowScrollButton(false);
+      return;
+    }
+
+    if (!container) return;
+    setShowScrollButton(shouldShowScrollToBottomButton(container));
+  }, [
+    activeConversation._id,
+    hasMoreAfter,
+    messages.length,
+    shouldShowScrollToBottomButton,
+  ]);
+
   /**
    * Handle scroll to load older messages (infinite scroll)
    */
   const handleScroll = () => {
     const container = messagesContainerRef.current;
+
     if (!container) return;
 
     const currentScrollTop = container.scrollTop;
@@ -1959,6 +3218,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (
       container.scrollTop < 100 &&
       hasMore &&
+      !isFirstLoadRef.current &&
       !isLoadingMoreRef.current &&
       !loading &&
       Date.now() > suppressTopLoadUntilRef.current
@@ -1966,8 +3226,21 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       isLoadingMoreRef.current = true;
       console.log("📥 User scrolled to top - loading older messages");
 
+      if (initialScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(initialScrollRafRef.current);
+        initialScrollRafRef.current = null;
+      }
+
+      // User is intentionally reading older messages; prevent pending initial
+      // bottom anchoring from snapping the viewport back to the newest message.
+      isFirstLoadRef.current = false;
+      wasNearBottomRef.current = false;
+      forceScrollToBottomRef.current = false;
+      suppressAutoScrollUntilRef.current = Date.now() + 600;
+
       // Save scroll height BEFORE loading
       scrollHeightRef.current = container.scrollHeight;
+      scrollTopBeforeLoadMoreRef.current = container.scrollTop;
 
       loadOlderMessages().finally(() => {
         isLoadingMoreRef.current = false;
@@ -1979,6 +3252,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (
       isNearBottom &&
       hasMoreAfter &&
+      !isFirstLoadRef.current &&
       !isLoadingNewerRef.current &&
       !loading &&
       isScrollingDown &&
@@ -1986,17 +3260,22 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     ) {
       isLoadingNewerRef.current = true;
       suppressAutoScrollAfterNewerLoadRef.current = true;
+      newerLoadScrollTopRef.current = currentScrollTop;
       suppressBottomLoadUntilRef.current = Date.now() + 400;
+
       loadMessageContextAfterLast().finally(() => {
         isLoadingNewerRef.current = false;
-        setShowScrollButton(true);
+        setShowScrollButton(
+          shouldShowScrollToBottomButton(messagesContainerRef.current),
+        );
       });
     }
 
     // Show/hide scroll button based on scroll position
     wasNearBottomRef.current = isNearBottom;
-    setShowScrollButton(hasMoreAfter ? true : !isNearBottom);
+    setShowScrollButton(shouldShowScrollToBottomButton(container));
     lastScrollTopRef.current = currentScrollTop;
+    captureScrollAnchor(container);
   };
 
   const scrollToBottom = useCallback(async () => {
@@ -2016,6 +3295,56 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     wasNearBottomRef.current = true;
     setShowScrollButton(false);
   }, [hasMoreAfter, loadMessages, loading, waitForNextFrame]);
+
+  useLayoutEffect(() => {
+    const composer = composerContainerRef.current;
+    if (!composer || typeof ResizeObserver === "undefined") return;
+
+    const initialComposerHeight = composer.getBoundingClientRect().height;
+    lastComposerHeightRef.current = initialComposerHeight;
+    setComposerHeight(initialComposerHeight);
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const nextHeight =
+        entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+      const previousHeight = lastComposerHeightRef.current;
+      lastComposerHeightRef.current = nextHeight;
+      setComposerHeight(nextHeight);
+
+      if (
+        previousHeight === null ||
+        Math.abs(nextHeight - previousHeight) < 1
+      ) {
+        return;
+      }
+
+      const container = messagesContainerRef.current;
+      if (!container) return;
+
+      const distanceToBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      const shouldKeepBottom =
+        distanceToBottom < 80 ||
+        (wasNearBottomRef.current && distanceToBottom < 120);
+
+      if (!shouldKeepBottom || isLoadingMoreRef.current || isLoadingNewerRef.current) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        const activeContainer = messagesContainerRef.current;
+        if (!activeContainer) return;
+        activeContainer.scrollTop = activeContainer.scrollHeight;
+        wasNearBottomRef.current = true;
+        setShowScrollButton(false);
+      });
+    });
+
+    observer.observe(composer);
+
+    return () => observer.disconnect();
+  }, [activeConversation._id]);
 
   useEffect(() => {
     if (typingUsers.length === 0) return;
@@ -2047,20 +3376,72 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (!container) return;
 
     const currentMessageCount = messages.length;
-    const currentLastMessageId =
-      (messages[messages.length - 1]?.msg_id as string | undefined) ||
-      (messages[messages.length - 1]?._id as string | undefined) ||
-      null;
+    const currentLastMessageId = latestStableMsgId || null;
     const previousMessageCount = prevMessageCountRef.current;
     const previousLastMessageId = prevLastMessageIdRef.current;
+
+    // Loading newer messages below should extend the bottom only.
+    // Keep the viewport anchored exactly where the user was before the fetch.
+    if (suppressAutoScrollAfterNewerLoadRef.current) {
+      if (newerLoadScrollTopRef.current !== null) {
+        container.scrollTop = newerLoadScrollTopRef.current;
+      }
+
+      // After appending messages below, this viewport is no longer anchored to
+      // the bottom. Keep later layout changes from snapping it down.
+      wasNearBottomRef.current = false;
+      setShowScrollButton(shouldShowScrollToBottomButton(container));
+      prevMessageCountRef.current = currentMessageCount;
+      prevLastMessageIdRef.current = currentLastMessageId;
+
+      lastLayoutScrollHeightRef.current = container.scrollHeight;
+      lastLayoutClientHeightRef.current = container.clientHeight;
+
+      if (!isLoadingNewerRef.current) {
+        suppressAutoScrollAfterNewerLoadRef.current = false;
+        newerLoadScrollTopRef.current = null;
+      }
+
+      return;
+    }
+
+    // If we just loaded older messages, restore scroll position before any
+    // initial/new-message auto-scroll can run.
+    if (scrollHeightRef.current > 0 && !isLoadingMoreRef.current) {
+      // Không dùng requestAnimationFrame ở đây nếu có thể,
+      // vì useLayoutEffect chạy ĐỒNG BỘ trước khi paint.
+      const newScrollHeight = container.scrollHeight;
+      const heightDifference = newScrollHeight - scrollHeightRef.current;
+
+      container.scrollTop = scrollTopBeforeLoadMoreRef.current + heightDifference;
+      scrollHeightRef.current = 0; // Reset ngay lập tức
+      scrollTopBeforeLoadMoreRef.current = 0;
+      isFirstLoadRef.current = false;
+      wasNearBottomRef.current = false;
+      setShowScrollButton(shouldShowScrollToBottomButton(container));
+
+      // Cập nhật ref để tránh logic auto-scroll xuống dưới chạy đè lên
+      prevMessageCountRef.current = messages.length;
+      prevLastMessageIdRef.current = currentLastMessageId;
+      lastLayoutScrollHeightRef.current = container.scrollHeight;
+      lastLayoutClientHeightRef.current = container.clientHeight;
+
+      return;
+    }
 
     if (forceScrollToBottomRef.current && messages.length > 0 && !loading) {
       if (initialScrollRafRef.current !== null) {
         window.cancelAnimationFrame(initialScrollRafRef.current);
       }
 
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
+      wasNearBottomRef.current = true;
+      setShowScrollButton(false);
+
       initialScrollRafRef.current = window.requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
         forceScrollToBottomRef.current = false;
         wasNearBottomRef.current = true;
         setShowScrollButton(false);
@@ -2072,56 +3453,78 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       return;
     }
 
-    // First load of new conversation: wait for media to stabilize, then scroll to bottom.
+    // First load of new conversation: jump to bottom immediately, then keep
+    // the viewport pinned while images/videos finish measuring.
     if (isFirstLoadRef.current && messages.length > 0 && !loading) {
       if (initialScrollRafRef.current !== null) {
         window.cancelAnimationFrame(initialScrollRafRef.current);
       }
 
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
+      wasNearBottomRef.current = true;
+      setShowScrollButton(false);
+
       initialScrollRafRef.current = window.requestAnimationFrame(() => {
         void (async () => {
+          const initialContainer = messagesContainerRef.current;
+          if (!initialContainer) {
+            initialScrollRafRef.current = null;
+            return;
+          }
+
+          pinMessagesToBottom({ force: true });
+          keepBottomWhileMediaSettles(initialContainer);
+
           await waitForNextFrame();
-          await waitForInitialMediaToSettle(container);
+          pinMessagesToBottom({ force: true });
+
+          await waitForInitialMediaToSettle(initialContainer, 1800);
 
           const activeContainer = messagesContainerRef.current;
-          if (!activeContainer) return;
+          if (!activeContainer) {
+            initialScrollRafRef.current = null;
+            return;
+          }
+          if (
+            !isFirstLoadRef.current ||
+            scrollHeightRef.current > 0 ||
+            Date.now() <= suppressAutoScrollUntilRef.current
+          ) {
+            initialScrollRafRef.current = null;
+            return;
+          }
 
-          activeContainer.scrollTop = activeContainer.scrollHeight;
+          const finalDistanceToBottom =
+            activeContainer.scrollHeight -
+            activeContainer.scrollTop -
+            activeContainer.clientHeight;
+          const shouldStayPinned =
+            wasNearBottomRef.current || finalDistanceToBottom < 180;
+
+          if (shouldStayPinned) {
+            activeContainer.scrollTop = activeContainer.scrollHeight;
+            await waitForNextFrame();
+
+            const finalContainer = messagesContainerRef.current;
+            if (finalContainer) {
+              finalContainer.scrollTop = finalContainer.scrollHeight;
+              lastScrollTopRef.current = finalContainer.scrollTop;
+            }
+            wasNearBottomRef.current = true;
+            setShowScrollButton(false);
+          } else {
+            wasNearBottomRef.current = false;
+            setShowScrollButton(shouldShowScrollToBottomButton(activeContainer));
+          }
+
           isFirstLoadRef.current = false;
-          wasNearBottomRef.current = true;
-          setShowScrollButton(false);
           prevMessageCountRef.current = currentMessageCount;
           prevLastMessageIdRef.current = currentLastMessageId;
           initialScrollRafRef.current = null;
         })();
       });
 
-      return;
-    }
-
-    // If we just loaded older messages, restore scroll position
-    if (scrollHeightRef.current > 0 && !isLoadingMoreRef.current) {
-      // Không dùng requestAnimationFrame ở đây nếu có thể,
-      // vì useLayoutEffect chạy ĐỒNG BỘ trước khi paint.
-      const newScrollHeight = container.scrollHeight;
-      const heightDifference = newScrollHeight - scrollHeightRef.current;
-
-      container.scrollTop = heightDifference;
-      scrollHeightRef.current = 0; // Reset ngay lập tức
-
-      // Cập nhật ref để tránh logic auto-scroll xuống dưới chạy đè lên
-      prevMessageCountRef.current = messages.length;
-      return;
-    }
-
-    // When we just loaded messages below, keep viewport exactly where it is.
-    if (
-      suppressAutoScrollAfterNewerLoadRef.current &&
-      !isLoadingNewerRef.current
-    ) {
-      suppressAutoScrollAfterNewerLoadRef.current = false;
-      prevMessageCountRef.current = currentMessageCount;
-      prevLastMessageIdRef.current = currentLastMessageId;
       return;
     }
 
@@ -2132,31 +3535,294 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       currentLastMessageId !== previousLastMessageId;
 
     const wasNearBottom = wasNearBottomRef.current;
+    const previousDistanceToBottom =
+      (lastLayoutScrollHeightRef.current || container.scrollHeight) -
+      container.scrollTop -
+      (lastLayoutClientHeightRef.current || container.clientHeight);
+    const shouldAutoScrollNewMessage =
+      previousDistanceToBottom < 96 ||
+      (wasNearBottom && previousDistanceToBottom < 140);
+    const isIncomingLatestMessage =
+      !!latestMessageSenderId &&
+      !!normalizedUserId &&
+      latestMessageSenderId !== String(normalizedUserId);
 
     if (
       !isLoadingMoreRef.current &&
       !isLoadingNewerRef.current &&
       !loading &&
       hasAppendedNewMessage &&
-      wasNearBottom
+      shouldAutoScrollNewMessage &&
+      Date.now() > suppressAutoScrollUntilRef.current
     ) {
       requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
+        pinMessagesToBottom({ force: true });
+        const activeContainer = messagesContainerRef.current;
+        if (activeContainer) {
+          keepBottomWhileMediaSettles(activeContainer);
+        }
         wasNearBottomRef.current = true;
         setShowScrollButton(false); // Hide button when scrolling to bottom
+
+        if (
+          isIncomingLatestMessage &&
+          latestCursorMsgId &&
+          latestMessageMatchesActiveConversation
+        ) {
+          markMessageSeenUpTo(latestCursorMsgId, { immediate: true });
+        }
         console.log("✓ Auto-scrolled to bottom (new message)");
       });
     }
 
     prevMessageCountRef.current = currentMessageCount;
     prevLastMessageIdRef.current = currentLastMessageId;
-  }, [messages, loading]);
+
+  }, [
+    messages.length,
+    latestStableMsgId,
+    latestCursorMsgId,
+    latestMessageMatchesActiveConversation,
+    latestMessageSenderId,
+    loading,
+    markMessageSeenUpTo,
+    normalizedUserId,
+    shouldShowScrollToBottomButton,
+    keepBottomWhileMediaSettles,
+    pinMessagesToBottom,
+    waitForInitialMediaToSettle,
+    waitForNextFrame,
+  ]);
+
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const previousAnchor = scrollAnchorRef.current;
+    const previousHeight = lastLayoutScrollHeightRef.current;
+    const previousClientHeight = lastLayoutClientHeightRef.current;
+    const currentHeight = container.scrollHeight;
+    const currentClientHeight = container.clientHeight;
+    const heightChanged = previousHeight > 0 && currentHeight !== previousHeight;
+    const clientHeightChanged =
+      previousClientHeight > 0 && currentClientHeight !== previousClientHeight;
+
+    if (heightChanged || clientHeightChanged) {
+      const previousDistanceToBottom =
+        (previousHeight || currentHeight) -
+        container.scrollTop -
+        (previousClientHeight || currentClientHeight);
+      const currentDistanceToBottom =
+        currentHeight - container.scrollTop - currentClientHeight;
+      const shouldKeepBottom =
+        previousDistanceToBottom < 96 ||
+        currentDistanceToBottom < 72 ||
+        (wasNearBottomRef.current && previousDistanceToBottom < 120);
+
+      if (
+        shouldKeepBottom &&
+        !isLoadingMoreRef.current &&
+        !isLoadingNewerRef.current &&
+        !isFirstLoadRef.current &&
+        !forceScrollToBottomRef.current &&
+        !suppressAutoScrollAfterNewerLoadRef.current &&
+        Date.now() > suppressAutoScrollUntilRef.current
+      ) {
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
+        wasNearBottomRef.current = true;
+        setShowScrollButton(false);
+      } else if (
+        !isLoadingMoreRef.current &&
+        !isLoadingNewerRef.current &&
+        !isFirstLoadRef.current &&
+        !forceScrollToBottomRef.current &&
+        !suppressAutoScrollAfterNewerLoadRef.current &&
+        Date.now() > suppressAutoScrollUntilRef.current &&
+        previousAnchor
+      ) {
+        restoreScrollAnchor(container, previousAnchor);
+        const nextDistanceToBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight;
+        wasNearBottomRef.current = nextDistanceToBottom < 100;
+        setShowScrollButton(shouldShowScrollToBottomButton(container));
+      }
+    }
+
+    lastLayoutScrollHeightRef.current = container.scrollHeight;
+    lastLayoutClientHeightRef.current = container.clientHeight;
+    captureScrollAnchor(container);
+
+    if (heightChanged || clientHeightChanged) {
+      syncScrollButtonAfterLayout();
+    }
+  });
+
+  // AI Smart Replies Logic
+  useEffect(() => {
+    let cancelled = false;
+    const clearSmartReplyLoadingTimer = () => {
+      if (smartReplyLoadingTimerRef.current !== null) {
+        window.clearTimeout(smartReplyLoadingTimerRef.current);
+        smartReplyLoadingTimerRef.current = null;
+      }
+    };
+
+    if (isDissolved) {
+      clearSmartReplyLoadingTimer();
+      setSmartReplies([]);
+      setIsSmartReplyLoading(false);
+      setIsSmartReplyOpen(false);
+      setSummaryResult(null);
+      lastSmartReplyMessageIdRef.current = null;
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const source = latestSmartReplySource;
+    const smartReplySourceKey = source?.key || "";
+
+    if (loading || messages.length === 0 || !source || !smartReplySourceKey) {
+      clearSmartReplyLoadingTimer();
+      setSmartReplies([]);
+      setIsSmartReplyLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const isEligibleIncomingSmartReplySource =
+      Boolean(source) &&
+      Boolean(normalizedUserId) &&
+      Boolean(smartReplySourceKey) &&
+      String(source?.senderId || "") !== String(normalizedUserId) &&
+      (source?.type === "text" || source?.type === "link");
+    const shouldFetchSmartReplies =
+      isEligibleIncomingSmartReplySource &&
+      smartReplySourceKey !== lastSmartReplyMessageIdRef.current;
+
+    if (shouldFetchSmartReplies) {
+      const cachedReplies = smartReplyCacheRef.current.get(smartReplySourceKey);
+      if (cachedReplies) {
+        lastSmartReplyMessageIdRef.current = smartReplySourceKey;
+        clearSmartReplyLoadingTimer();
+        setSmartReplies(cachedReplies);
+        setIsSmartReplyLoading(false);
+        setIsSmartReplyOpen(false);
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      setSmartReplies([]);
+      setIsSmartReplyOpen(false);
+      clearSmartReplyLoadingTimer();
+
+      const fetchSuggestions = async () => {
+        lastSmartReplyMessageIdRef.current = smartReplySourceKey;
+        setIsSmartReplyLoading(true);
+
+        try {
+          const aiConvId = activeConversation._id.startsWith("VIRTUAL_CONV_")
+            ? activeConversation._id.replace("VIRTUAL_CONV_", "")
+            : activeConversation._id;
+
+          const suggestions = await AiService.getSmartReplies(
+            aiConvId,
+            normalizedUserId,
+            {
+              conversationType: activeConversation.type,
+              limit: activeConversation.type === "group" ? 18 : 12,
+            },
+          );
+          if (!cancelled) {
+            const nextSuggestions = suggestions || [];
+            smartReplyCacheRef.current.set(smartReplySourceKey, nextSuggestions);
+            setSmartReplies(nextSuggestions);
+          }
+        } catch (error) {
+          console.error("Error fetching smart replies:", error);
+        } finally {
+          clearSmartReplyLoadingTimer();
+          if (!cancelled) {
+            setIsSmartReplyLoading(false);
+          }
+        }
+      };
+
+      void fetchSuggestions();
+    } else if (!isEligibleIncomingSmartReplySource) {
+      clearSmartReplyLoadingTimer();
+      setSmartReplies([]);
+      setIsSmartReplyLoading(false);
+    }
+
+    return () => {
+      cancelled = true;
+      clearSmartReplyLoadingTimer();
+    };
+  }, [
+    activeConversation._id,
+    activeConversation.type,
+    isDissolved,
+    latestSmartReplySource,
+    loading,
+    messages.length,
+    normalizedUserId,
+  ]);
+
+  // Tự động đóng gợi ý khi chuyển cuộc hội thoại
+  useEffect(() => {
+    setIsSmartReplyOpen(false);
+    setSmartReplies([]);
+    setIsSmartReplyLoading(false);
+    if (smartReplyLoadingTimerRef.current !== null) {
+      window.clearTimeout(smartReplyLoadingTimerRef.current);
+      smartReplyLoadingTimerRef.current = null;
+    }
+    lastSmartReplyMessageIdRef.current = null;
+  }, [activeConversation._id]);
+
+  const handleSelectSmartReply = (reply: string) => {
+    setSmartReplies([]);
+    window.dispatchEvent(
+      new CustomEvent("chat:send-smart-reply", { detail: { text: reply } }),
+    );
+  };
+
+  const handleSummarize = async () => {
+    if (isDissolved || !normalizedUserId || isSummarizingRef.current) return;
+
+    isSummarizingRef.current = true;
+    setIsSummarizing(true);
+
+    try {
+      const aiConvId = activeConversation._id.startsWith("VIRTUAL_CONV_")
+        ? activeConversation._id.replace("VIRTUAL_CONV_", "")
+        : activeConversation._id;
+
+      const summary = await AiService.summarizeConversation(
+        aiConvId,
+        normalizedUserId,
+        {
+          limit: activeConversation.type === "group" ? 100 : 60,
+        },
+      );
+      setSummaryResult(summary);
+    } catch (error) {
+      console.error("Summarization error:", error);
+    } finally {
+      isSummarizingRef.current = false;
+      setIsSummarizing(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
-      if (initialScrollRafRef.current !== null) {
-        window.cancelAnimationFrame(initialScrollRafRef.current);
-        initialScrollRafRef.current = null;
+      if (seenMarkTimerRef.current !== null) {
+        window.clearTimeout(seenMarkTimerRef.current);
+        seenMarkTimerRef.current = null;
       }
     };
   }, []);
@@ -2187,6 +3853,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         messageId: string;
         highlight?: boolean;
         openMedia?: boolean;
+        mediaMessageId?: string;
+        imageIndex?: number;
         fromPinned?: boolean;
       }>;
 
@@ -2208,13 +3876,15 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
         // Open media viewer if requested (e.g., from pinned messages)
         if (custom.detail?.openMedia) {
-          const msgId = custom.detail.messageId;
-          handleOpenMedia(msgId, 0);
+          const msgId =
+            custom.detail.mediaMessageId || custom.detail.messageId;
+          handleOpenMedia(msgId, custom.detail.imageIndex ?? 0);
         }
       })();
     };
 
     window.addEventListener("chat:jump", handler as EventListener);
+
     return () => {
       window.removeEventListener("chat:jump", handler as EventListener);
     };
@@ -2274,76 +3944,116 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
   }, [activeConversation?._id, loadPinnedMessages]);
 
   useEffect(() => {
-    const markTyping = (userId: string) => {
-      if (!userId) return;
+    const getTypingPayloadValue = (payload: any, keys: string[]) => {
+      for (const key of keys) {
+        const value = payload?.[key];
+        if (value !== undefined && value !== null && String(value).trim()) {
+          return String(value).trim();
+        }
+      }
+      return "";
+    };
+
+    const getTypingKey = (conversationId: string, userId: string) =>
+      `${conversationId}:${userId}`;
+
+    const clearTypingTimer = (typingKey: string) => {
+      const timerId = typingExpiryTimersRef.current.get(typingKey);
+      if (timerId !== undefined) {
+        window.clearTimeout(timerId);
+        typingExpiryTimersRef.current.delete(typingKey);
+      }
+    };
+
+    const markTyping = (conversationId: string, userId: string) => {
+      if (!conversationId || !userId) return;
+
+      const typingKey = getTypingKey(conversationId, userId);
+      const timestamp = Date.now();
 
       setTypingUserIds((prev) => ({
         ...prev,
-        [userId]: Date.now(),
+        [typingKey]: timestamp,
       }));
+
+      clearTypingTimer(typingKey);
+      const timerId = window.setTimeout(() => {
+        setTypingUserIds((prev) => {
+          if (prev[typingKey] !== timestamp) return prev;
+          const next = { ...prev };
+          delete next[typingKey];
+          return next;
+        });
+        typingExpiryTimersRef.current.delete(typingKey);
+      }, TYPING_TTL_MS);
+
+      typingExpiryTimersRef.current.set(typingKey, timerId);
     };
 
-    const unmarkTyping = (userId: string) => {
-      if (!userId) return;
+    const unmarkTyping = (conversationId: string, userId: string) => {
+      if (!conversationId || !userId) return;
+      const typingKey = getTypingKey(conversationId, userId);
+      clearTypingTimer(typingKey);
+
       setTypingUserIds((prev) => {
-        if (!prev[userId]) return prev;
+        if (!prev[typingKey]) return prev;
         const next = { ...prev };
-        delete next[userId];
+        delete next[typingKey];
         return next;
       });
     };
 
-    const handleTypingStart = (payload: {
-      conversationId?: string;
-      userId?: string;
-    }) => {
-      if (payload.conversationId !== activeConversation?._id) return;
+    const handleTypingStart = (payload: any) => {
+      const conversationId = getTypingPayloadValue(payload, [
+        "conversationId",
+        "conversation_id",
+        "roomId",
+      ]);
+      const userId = getTypingPayloadValue(payload, [
+        "userId",
+        "user_id",
+        "senderId",
+        "sender_id",
+      ]);
+
       if (
-        !payload.userId ||
-        String(payload.userId) === String(normalizedUserId || "")
+        !conversationId ||
+        !userId ||
+        String(userId) === String(normalizedUserId || "")
       ) {
         return;
       }
 
-      markTyping(payload.userId);
+      markTyping(conversationId, userId);
     };
 
-    const handleTypingStop = (payload: {
-      conversationId?: string;
-      userId?: string;
-    }) => {
-      if (payload.conversationId !== activeConversation?._id) return;
-      if (!payload.userId) return;
-      unmarkTyping(payload.userId);
-    };
+    const handleTypingStop = (payload: any) => {
+      const conversationId = getTypingPayloadValue(payload, [
+        "conversationId",
+        "conversation_id",
+        "roomId",
+      ]);
+      const userId = getTypingPayloadValue(payload, [
+        "userId",
+        "user_id",
+        "senderId",
+        "sender_id",
+      ]);
 
-    const handleReadStatus = (payload: {
-      conversationId: string;
-      userId: string;
-      msgId: string;
-    }) => {
-      if (payload.conversationId !== activeConversation?._id) return;
-      if (String(payload.userId) === String(normalizedUserId || "")) return;
-
-      updateConversationParticipant(payload.conversationId, payload.userId, {
-        last_read_message_id: payload.msgId,
-      } as any);
+      if (!conversationId || !userId) return;
+      unmarkTyping(conversationId, userId);
     };
 
     socketService.onTyping(handleTypingStart);
     socketService.onTypingStopped(handleTypingStop);
-    socketService.onReadStatus(handleReadStatus);
 
     return () => {
       socketService.offTyping(handleTypingStart);
       socketService.offTypingStopped(handleTypingStop);
-      socketService.offReadStatus(handleReadStatus);
     };
+
   }, [
-    activeConversation?._id,
     normalizedUserId,
-    updateParticipant,
-    updateConversationParticipant,
   ]);
 
   useEffect(() => {
@@ -2392,20 +4102,141 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     };
   }, [showPinnedMenu]);
 
+  const pinnedBar = primaryPinnedMessage ? (
+    <div className="shrink-0 bg-[#F2F4F7] px-2 pt-2 sm:px-4">
+      <div ref={pinnedMenuRef} className="relative w-full">
+        <div className="relative w-full rounded-xl border border-slate-200 bg-white text-slate-800 shadow-sm">
+          <button
+            type="button"
+            onClick={() => jumpToPinnedMessage(primaryPinnedMessage)}
+            className="w-full px-3 py-2.5 text-left flex items-center gap-3 hover:bg-slate-50 transition-colors rounded-xl"
+            title="Đi đến tin nhắn ghim"
+          >
+            <span className="shrink-0 mt-0.5 text-primary-500">
+              <MessageCircle size={18} />
+            </span>
+
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-semibold text-slate-600">
+                Tin nhắn ghim
+              </div>
+              <div className="text-[14px] leading-5 text-slate-900 flex items-center gap-2 min-w-0">
+                {renderPinnedTypeVisual(primaryPinnedMessage, "sm")}
+                <span className="truncate">
+                  {getPinnedSenderName(primaryPinnedMessage)}:{" "}
+                  {getPinnedPreviewText(primaryPinnedMessage)}
+                </span>
+              </div>
+            </div>
+          </button>
+
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                void handlePinMessage(primaryPinnedMessage);
+              }}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Bỏ ghim tin nhắn này"
+            >
+              <PinOff size={15} />
+            </button>
+
+            {morePinnedCount > 0 && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowPinnedMenu((prev) => !prev);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[13px] font-semibold text-slate-700 hover:bg-slate-100"
+                title="Xem thêm tin nhắn ghim"
+              >
+                +{morePinnedCount} ghim
+                <ChevronDown size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {showPinnedMenu && pinnedMessages.length > 1 && (
+          <div className="absolute right-2 top-[calc(100%+8px)] z-50 w-[320px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+            {pinnedMessages.slice(1).map((item) => (
+              <div
+                key={item._id || item.msg_id}
+                className="w-full rounded-md px-2.5 py-2 text-left text-slate-800 hover:bg-slate-50"
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      jumpToPinnedMessage(item);
+                    }}
+                    className="flex-1 text-left"
+                  >
+                    <div className="text-[12px] text-slate-500">
+                      Tin nhắn ghim
+                    </div>
+                    <div className="text-[13px] text-slate-800 pr-2 flex items-center gap-2 w-60">
+                      {renderPinnedTypeVisual(item, "sm")}
+                      <span className="truncate">
+                        {getPinnedSenderName(item)}:{" "}
+                        {getPinnedPreviewText(item)}
+                      </span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handlePinMessage(item);
+                    }}
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 mt-0.5"
+                    title="Bỏ ghim"
+                  >
+                    <PinOff size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const isChatOverlayOpen =
+    confirmModal.isOpen ||
+    removedMessageNotice.isOpen ||
+    replacePinModalOpen ||
+    forwardModalOpen ||
+    Boolean(callBlockModal) ||
+    isGroupCallModalOpen ||
+    Boolean(summaryResult) ||
+    viewerOpen;
+
   return (
-    <div className="flex-1 flex h-full overflow-hidden relative">
+    <div className="relative flex h-full min-w-0 flex-1 overflow-hidden">
       {/* Main Chat Area */}
-      <div
-        className={`flex-1 flex flex-col bg-[#F2F4F7] h-full overflow-hidden transition-all duration-300 ${sidebarOpen ? "mr-80" : ""}`}
-      >
+      <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[#F2F4F7] transition-all duration-300">
         <ChatHeader
           conversation={activeConversation}
           currentUserId={normalizedUserId}
+          onBackToList={onBackToList}
           onStartVoiceCall={() => openCallWindow("voice")}
           onStartVideoCall={() => openCallWindow("video")}
-          disableCallActions={isOpeningCall}
+          disableCallActions={
+            isOpeningCall ||
+            isPendingGroupCallStart ||
+            (activeConversation?.type === "group" && Boolean(activeConversation.is_calling))
+          }
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
+          onSummarize={isDissolved ? undefined : handleSummarize}
+          isSummarizing={isSummarizing}
+          canShowPrivatePresence={canShowPrivatePresence}
           hideCallActions={
             Boolean(activeConversation?.is_self_conversation) ||
             !isParticipant ||
@@ -2414,151 +4245,39 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
         />
 
         {activeConversation?.type === "private" && !activeConversation.is_self_conversation && relationshipStatus?.status !== "ACCEPTED" && (
-          <FriendRequestBar 
+          <FriendRequestBar
             relationship={relationshipStatus}
             currentUserId={normalizedUserId || ""}
             otherUserId={activeConversation.participants?.find(p => String(p.user_id) !== String(normalizedUserId))?.user_id || ""}
-            onStatusChange={fetchStatus} 
+            onStatusChange={fetchStatus}
             isFetching={isRelationshipLoading}
           />
         )}
 
-        {isInvited && activeConversation?._id && normalizedUserId && (
-          <GroupInvitationBar
-            conversationId={activeConversation._id}
-            userId={normalizedUserId}
-            onStatusChange={() => {
-              if (normalizedUserId) refreshConversations(normalizedUserId);
-            }}
-          />
-        )}
+
+
+        {pinnedBar}
 
         <div
           ref={messagesContainerRef}
-          className="flex-1 px-4 pt-2 pb-2 gap-2 overflow-y-auto custom-scrollbar flex flex-col relative overflow-hidden"
+          className="custom-scrollbar relative flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden px-2 pb-2 pt-2 sm:px-4"
           style={{
             ["overflowAnchor" as any]: "none",
           }}
           onScroll={handleScroll}
+          onMouseDown={() => markLatestMessageSeen(true)}
+          onTouchStart={() => markLatestMessageSeen(true)}
+          onWheel={() => markLatestMessageSeen(true)}
         >
-          {primaryPinnedMessage && (
-            <div
-              className="shrink-0 full sticky top-0 -mx-4 px-2 w-[calc(100%+2.5rem)] z-40 "
-              style={{
-                transform: "translate3d(0, 0, 0)",
-                willChange: "transform", // Báo trước cho trình duyệt để tối ưu
-              }}
-            >
-              <div
-                ref={pinnedMenuRef}
-                className="relative w-full rounded-xl border border-slate-200 bg-white text-slate-800 shadow-sm"
-              >
-                <button
-                  type="button"
-                  onClick={() => jumpToPinnedMessage(primaryPinnedMessage)}
-                  className="w-full px-3 py-2.5 text-left flex items-center gap-3 hover:bg-slate-50 transition-colors rounded-xl"
-                  title="Đi đến tin nhắn ghim"
-                >
-                  <span className="shrink-0 mt-0.5 text-primary-500">
-                    <MessageCircle size={18} />
-                  </span>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[12px] font-semibold text-slate-600">
-                      Tin nhắn ghim
-                    </div>
-                    <div className="text-[14px] leading-5 text-slate-900 flex items-center gap-2 min-w-0">
-                      {renderPinnedTypeVisual(primaryPinnedMessage, "sm")}
-                      <span className="truncate">
-                        {getPinnedSenderName(primaryPinnedMessage)}:{" "}
-                        {getPinnedPreviewText(primaryPinnedMessage)}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handlePinMessage(primaryPinnedMessage);
-                    }}
-                    className="inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-                    title="Bỏ ghim tin nhắn này"
-                  >
-                    <PinOff size={15} />
-                  </button>
-
-                  {morePinnedCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setShowPinnedMenu((prev) => !prev);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[13px] font-semibold text-slate-700 hover:bg-slate-100"
-                      title="Xem thêm tin nhắn ghim"
-                    >
-                      +{morePinnedCount} ghim
-                      <ChevronDown size={14} />
-                    </button>
-                  )}
-                </div>
-
-                {showPinnedMenu && pinnedMessages.length > 1 && (
-                  <div className="absolute right-2 top-[calc(100%+8px)] z-50 w-[320px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
-                    {pinnedMessages.slice(1).map((item) => (
-                      <div
-                        key={item._id || item.msg_id}
-                        className="w-full rounded-md px-2.5 py-2 text-left text-slate-800 hover:bg-slate-50"
-                      >
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              jumpToPinnedMessage(item);
-                            }}
-                            className="flex-1 text-left"
-                          >
-                            <div className="text-[12px] text-slate-500">
-                              Tin nhắn ghim
-                            </div>
-                            <div className="text-[13px] text-slate-800 pr-2 flex items-center gap-2 w-60">
-                              {renderPinnedTypeVisual(item, "sm")}
-                              <span className="truncate">
-                                {getPinnedSenderName(item)}:{" "}
-                                {getPinnedPreviewText(item)}
-                              </span>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handlePinMessage(item);
-                            }}
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 mt-0.5"
-                            title="Bỏ ghim"
-                          >
-                            <PinOff size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          <div className="flex-1 min-h-0" />
+          {!isInitialLoading && <div className="flex-1 min-h-0" />}
 
           {/* Loading indicator for older messages */}
           {loading && messages.length > 0 && (
-            <div className="flex items-center justify-center gap-2 text-sm text-gray-500 py-1">
-              <Loader2 size={14} className="animate-spin " />
-              Đang tải tin nhắn cũ...
+            <div className="flex justify-center py-1">
+              <div
+                className="animate-shimmer h-6 w-24 rounded-full"
+                style={messageLoadingShimmerStyle}
+              />
             </div>
           )}
 
@@ -2572,26 +4291,20 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           )}
 
           {isInitialLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 size={20} className="animate-spin text-gray-100" />
-            </div>
+            <MessageLoadingSkeleton />
           ) : isDissolved ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4 animate-fade-in px-4 py-8 bg-slate-50/30">
-              <div className="relative group overflow-hidden bg-white/70 backdrop-blur-xl px-10 py-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-white flex flex-col items-center gap-6 max-w-sm transition-all hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
-                {/* Decorative background element */}
-                <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-100/30 rounded-full blur-3xl" />
-                <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-amber-100/30 rounded-full blur-3xl" />
-
-                <div className="relative w-16 h-16 rounded-3xl bg-amber-50 flex items-center justify-center text-amber-500 shadow-inner">
-                  <AlertTriangle size={32} strokeWidth={2} />
+            <div className="flex h-full items-center justify-center px-5 py-10 animate-fade-in">
+              <div className="flex w-full max-w-[360px] flex-col items-center text-center">
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm">
+                  <Info size={22} strokeWidth={2.2} />
                 </div>
 
-                <div className="relative flex flex-col items-center gap-2">
-                  <h3 className="text-[19px] font-bold text-slate-800 text-center leading-tight">
+                <div className="flex flex-col items-center gap-2">
+                  <h3 className="text-[20px] font-bold leading-tight text-slate-900">
                     Nhóm đã được giải tán
                   </h3>
-                  <p className="text-[14px] text-slate-500 text-center max-w-[240px] leading-relaxed">
-                    Trưởng nhóm đã đóng cuộc hội thoại này. Bạn vẫn có thể xem lại lịch sử tin nhắn.
+                  <p className="max-w-[310px] text-[14px] leading-6 text-slate-500">
+                    Cuộc trò chuyện đã đóng. Bạn không thể xem lại lịch sử tin nhắn, không thể gửi tin mới.
                   </p>
                 </div>
 
@@ -2603,27 +4316,14 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                       message: { msg_id: "DUMMY_ID" } as any,
                     });
                   }}
-                  className="relative px-6 py-2.5 bg-primary-50 hover:bg-primary-100 text-primary-600 font-bold text-[15px] rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 shadow-sm"
+                  className="mt-6 inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-[14px] font-semibold text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 active:bg-red-100"
                 >
-                  <Trash2 size={16} />
-                  Xóa trò chuyện
+                  <Trash2 size={15} />
+                  Xóa lịch sử trò chuyện
                 </button>
               </div>
             </div>
-          ) : isInvited ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50/30">
-              <div className="bg-white/70 backdrop-blur-xl p-8 rounded-[2rem] shadow-sm border border-white flex flex-col items-center gap-4 max-w-sm text-center animate-in fade-in zoom-in duration-500">
-                <div className="w-16 h-16 rounded-2xl bg-primary-50 flex items-center justify-center text-primary-500 shadow-inner">
-                  <MessageCircle size={32} />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="font-bold text-slate-800 text-lg">Chào mừng bạn!</h3>
-                  <p className="text-slate-500 text-sm leading-relaxed">
-                    Bạn đã được mời tham gia cuộc trò chuyện này. Hãy chấp nhận lời mời để xem lịch sử tin nhắn và tham gia cùng mọi người.
-                  </p>
-                </div>
-              </div>
-            </div>
+
           ) : hydratedMessages.length === 0 ? (
             <ChatEmpty />
           ) : (
@@ -2683,22 +4383,23 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                         </div>
                       )}
 
-                    {shouldCollapseGroup && isExpanded && (
-                      <div className="flex justify-center mb-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedSystemGroups((prev) => ({
-                              ...prev,
-                              [item.key]: false,
-                            }))
-                          }
-                          className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
-                        >
-                          Thu gọn thông báo
-                        </button>
-                      </div>
-                    )}
+                    {shouldCollapseGroup &&
+                      isExpanded && (
+                        <div className="flex justify-center mb-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedSystemGroups((prev) => ({
+                                ...prev,
+                                [item.key]: false,
+                              }))
+                            }
+                            className="text-[12px] px-3 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+                          >
+                            Thu gọn thông báo
+                          </button>
+                        </div>
+                      )}
                   </React.Fragment>
                 );
               }
@@ -2707,28 +4408,31 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
               const index = item.index;
               const prevMsg = hydratedMessages[index - 1];
               const nextMsg = hydratedMessages[index + 1];
-              const prevIsSystem = isSystemLikeType(prevMsg?.type);
-              const nextIsSystem = isSystemLikeType(nextMsg?.type);
+              const prevIsSequenceBoundary =
+                isSystemLikeType(prevMsg?.type) || isPollMessageType(prevMsg?.type);
+              const nextIsSequenceBoundary =
+                isSystemLikeType(nextMsg?.type) || isPollMessageType(nextMsg?.type);
               const nextShowTime = nextMsg
                 ? shouldShowTimestamp(nextMsg.createdAt || "", msg.createdAt)
                 : false;
               const firstUserMessageIndex = hydratedMessages.findIndex(
-                (message) => !isSystemLikeType(message.type),
+                (message) =>
+                  !isSystemLikeType(message.type) &&
+                  !isPollMessageType(message.type),
               );
               const isTopBoundary = index === firstUserMessageIndex;
               const isMe = msg.sender_id === normalizedUserId;
-
               const isFirstInSequence =
-                !prevMsg ||
-                prevIsSystem ||
+                !prevMsg || prevIsSequenceBoundary ||
                 prevMsg.sender_id !== msg.sender_id ||
                 item.showTime;
               const isLastInSequence =
-                !nextMsg ||
-                nextIsSystem ||
+                !nextMsg || nextIsSequenceBoundary ||
                 nextMsg.sender_id !== msg.sender_id ||
                 nextShowTime;
-
+              const stableMessageId = String(
+                msg.msg_id || msg._id || msg.local_client_id || "",
+              ).trim();
               return (
                 <React.Fragment key={item.key}>
                   {item.showTime && <ChatTimeSeparator time={item.time} />}
@@ -2747,6 +4451,10 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                           pinnedMessageIdSet.has(
                             String(msg.msg_id || msg._id || ""),
                           ),
+                        __show_delivery_status:
+                          isMe &&
+                          Boolean(stableMessageId) &&
+                          stableMessageId === latestOwnMessageId,
                       }}
                       isMe={isMe}
                       currentUserId={normalizedUserId}
@@ -2762,7 +4470,9 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                       onDelete={handleDeleteMessage}
                       onPin={handlePinMessage}
                       onForward={handleForwardMessage}
-                      conversation={activeConversation}
+                      onRecallCall={handleRecallFromCallMessage}
+                      disableRecallCall={disableGroupRecallCall}
+                      conversation={messageConversation}
                     />
                   </div>
                 </React.Fragment>
@@ -2772,22 +4482,12 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
           {typingUsers.length > 0 && !isInvited && (
             <div className="flex items-center  gap-2 mt-1 mb-1 pl-0.5">
-              {/* Phần Avatar giữ nguyên */}
-              <div className="w-8 h-8 rounded-full overflow-hidden border border-white/80 shadow-sm bg-slate-300 shrink-0">
-                {typingUsers[0].avatar ? (
-                  <img
-                    src={typingUsers[0].avatar}
-                    alt={typingUsers[0].name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-[11px] font-semibold text-white bg-slate-500">
-                    {typingUsers[0].name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
+              <Avatar
+                src={typingUsers[0].avatar ? getFullUrl(typingUsers[0].avatar) : ""}
+                name={typingUsers[0].name}
+                size={32}
+                className="border border-white/80 bg-slate-300 shadow-sm hover:scale-100 active:scale-100"
+              />
 
               {/* Phần bong bóng chat "..." đã được sửa lại giao diện sáng */}
               <div className="h-6 px-4 rounded-2xl bg-white flex items-center pt-1 gap-1 shadow-sm">
@@ -2813,39 +4513,81 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           )}
 
           <div ref={messagesEndRef} />
-
-          {/* Scroll to bottom button */}
-          {showScrollButton && (
-            <button
-              onClick={scrollToBottom}
-              className={`fixed ${sidebarOpen ? "right-[344px]" : "right-6"
-                } bottom-32 bg-primary-500 hover:bg-primary-600 text-white rounded-full p-3 shadow-lg transition-all duration-200 hover:scale-110 z-[110]`}
-              title="Scroll to bottom"
-            >
-              <ChevronDown size={24} strokeWidth={2} />
-            </button>
-          )}
         </div>
 
-        {isParticipant && !isDissolved && !isInvited ? (
-          <ChatInput
-            key={activeConversation._id}
-            conversationId={activeConversation._id}
-            senderId={normalizedUserId || ""}
-            onSendSuccess={handleSendSuccess}
-            onUploadStart={handleImageSendStart}
-            onUploadProgress={handleImageSendProgress}
-            onUploadSuccess={handleImageSendSuccess}
-            onUploadError={handleImageSendError}
-            replyToMessage={replyToMessage}
-            onCancelReply={() => setReplyToMessage(null)}
-            conversationType={activeConversation?.type}
-          />
-        ) : (
+        {/* Scroll to bottom button */}
+        {showScrollButton && !isChatOverlayOpen && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute left-1/2 z-30 -translate-x-1/2 rounded-full bg-primary-500 p-3 text-white shadow-lg transition-all duration-200 hover:scale-110 hover:bg-primary-600"
+            style={{ bottom: Math.max(composerHeight + 18, 112) }}
+            title="Scroll to bottom"
+          >
+            <ChevronDown size={24} strokeWidth={2} />
+          </button>
+        )}
+
+        {isParticipant && !isDissolved && !isInvited && relationshipStatus?.status !== "BLOCKED" ? (
+          <>
+            <div
+              ref={composerContainerRef}
+              className="relative border-t border-slate-100 bg-white"
+            >
+              <div className="w-full">
+                <ChatInput
+                  key={
+                    activeConversation.type === 'private' ||
+                      activeConversation._id.startsWith('VIRTUAL_CONV_')
+                      ? (activeConversation._id.startsWith('VIRTUAL_CONV_')
+                        ? activeConversation._id.replace('VIRTUAL_CONV_', '')
+                        : (activeConversation.participants?.find(p => String(p.user_id || (p as any)._id) !== String(normalizedUserId))?.user_id || activeConversation._id))
+                      : activeConversation._id
+                  }
+                  conversationId={activeConversation._id}
+                  senderId={normalizedUserId || ""}
+                  onSendSuccess={handleSendSuccess}
+                  onUploadStart={handleImageSendStart}
+                  onUploadProgress={handleImageSendProgress}
+                  onUploadSuccess={handleImageSendSuccess}
+                  onUploadError={handleImageSendError}
+                  onConversationCreated={(newConv) => {
+                    const createdConversation = newConv as any;
+                    window.dispatchEvent(new CustomEvent("chat:open-conversation", {
+                      detail: {
+                        conversationId: createdConversation.conversation?._id || createdConversation._id,
+                        conversation: createdConversation.conversation || createdConversation
+                      }
+                    }));
+                  }}
+                  replyToMessage={replyToMessage}
+                  onCancelReply={() => setReplyToMessage(null)}
+                  conversationType={activeConversation?.type}
+                  smartReplies={smartReplies}
+                  smartReplyContextKey={latestSmartReplySource?.key || ""}
+                  isSmartReplyLoading={isSmartReplyLoading}
+                  isSmartReplyOpen={isSmartReplyOpen}
+                  onSmartReplyToggle={() => setIsSmartReplyOpen((open) => !open)}
+                  onSmartReplyClose={() => setIsSmartReplyOpen(false)}
+                  onSmartReplySelect={(reply) => {
+                    handleSelectSmartReply(reply);
+                    setIsSmartReplyOpen(false);
+                  }}
+                />
+              </div>
+            </div>
+          </>
+        ) : isDissolved ? null : (
           <div className="px-5 py-4 bg-white border-t border-slate-100">
-            <div className={`flex items-center gap-3 ${isDissolved ? "text-primary-600" : "text-slate-500"} bg-slate-50 px-4 py-3 rounded-xl border border-slate-100`}>
-              {isDissolved ? (
-                <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600">
+            <div
+              className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${relationshipStatus?.status === "BLOCKED"
+                ? "border-primary-100 bg-primary-50 text-primary-600"
+                : "border-slate-100 bg-slate-50 text-slate-500"
+                }`}
+            >
+              {relationshipStatus?.status === "BLOCKED" ? (
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-primary-600"
+                >
                   <Info size={18} strokeWidth={2.5} />
                 </div>
               ) : (
@@ -2854,11 +4596,11 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
                 </div>
               )}
               <p className="text-[14px] font-semibold">
-                {isDissolved
-                  ? "Bạn không thể gửi tin nhắn vào nhóm được nữa"
-                  : isInvited
-                    ? "Bạn được mời tham gia nhóm. Chấp nhận lời mời để bắt đầu trò chuyện."
-                    : "Bạn không còn là thành viên của nhóm này"}
+                {relationshipStatus?.status === "BLOCKED"
+                  ? ((relationshipStatus.requester_id === normalizedUserId || relationshipStatus.requesterId === normalizedUserId)
+                    ? "Bạn đã chặn người dùng này. Bỏ chặn để tiếp tục trò chuyện."
+                    : "Bạn không thể gửi tin nhắn cho người dùng này.")
+                  : "Bạn không còn là thành viên của nhóm này"}
               </p>
             </div>
           </div>
@@ -2980,8 +4722,108 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
           onClose={() => setIsGroupCallModalOpen(false)}
           onStart={handleGroupCallStart}
           conversationId={activeConversation._id}
-          initialCallType={initialCallTypeForGroup}
           currentUserId={normalizedUserId}
+        />
+      )}
+
+      {!isDissolved && (
+        <ConfirmModal
+          isOpen={!!summaryResult}
+          title="Tóm tắt hội thoại (AI)"
+          message={
+            <div className="py-2 text-left">
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto rounded-2xl border border-primary-100 bg-white p-5 shadow-inner">
+                {summaryResult?.summary.split("\n").map((line, index) => {
+                  const cleanLine = line.trim();
+                  if (!cleanLine) return null;
+                  const isBullet = cleanLine.startsWith("-") || cleanLine.startsWith("*");
+
+                  return (
+                    <div
+                      key={index}
+                      className={`flex items-start gap-3 ${isBullet ? "pl-2" : ""}`}
+                    >
+                      {isBullet ? (
+                        <div className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary-400 shadow-sm" />
+                      ) : (
+                        <div className="mt-1 flex-shrink-0 rounded-lg bg-primary-50 p-1.5 text-primary-600 shadow-sm">
+                          <Sparkles size={14} />
+                        </div>
+                      )}
+                      <p
+                        className={`text-sm leading-relaxed ${isBullet ? "text-gray-700" : "font-medium text-gray-800"}`}
+                      >
+                        {cleanLine.replace(/^[-*]\s*/, "")}
+                      </p>
+                    </div>
+                  );
+                })}
+
+                {summaryResult?.meta?.hasImportantContent !== false && summaryResult?.highlights?.length ? (
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                    <div className="mb-2 text-[12px] font-bold uppercase text-slate-500">
+                      Ý chính
+                    </div>
+                    <div className="space-y-2">
+                      {summaryResult.highlights.map((item, index) => (
+                        <div key={`highlight-${index}`} className="flex items-start gap-2">
+                          <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-400" />
+                          <p className="text-sm leading-relaxed text-slate-700">{item}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {summaryResult?.meta?.hasImportantContent !== false && summaryResult?.actionItems?.length ? (
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                    <div className="mb-2 text-[12px] font-bold uppercase text-amber-700">
+                      Việc cần làm
+                    </div>
+                    <div className="space-y-2">
+                      {summaryResult.actionItems.map((item, index) => (
+                        <div
+                          key={`action-${index}`}
+                          className="text-sm leading-relaxed text-slate-700"
+                        >
+                          <span className="font-semibold text-slate-800">
+                            {item.owner || "Chưa rõ"}:{" "}
+                          </span>
+                          {item.task}
+                          {item.due ? (
+                            <span className="text-amber-700"> ({item.due})</span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {summaryResult?.meta?.hasImportantContent !== false && summaryResult?.questions?.length ? (
+                  <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
+                    <div className="mb-2 text-[12px] font-bold uppercase text-sky-700">
+                      Cần làm rõ
+                    </div>
+                    <div className="space-y-2">
+                      {summaryResult.questions.map((item, index) => (
+                        <p
+                          key={`question-${index}`}
+                          className="text-sm leading-relaxed text-slate-700"
+                        >
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          }
+          confirmText="Đóng"
+          hideCancelButton
+          maxWidthClassName="max-w-lg"
+          onConfirm={() => setSummaryResult(null)}
+          onCancel={() => setSummaryResult(null)}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { API_MEDIA_SERVER_URL } from "../config/api.config";
+import { API_MEDIA_SERVER_URL, URL_S3 } from "../config/api.config";
 import type {
     StoryItem,
     StoryReelData,
@@ -13,12 +13,18 @@ export interface ApiStory {
     accountUsername: string;
     accountDisplayName: string | null;
     accountAvatarUrl: string | null;
+    storyItems?: ApiStoryItemResponse[];
+    totalViews?: number;
+    musics?: any[];
+    expireAt?: string;
+    visibility?: string;
 }
 
 export interface ApiSuggestedUser {
     id: string;
     username: string;
     displayName: string | null;
+    avatarUrl: string | null;
 }
 
 export interface ApiStoryReel {
@@ -39,9 +45,12 @@ export interface ApiStoryReelItem {
     id: string;
     accountAvatarUrl: string | null;
     storyItems?: ApiStoryItemResponse[];
+    totalViews?: number;
+    musics?: any[];
 }
 
 export interface ApiStoryItemResponse {
+    id?: string;
     type: "TEXT_ITEM" | "IMAGE_ITEM" | "VIDEO_ITEM";
     imageItem?: {
         url?: string | null;
@@ -54,6 +63,12 @@ export interface ApiStoryItemResponse {
         content?: string | null;
         backgroundColor?: string | null;
     } | null;
+    isPrimary?: boolean;
+    zIndex?: number;
+    positionX?: number;
+    positionY?: number;
+    rotation?: number;
+    scale?: number;
 }
 
 export interface StoryCreateRequest {
@@ -74,26 +89,79 @@ export interface StoryUploadResponse {
     fileKey: string;
 }
 
+function unwrapApiResult<T>(payload: unknown): T | null {
+    if (!payload) return null;
+
+    // Handle Jackson Polymorphic Array: ["className", { ...data }]
+    if (
+        Array.isArray(payload) &&
+        payload.length === 2 &&
+        typeof payload[0] === "string"
+    ) {
+        return payload[1] as T;
+    }
+
+    if (typeof payload !== "object") return null;
+    if ("result" in (payload as any)) return (payload as any).result ?? null;
+    return payload as T;
+}
+
 function unwrapList<T>(json: unknown): T[] {
-    if (Array.isArray(json)) return json as T[];
-    const obj = json as Record<string, unknown>;
-    if (Array.isArray(obj.value)) return obj.value as T[];
-    return [];
+    const data = unwrapApiResult<T[]>(json);
+    if (!Array.isArray(data)) {
+        const obj = data as any;
+        if (obj && Array.isArray(obj.value)) return obj.value;
+        return [];
+    }
+    // Each element might be ["className", {data}]
+    return data
+        .map((item) => unwrapApiResult<T>(item))
+        .filter((item) => item !== null) as T[];
+}
+
+export function mapStory(story: ApiStory): StoryItem {
+    const userId = story.accountId;
+    const name = story.accountDisplayName ?? story.accountUsername;
+    return {
+        id: story.id,
+        name,
+        isBirthday: false,
+        userId,
+        avatarUrl: story.accountAvatarUrl ?? undefined,
+        items: (story.storyItems || []).map((item: ApiStoryItemResponse) => {
+            let url = item.imageItem?.url || item.videoItem?.url || undefined;
+            if (url && !url.startsWith("http") && !url.startsWith("blob:")) {
+                url = `${URL_S3}${url.startsWith("/") ? url.substring(1) : url}`;
+            }
+            return {
+                id: item.id || Math.random().toString(36).substring(2, 9),
+                type: item.type === "TEXT_ITEM" ? "TEXT" : item.type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO",
+                url,
+                textContent: item.textItem?.content || undefined,
+                textBackgroundColor: item.textBackgroundColor || item.textItem?.backgroundColor || undefined,
+                positionX: item.positionX ?? 0.5,
+                positionY: item.positionY ?? 0.5,
+                scale: item.scale ?? 1,
+                rotation: item.rotation ?? 0,
+                zIndex: item.zIndex ?? 1
+            };
+        }),
+        expireAt: story.expireAt,
+        visibility: story.visibility,
+        // Legacy support: detect contentType if missing
+        contentType: (story.storyItems && story.storyItems.length > 0) 
+            ? (story.storyItems[0].type === "TEXT_ITEM" ? "TEXT" : story.storyItems[0].type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO")
+            : "UNKNOWN",
+        lastUpdated: Date.now()
+    };
 }
 
 function groupStories(raw: ApiStory[]): StoryUserGroup[] {
     const groups = new Map<string, StoryUserGroup>();
 
     for (const story of raw) {
-        const userId = story.accountId;
-        const name = story.accountDisplayName ?? story.accountUsername;
-        const item: StoryItem = {
-            id: story.id,
-            name,
-            isBirthday: false,
-            userId,
-            avatarUrl: story.accountAvatarUrl ?? undefined,
-        };
+        const item = mapStory(story);
+        const userId = item.userId;
 
         const existing = groups.get(userId);
         if (existing) {
@@ -134,15 +202,21 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
                     firstRenderableItem.textItem?.backgroundColor ?? undefined
                     : undefined;
 
-            const imageUrl =
+            let imageUrl =
                 firstRenderableItem?.type === "IMAGE_ITEM" ?
                     firstRenderableItem.imageItem?.url ?? undefined
                     : undefined;
+            if (imageUrl && !imageUrl.startsWith("http") && !imageUrl.startsWith("blob:")) {
+                imageUrl = `${URL_S3}${imageUrl.startsWith("/") ? imageUrl.substring(1) : imageUrl}`;
+            }
 
-            const videoUrl =
+            let videoUrl =
                 firstRenderableItem?.type === "VIDEO_ITEM" ?
                     firstRenderableItem.videoItem?.url ?? undefined
                     : undefined;
+            if (videoUrl && !videoUrl.startsWith("http") && !videoUrl.startsWith("blob:")) {
+                videoUrl = `${URL_S3}${videoUrl.startsWith("/") ? videoUrl.substring(1) : videoUrl}`;
+            }
 
             return {
                 id: story.id,
@@ -159,6 +233,26 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
                 textBackgroundColor,
                 imageUrl,
                 videoUrl,
+                items: (story.storyItems || []).map((item: ApiStoryItemResponse) => {
+                    let url = item.imageItem?.url || item.videoItem?.url || undefined;
+                    if (url && !url.startsWith("http") && !url.startsWith("blob:")) {
+                        url = `${URL_S3}${url.startsWith("/") ? url.substring(1) : url}`;
+                    }
+                    return {
+                        id: item.id || Math.random().toString(36).substring(2, 9),
+                        type: item.type === "TEXT_ITEM" ? "TEXT" : item.type === "IMAGE_ITEM" ? "IMAGE" : "VIDEO",
+                        url,
+                        textContent: item.textItem?.content || undefined,
+                        textBackgroundColor: item.textBackgroundColor || item.textItem?.backgroundColor || undefined,
+                        positionX: item.positionX ?? 0.5,
+                        positionY: item.positionY ?? 0.5,
+                        scale: item.scale ?? 1,
+                        rotation: item.rotation ?? 0,
+                        zIndex: item.zIndex ?? 1
+                    };
+                }),
+                totalViews: story.totalViews,
+                musics: story.musics,
             };
         }),
     }));
@@ -167,7 +261,8 @@ function mapStoryGroups(raw: ApiStoryGroup[]): StoryUserGroup[] {
 function mapSuggestedUsers(raw: ApiSuggestedUser[]): StorySuggestedUser[] {
     return raw.map((user) => ({
         id: user.id,
-        name: user.displayName ?? user.username,
+        name: user.displayName || user.username || "Người dùng",
+        avatarUrl: user.avatarUrl ?? undefined,
     }));
 }
 
@@ -180,13 +275,19 @@ export async function fetchStoryGroups(accountId: string): Promise<StoryUserGrou
         );
 
         if (reelRes.ok) {
-            const reel = (await reelRes.json()) as ApiStoryReel;
-            if (Array.isArray(reel.storyGroups) && reel.storyGroups.length > 0) {
-                return mapStoryGroups(reel.storyGroups);
+            const json = await reelRes.json();
+            const reel = unwrapApiResult<ApiStoryReel>(json);
+            if (!reel) return [];
+            
+            const storyGroups = unwrapList<ApiStoryGroup>(reel.storyGroups);
+            if (storyGroups.length > 0) {
+                return mapStoryGroups(storyGroups);
             }
             if (Array.isArray(reel.stories) && reel.stories.length > 0) {
                 return groupStories(reel.stories);
             }
+
+            return [];
         }
 
         const fallbackRes = await authFetch(`${API_MEDIA_SERVER_URL}/stories`);
@@ -207,9 +308,12 @@ export async function fetchSuggestedUsers(accountId: string, limit = 8): Promise
         );
 
         if (!reelRes.ok) return [];
-        const reel = (await reelRes.json()) as ApiStoryReel;
-        if (!Array.isArray(reel.suggestedUsers)) return [];
-        return mapSuggestedUsers(reel.suggestedUsers);
+        const json = await reelRes.json();
+        const reel = unwrapApiResult<ApiStoryReel>(json);
+        if (!reel) return [];
+        
+        const suggestedUsers = unwrapList<ApiSuggestedUser>(reel.suggestedUsers);
+        return mapSuggestedUsers(suggestedUsers);
     } catch {
         return [];
     }
@@ -229,7 +333,8 @@ export async function createStory(request: StoryCreateRequest): Promise<ApiStory
             signal: AbortSignal.timeout(10_000),
         });
         if (!res.ok) return null;
-        return (await res.json()) as ApiStory;
+        const json = await res.json();
+        return unwrapApiResult<ApiStory>(json);
     } catch {
         return null;
     }
@@ -249,7 +354,74 @@ export async function uploadStoryMedia(file: File, storyItemId?: string): Promis
             signal: AbortSignal.timeout(15_000),
         });
         if (!res.ok) return null;
-        return (await res.json()) as StoryUploadResponse;
+        const json = await res.json();
+        return unwrapApiResult<StoryUploadResponse>(json);
+    } catch {
+        return null;
+    }
+}
+export async function deleteStory(storyId: string): Promise<boolean> {
+    try {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/stories/${storyId}`, {
+            method: "DELETE",
+            signal: AbortSignal.timeout(5_000),
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+export async function viewStory(storyId: string, accountId: string): Promise<void> {
+    try {
+        await authFetch(`${API_MEDIA_SERVER_URL}/stories/${storyId}/view?accountId=${accountId}`, {
+            method: "PUT",
+        });
+    } catch {
+        // Ignore view errors.
+    }
+}
+
+export async function fetchStoryViewers(storyId: string): Promise<any[]> {
+    try {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/stories/${storyId}/viewers`);
+        if (!res.ok) return [];
+        return unwrapList<any>(await res.json());
+    } catch {
+        return [];
+    }
+}
+
+export async function updateStory(
+    storyId: string,
+    request: StoryCreateRequest,
+    files?: File[],
+    captions?: string[],
+): Promise<ApiStory | null> {
+    try {
+        const formData = new FormData();
+        // Backend expects 'request' as a Part (JSON)
+        formData.append(
+            "request",
+            new Blob([JSON.stringify(request)], { type: "application/json" }),
+        );
+
+        if (files && files.length > 0) {
+            files.forEach((f) => formData.append("files", f));
+        }
+
+        if (captions && captions.length > 0) {
+            captions.forEach((c) => formData.append("captions", c));
+        }
+
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/stories/${storyId}`, {
+            method: "PUT",
+            body: formData,
+            signal: AbortSignal.timeout(30_000), // S3 upload
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        return unwrapApiResult<ApiStory>(json);
     } catch {
         return null;
     }

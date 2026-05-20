@@ -7,9 +7,13 @@ import PostActions from "./post/PostActions";
 import PostDetailModal from "./PostDetailModal";
 import PostReactionsListModal from "./post/PostReactionsListModal";
 import { useNavigate } from "react-router-dom";
-import { getReactionByKey, type ReactionKey } from "./post/reactions";
+import { getReactionByKey, REACTIONS, type ReactionKey } from "./post/reactions";
 import PostHeader from "./post/PostHeader";
 import { mediaSocketService, type PostActivityPayload } from "../../services/mediaSocket.service";
+import { fetchPostById, fetchPostReactionDetails, type ApiReaction } from "../../services/post.service";
+import { checkIsSaved, toggleSaveContent, recordViewHistory } from "../../services/social.service";
+import PostMediaGrid from "./PostMediaGrid";
+import { SharePostModal } from "./post/SharePostModal";
 
 interface Props {
   post: Post;
@@ -24,8 +28,46 @@ interface Props {
   onToggleLike: (key: ReactionKey | null) => void;
   onDelete?: (id: string) => void;
   onEdit?: (post: Post) => void;
+  onShare?: (postId: string, caption?: string, visibility: string) => Promise<{ ok: boolean; error?: string }>;
   currentUser: PostUser;
 }
+
+const emptyReactionCounts = (): Record<ReactionKey, number> =>
+  Object.fromEntries(REACTIONS.map((reaction) => [reaction.key, 0])) as Record<
+    ReactionKey,
+    number
+  >;
+
+const toReactionKey = (value?: string | null): ReactionKey | null => {
+  const key = String(value || "").toLowerCase();
+  return REACTIONS.some((reaction) => reaction.key === key)
+    ? (key as ReactionKey)
+    : null;
+};
+
+const buildReactionCounts = (reactions: ApiReaction[]) => {
+  const counts = emptyReactionCounts();
+  reactions.forEach((item) => {
+    const key = toReactionKey(item.reactionType);
+    if (key) counts[key] += 1;
+  });
+  return counts;
+};
+
+const buildInitialReactionCounts = (
+  initialCounts: Partial<Record<ReactionKey, number>> | undefined,
+  fallbackLikes: number,
+) =>
+  initialCounts ?
+    {
+      like: initialCounts.like ?? 0,
+      love: initialCounts.love ?? 0,
+      haha: initialCounts.haha ?? 0,
+      wow: initialCounts.wow ?? 0,
+      sad: initialCounts.sad ?? 0,
+      angry: initialCounts.angry ?? 0,
+    }
+  : { ...emptyReactionCounts(), like: fallbackLikes };
 
 const PostCard: React.FC<Props> = ({
   post,
@@ -34,29 +76,21 @@ const PostCard: React.FC<Props> = ({
   onToggleLike,
   onDelete,
   onEdit,
+  onShare,
   currentUser,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isInView, setIsInView] = useState(false);
   const [commentCount, setCommentCount] = useState(post.comments);
+  const [shareCount, setShareCount] = useState(post.shares);
   const [reaction, setReaction] = useState<ReactionKey | null>(
     initialReaction ?? null,
   );
   // Seed reaction counts từ server (breakdown thực tế), fallback vào bucket "like"
   const [reactionCounts, setReactionCounts] = useState<
     Record<ReactionKey, number>
-  >(() =>
-    initialReactionCounts ?
-      {
-        like: initialReactionCounts.like ?? 0,
-        love: initialReactionCounts.love ?? 0,
-        haha: initialReactionCounts.haha ?? 0,
-        wow: initialReactionCounts.wow ?? 0,
-        sad: initialReactionCounts.sad ?? 0,
-        angry: initialReactionCounts.angry ?? 0,
-      }
-      : { like: post.likes, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
-  );
+  >(() => buildInitialReactionCounts(initialReactionCounts, post.likes));
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -65,6 +99,28 @@ const PostCard: React.FC<Props> = ({
   const [modalShowComments, setModalShowComments] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [isReactionsListModalOpen, setIsReactionsListModalOpen] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const hasRecordedView = useRef(false);
+
+  useEffect(() => {
+    checkIsSaved(post.id).then(setIsSaved);
+  }, [post.id]);
+
+  useEffect(() => {
+    setCommentCount(post.comments);
+  }, [post.id, post.comments]);
+
+  useEffect(() => {
+    setReaction(initialReaction ?? null);
+  }, [post.id, initialReaction]);
+
+  useEffect(() => {
+    setReactionCounts(buildInitialReactionCounts(initialReactionCounts, post.likes));
+  }, [post.id, initialReactionCounts]);
+
+  useEffect(() => {
+    setShareCount(post.shares);
+  }, [post.id, post.shares]);
 
   useEffect(() => {
     if (!showMenu) return;
@@ -82,51 +138,56 @@ const PostCard: React.FC<Props> = ({
   useEffect(() => {
     if (!cardRef.current) return;
     const observer = new IntersectionObserver(
-      ([entry]) => setIsInView(entry.isIntersecting),
+      ([entry]) => {
+        setIsInView(entry.isIntersecting);
+        if (entry.isIntersecting && !hasRecordedView.current) {
+          hasRecordedView.current = true;
+          recordViewHistory(post.id);
+        }
+      },
       { threshold: 0.4 },
     );
     observer.observe(cardRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [post.id]);
 
   useEffect(() => {
+    let active = true;
+
     const handleActivity = (payload: PostActivityPayload) => {
       if (payload.postId !== post.id) return;
 
       if (payload.activityType === "REACTION") {
-        const data = payload.data || {};
-        // Bỏ qua action của chính user hiện tại để tránh duplicate
-        if (data.accountId && data.accountId === currentUser.id) return;
-
-        const reactionTypeStr = (data.reactionType?.toLowerCase() || "like") as ReactionKey;
-
-        setReactionCounts((c) => {
-          const next = { ...c };
-          if (payload.action === "CREATE") {
-            next[reactionTypeStr] = (next[reactionTypeStr] || 0) + 1;
-          } else if (payload.action === "DELETE") {
-            next[reactionTypeStr] = Math.max(0, (next[reactionTypeStr] || 0) - 1);
-          }
-          return next;
+        void fetchPostReactionDetails(post.id).then((reactions) => {
+          if (!active) return;
+          setReactionCounts(buildReactionCounts(reactions));
+          const ownReaction = reactions.find((item) => item.accountId === currentUser.id);
+          setReaction(toReactionKey(ownReaction?.reactionType));
         });
       } else if (payload.activityType === "COMMENT") {
-        const data = payload.data;
-        if (!data) return;
-        if (data.accountId === currentUser.id) return;
-
-        if (payload.action === "CREATE") {
-          setCommentCount((prev) => prev + 1);
-        } else if (payload.action === "DELETE") {
-          setCommentCount((prev) => Math.max(0, prev - 1));
-        }
+        void fetchPostById(post.id, currentUser.id).then((freshPost) => {
+          if (!active || !freshPost) return;
+          setCommentCount(freshPost.comments);
+        });
       } else if (payload.activityType === "SHARE") {
-        // Tương lai nếu có share real-time
+        void fetchPostById(post.id, currentUser.id).then((freshPost) => {
+          if (!active || !freshPost) return;
+          setShareCount(freshPost.shares);
+        });
       }
     };
 
     mediaSocketService.onPostActivity(handleActivity);
-    return () => mediaSocketService.offPostActivity(handleActivity);
+    return () => {
+      active = false;
+      mediaSocketService.offPostActivity(handleActivity);
+    };
   }, [post.id, currentUser.id]);
+
+  const totalReactionCount = Object.values(reactionCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
 
   const handleReactionClick = (key: ReactionKey) => {
     if (isLiking) return;
@@ -173,6 +234,15 @@ const PostCard: React.FC<Props> = ({
 
     // Khóa bấm trong 500ms để tránh spam API
     setTimeout(() => setIsLiking(false), 500);
+  };
+
+  const handleToggleSave = async () => {
+    const newState = !isSaved;
+    setIsSaved(newState);
+    const success = await toggleSaveContent(post.id, newState);
+    if (!success) {
+      setIsSaved(!newState); // revert if failed
+    }
   };
 
   const onMouseEnterLike = () => {
@@ -243,15 +313,53 @@ const PostCard: React.FC<Props> = ({
         <PostBody
           content={post.content}
           media={post.media}
-          totalLikes={post.likes}
+          totalLikes={totalReactionCount}
           isInView={isInView}
         />
+
+        {post.sharedPost && (
+          <div 
+            className="mx-4 mb-4 p-4 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 rounded-xl transition duration-200 cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              goToProfile(post.sharedPost!.author.id);
+            }}>
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`size-8 rounded-full flex items-center justify-center text-white text-xs font-semibold overflow-hidden ${post.sharedPost.author.avatar ? "" : post.sharedPost.author.color}`}>
+                {post.sharedPost.author.avatar ? (
+                  <img src={post.sharedPost.author.avatar} alt={post.sharedPost.author.displayName} className="size-full object-cover" />
+                ) : (
+                  post.sharedPost.author.displayName.charAt(0)
+                )}
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-gray-800 hover:underline">
+                  {post.sharedPost.author.displayName}
+                </div>
+                <div className="text-[11px] text-gray-400">
+                  {post.sharedPost.time}
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed mb-2 line-clamp-3">
+              {post.sharedPost.content}
+            </p>
+            {post.sharedPost.media && post.sharedPost.media.length > 0 && (
+              <div className="rounded-lg overflow-hidden border border-gray-100 max-h-60" onClick={(e) => e.stopPropagation()}>
+                <PostMediaGrid
+                  media={post.sharedPost.media}
+                  isInView={isInView}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         <div>
           <PostReactionsSummary
             reactionCounts={reactionCounts}
             commentCount={commentCount}
-            shares={post.shares}
+            shares={shareCount}
             onToggleComments={() => openModal(true)}
             onShowReactionsList={() => setIsReactionsListModalOpen(true)}
           />
@@ -267,6 +375,8 @@ const PostCard: React.FC<Props> = ({
             }
             showComments={false}
             showPicker={showPicker}
+            isSaved={isSaved}
+            onToggleSave={handleToggleSave}
             onLikeClick={handleLikeButtonClick}
             onToggleComments={() => openModal(true)}
             onSelectReaction={handleReactionClick}
@@ -274,13 +384,14 @@ const PostCard: React.FC<Props> = ({
             onLikeMouseLeave={onMouseLeaveLike}
             onPickerMouseEnter={onMouseEnterPicker}
             onPickerMouseLeave={onMouseLeavePicker}
+            onShareClick={() => setIsShareModalOpen(true)}
           />
         </div>
       </div>
 
       <PostDetailModal
         isOpen={isModalOpen}
-        post={post}
+        post={{ ...post, likes: totalReactionCount }}
         currentUser={currentUser}
         showMenu={showMenu}
         menuRef={menuRef}
@@ -322,6 +433,23 @@ const PostCard: React.FC<Props> = ({
         isOpen={isReactionsListModalOpen}
         onClose={() => setIsReactionsListModalOpen(false)}
         postId={post.id}
+      />
+
+      <SharePostModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        post={post}
+        currentUser={currentUser}
+        onShare={async (caption, visibility) => {
+          if (onShare) {
+            const res = await onShare(post.id, caption, visibility);
+            if (res.ok) {
+              setShareCount((prev) => prev + 1);
+            }
+            return res;
+          }
+          return { ok: false, error: "Chức năng chia sẻ chưa sẵn sàng." };
+        }}
       />
     </>
   );

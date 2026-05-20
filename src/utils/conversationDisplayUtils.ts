@@ -53,7 +53,10 @@ export const getConversationDisplayName = (
     }
 
     const other = getOtherParticipant(conversation, currentUserId);
-    return resolveParticipantName(other);
+    if (other) return resolveParticipantName(other);
+    
+    // Fallback to conversation name if no other participant found (useful for virtual/new chats)
+    if (explicitName) return explicitName;
   }
 
   const explicitName = String(conversation.name || "").trim();
@@ -68,6 +71,13 @@ export const getConversationDisplayAvatar = (
 ): string | undefined => {
   if (conversation.is_self_conversation && !conversation.avatar) {
     return "SPECIAL_AVATAR_SELF";
+  }
+
+  if (
+    conversation.type === "group" &&
+    (conversation.status === "dissolved" || Boolean(conversation.is_dissolved))
+  ) {
+    return undefined;
   }
 
   const explicitAvatar = String(conversation.avatar || "").trim();
