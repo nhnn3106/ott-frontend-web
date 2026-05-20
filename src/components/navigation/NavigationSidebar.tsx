@@ -12,7 +12,10 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { useConversations } from "../../contexts/ConversationsContext";
-import { getParticipantUnreadCount } from "../../utils/conversationNotification";
+import {
+  getParticipantUnreadCount,
+  isConversationMuted,
+} from "../../utils/conversationNotification";
 import NavigationItem from "./NavigationItem";
 import UserProfile from "./UserProfile";
 import NotificationMenu from "./NotificationMenu";
@@ -35,10 +38,10 @@ const NavigationSidebar: React.FC<NavigationSidebarProps> = ({
 
   const chatUnreadCount = useMemo(
     () =>
-      conversations.reduce(
-        (total, item) => total + getParticipantUnreadCount(item.participant),
-        0,
-      ),
+      conversations.reduce((total, item) => {
+        if (isConversationMuted(item.participant)) return total;
+        return total + getParticipantUnreadCount(item.participant);
+      }, 0),
     [conversations],
   );
 
