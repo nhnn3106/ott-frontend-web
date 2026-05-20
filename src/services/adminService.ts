@@ -12,15 +12,12 @@ import type {
   TimeRange,
   UserSummary,
 } from "../interfaces/admin.interface";
-import { resolveApiBaseUrl } from "../config/runtime";
+import { API_CONFIG } from "../config/api";
 
 const adminApiClient = axios.create({
-  baseURL: resolveApiBaseUrl(),
-  timeout: 30000,
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  },
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_CONFIG.TIMEOUT,
+  headers: API_CONFIG.HEADERS,
 });
 
 adminApiClient.interceptors.request.use(
