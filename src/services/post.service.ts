@@ -284,7 +284,10 @@ export async function findPostsWithAuthorized(
  */
 export async function fetchPostsByUser(userId: string, currentUserId?: string): Promise<Post[]> {
     try {
-        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/user/${userId}`);
+        const url = currentUserId
+            ? `${API_MEDIA_SERVER_URL}/posts/user/${userId}?viewerId=${currentUserId}`
+            : `${API_MEDIA_SERVER_URL}/posts/user/${userId}`;
+        const res = await authFetch(url);
         if (!res.ok) return [];
 
         const raw = unwrapList<ApiPost>(await res.json());
@@ -302,7 +305,10 @@ export async function fetchPostsByUser(userId: string, currentUserId?: string): 
  */
 export async function fetchPostById(postId: string, currentUserId?: string): Promise<Post | null> {
     try {
-        const res = await authFetch(`${API_MEDIA_SERVER_URL}/posts/${postId}`, {
+        const url = currentUserId
+            ? `${API_MEDIA_SERVER_URL}/posts/${postId}?viewerId=${currentUserId}`
+            : `${API_MEDIA_SERVER_URL}/posts/${postId}`;
+        const res = await authFetch(url, {
             signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) return null;
@@ -312,6 +318,23 @@ export async function fetchPostById(postId: string, currentUserId?: string): Pro
         return mapPost(p, 0, currentUserId);
     } catch {
         return null;
+    }
+}
+
+/**
+ * Tìm kiếm bài viết theo từ khóa dựa trên quyền truy cập.
+ */
+export async function searchPosts(query: string, currentUserId: string, page = 0, size = 10): Promise<Post[]> {
+    try {
+        const url = `${API_MEDIA_SERVER_URL}/posts/search?q=${encodeURIComponent(query)}&viewerId=${currentUserId}&page=${page}&size=${size}`;
+        const res = await authFetch(url);
+        if (!res.ok) return [];
+
+        const data = await res.json();
+        const content = data.content ? unwrapList<ApiPost>(data.content) : [];
+        return content.map((p, i) => mapPost(p, i, currentUserId));
+    } catch {
+        return [];
     }
 }
 

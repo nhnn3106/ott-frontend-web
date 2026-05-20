@@ -20,6 +20,7 @@ export {
   fetchPostById,
   createPost,
   deletePost,
+  searchPosts,
 } from "./post.service";
 export type { ApiPost, ApiMedia } from "./post.service";
 export * from "./social.service";
