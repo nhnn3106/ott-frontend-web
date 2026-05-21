@@ -12,19 +12,14 @@ import type {
   TimeRange,
   UserSummary,
 } from "../interfaces/admin.interface";
-import { resolveGatewayBaseUrl } from "../config/runtime";
+import { API_CONFIG } from "../config/api";
 
-// 1. Khởi tạo Axios Instance
 const adminApiClient = axios.create({
-  baseURL: resolveGatewayBaseUrl(),
-  timeout: 30000,
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  },
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_CONFIG.TIMEOUT,
+  headers: API_CONFIG.HEADERS,
 });
 
-// 2. Interceptor tự động nhét Token vào Header
 adminApiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem("accessToken");
@@ -79,6 +74,10 @@ const toNullableFiniteNumber = (value: unknown): number | null => {
 };
 
 const unwrapResponseData = <T>(value: unknown): T => {
+  if (typeof value === "string") {
+    throw new AdminApiError(502, "Analytics API returned a non-JSON response");
+  }
+
   if (!isRecord(value)) {
     return value as T;
   }
@@ -167,7 +166,6 @@ const asPaginatedResponse = <T>(value: unknown): PaginatedResponse<T> => {
   };
 };
 
-// 3. Hàm gọi API chung cực kỳ gọn nhẹ nhờ Axios (Xóa bỏ hoàn toàn buildUrl thủ công)
 async function getJson<T>(
   path: string,
   params?: Record<string, string | number | boolean | undefined>,
@@ -206,7 +204,6 @@ function isNotFoundError(error: unknown): error is AdminApiError {
   return error instanceof AdminApiError && error.status === 404;
 }
 
-// 4. Các Service Methods
 export const adminService = {
   getOverview: async (timeRange: TimeRange = "allTime") => {
     const response = await getJson<unknown>("/v1/admin/analytics/overview", {
