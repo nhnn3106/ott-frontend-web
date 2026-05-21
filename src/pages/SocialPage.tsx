@@ -4,6 +4,7 @@ import SocialFeed from "./social/SocialFeed";
 import SocialProfile from "./social/SocialProfile";
 import SavedFeed from "./social/SavedFeed";
 import HistoryFeed from "./social/HistoryFeed";
+import SocialSearch from "./social/SocialSearch";
 
 /**
  * SocialPage - Component chính cho trang xã hội
@@ -14,6 +15,9 @@ const SocialPage: React.FC = () => {
     <Routes>
       {/* Trang chủ - Feed */}
       <Route index element={<SocialFeed />} />
+
+      {/* Tìm kiếm - Search */}
+      <Route path="search" element={<SocialSearch />} />
 
       {/* Trang cá nhân - Profile */}
       <Route path="profile/:userId" element={<SocialProfile />} />
