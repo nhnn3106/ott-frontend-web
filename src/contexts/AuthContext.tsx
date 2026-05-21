@@ -72,7 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     } catch (error) {
       console.error("AuthContext: Failed to fetch user:", error);
-      clearLocalSession();
+      // Don't clear session here - the interceptor handles 401 with refresh
       throw error;
     } finally {
       setIsLoading(false);
@@ -81,7 +81,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
-    if (token) {
+    const refreshToken = localStorage.getItem("refreshToken");
+    if (token || refreshToken) {
       console.log("AuthContext: Found token in localStorage, fetching user...");
       fetchUser().catch(() => {
         console.log("AuthContext: Initial fetch failed");
