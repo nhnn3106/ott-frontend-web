@@ -43,6 +43,19 @@ class NotificationService {
       return false;
     }
   }
+
+  async deleteNotification(notificationId: string): Promise<boolean> {
+    try {
+      await axios.delete(`${API_NOTIFICATION_SERVER_URL}/notifications/inapp/${notificationId}`, {
+        headers: this.getHeaders(),
+      });
+      return true;
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+      return false;
+    }
+  }
 }
 
 export const notificationService = new NotificationService();
+

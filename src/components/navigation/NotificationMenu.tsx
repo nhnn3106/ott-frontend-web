@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Bell, CheckCircle } from "lucide-react";
+import { Bell, CheckCircle, Trash2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { notificationService, type InAppNotification } from "../../services/notification.service";
 import { socketService } from "../../services/socket.service";
@@ -17,7 +17,6 @@ const NotificationMenu: React.FC = () => {
     }
 
     const handleNewNotification = (notification: any) => {
-      // notification from socket might not match InAppNotification exactly, but should have similar fields
       setNotifications(prev => [notification, ...prev]);
       setUnreadCount(prev => prev + 1);
     };
@@ -59,6 +58,18 @@ const NotificationMenu: React.FC = () => {
     }
   };
 
+  const handleDeleteNotification = async (notificationId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const success = await notificationService.deleteNotification(notificationId);
+    if (success) {
+      const deletedNotification = notifications.find(n => n.id === notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      if (deletedNotification && !deletedNotification.isRead) {
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    }
+  };
+
   const formatTime = (isoString: string) => {
     if (!isoString) return "";
     const date = new Date(isoString);
@@ -97,7 +108,7 @@ const NotificationMenu: React.FC = () => {
               notifications.map(notification => (
                 <div 
                   key={notification.id} 
-                  className={`p-3 border-b border-gray-100 flex items-start gap-3 hover:bg-gray-50 cursor-pointer ${
+                  className={`p-3 border-b border-gray-100 flex items-start gap-3 hover:bg-gray-50 cursor-pointer transition-colors duration-150 ${
                     !notification.isRead ? "bg-blue-50/50" : ""
                   }`}
                   onClick={() => !notification.isRead && handleMarkAsRead(notification.id)}
@@ -110,18 +121,27 @@ const NotificationMenu: React.FC = () => {
                       {formatTime(notification.createdAt)}
                     </p>
                   </div>
-                  {!notification.isRead && (
+                  <div className="flex items-center gap-1.5 self-center">
+                    {!notification.isRead && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMarkAsRead(notification.id);
+                        }}
+                        className="text-blue-500 hover:text-blue-700 transition-colors p-1 hover:bg-gray-100 rounded-lg"
+                        title="Đánh dấu đã đọc"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                      </button>
+                    )}
                     <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleMarkAsRead(notification.id);
-                      }}
-                      className="text-primary-400 hover:text-primary-600"
-                      title="Đánh dấu đã đọc"
+                      onClick={(e) => handleDeleteNotification(notification.id, e)}
+                      className="text-red-400 hover:text-red-600 transition-colors p-1 hover:bg-gray-100 rounded-lg"
+                      title="Xóa thông báo"
                     >
-                      <CheckCircle className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
-                  )}
+                  </div>
                 </div>
               ))
             )}
