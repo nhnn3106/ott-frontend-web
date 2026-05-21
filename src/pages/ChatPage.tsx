@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageCircle, Phone, PhoneOff, Video, PhoneCall, X } from "lucide-react";
 import Sidebar from "../components/chat/ChatSidebarLeft";
-import { ConversationsProvider, useConversations } from "../contexts/ConversationsContext";
+import { useConversations } from "../contexts/ConversationsContext";
 import { useAuth } from "../contexts/AuthContext";
 import type { Conversation, ConversationWithParticipant } from "../types";
 import { ChatArea } from "../components";
@@ -566,10 +566,6 @@ const ChatContent: React.FC = () => {
   );
 };
 
-const ChatPage: React.FC = () => (
-  <ConversationsProvider>
-    <ChatContent />
-  </ConversationsProvider>
-);
+const ChatPage: React.FC = () => <ChatContent />;
 
 export default ChatPage;
