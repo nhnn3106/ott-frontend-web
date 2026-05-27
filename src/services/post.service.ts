@@ -41,6 +41,8 @@ export interface ApiPost {
     hashTags: string[] | null;
     accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[];
     sharedPost?: ApiPost | null;
+    sharedPostRestricted?: boolean;
+    sharedPostDeleted?: boolean;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -55,6 +57,7 @@ const AVATAR_COLORS = [
     "bg-sky-500",
 ];
 const colorFor = (idx: number) => AVATAR_COLORS[idx % AVATAR_COLORS.length];
+const MAX_SHARED_DEPTH = 3;
 
 /** Chuyển ISO timestamp sang chuỗi tiếng Việt tương đối */
 export function relativeTime(iso: string | null | undefined): string {
@@ -96,7 +99,12 @@ export function mapMedia(medias: ApiMedia[] | null): PostMediaItem[] {
 }
 
 /** ApiPost → Post (frontend model) */
-export function mapPost(p: ApiPost, colorIndex: number, currentUserId?: string): Post {
+export function mapPost(
+    p: ApiPost,
+    colorIndex: number,
+    currentUserId?: string,
+    depth = 0,
+): Post {
     const author: PostUser = {
         id: p.accountId,
         name: p.accountDisplayName || p.accountUsername || "Người dùng",
@@ -104,6 +112,7 @@ export function mapPost(p: ApiPost, colorIndex: number, currentUserId?: string):
         avatar: p.accountAvatarUrl ?? undefined,
         color: colorFor(colorIndex),
     };
+    const shouldCollapse = Boolean(p.sharedPost) && depth >= MAX_SHARED_DEPTH;
     return {
         id: p.id,
         author,
@@ -116,7 +125,12 @@ export function mapPost(p: ApiPost, colorIndex: number, currentUserId?: string):
         visibility: p.visibility,
         relationship: p.accountId === currentUserId ? "self" : undefined,
         accessControls: p.accessControls,
-        sharedPost: p.sharedPost ? mapPost(p.sharedPost, colorIndex + 1, currentUserId) : undefined,
+        sharedPost: !shouldCollapse && p.sharedPost ?
+            mapPost(p.sharedPost, colorIndex + 1, currentUserId, depth + 1)
+            : undefined,
+        sharedPostRestricted: Boolean(p.sharedPostRestricted),
+        sharedPostDeleted: Boolean(p.sharedPostDeleted),
+        sharedPostCollapsed: shouldCollapse,
     };
 }
 
