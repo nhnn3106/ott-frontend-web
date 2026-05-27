@@ -19,6 +19,7 @@ interface Props {
   onEdit?: () => void;
   onDelete?: () => void;
   onProfile: (accountId: string) => void;
+  onOpenSharedPost?: (post: Post) => void;
   commentCount: number;
   reactionCounts: Record<ReactionKey, number>;
   reaction: ReactionKey | null;
@@ -49,6 +50,7 @@ const PostDetailModal: React.FC<Props> = ({
   onEdit,
   onDelete,
   onProfile,
+  onOpenSharedPost,
   commentCount,
   reactionCounts,
   reaction,
@@ -115,77 +117,106 @@ const PostDetailModal: React.FC<Props> = ({
               variant="carousel"
             />
 
-            {post.sharedPost && (
-              <div 
-                className="mx-4 mb-4 p-4 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 rounded-xl transition duration-200 cursor-pointer"
+            {(post.sharedPost ||
+              post.sharedPostDeleted ||
+              post.sharedPostRestricted ||
+              post.sharedPostCollapsed) && (
+              <div
+                className={`mx-4 mb-4 p-4 bg-gray-50/50 border border-gray-100 rounded-xl transition duration-200 ${post.sharedPost ? "hover:bg-gray-50 cursor-pointer" : ""}`}
                 onClick={(e) => {
+                  if (!post.sharedPost) return;
                   e.stopPropagation();
-                  onProfile(post.sharedPost!.author.id);
+                  if (onOpenSharedPost) {
+                    onOpenSharedPost(post.sharedPost);
+                    return;
+                  }
+                  onProfile(post.sharedPost.author.id);
                 }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`size-8 rounded-full flex items-center justify-center text-white text-xs font-semibold overflow-hidden ${post.sharedPost.author.avatar ? "" : post.sharedPost.author.color}`}>
-                    {post.sharedPost.author.avatar ? (
-                      <img src={post.sharedPost.author.avatar} alt={post.sharedPost.author.displayName} className="size-full object-cover" />
-                    ) : (
-                      post.sharedPost.author.displayName.charAt(0)
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-gray-800 hover:underline">
-                      {post.sharedPost.author.displayName}
+                {post.sharedPost ?
+                  <>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div
+                        className={`size-8 rounded-full flex items-center justify-center text-white text-xs font-semibold overflow-hidden ${post.sharedPost.author.avatar ? "" : post.sharedPost.author.color}`}>
+                        {post.sharedPost.author.avatar ?
+                          <img
+                            src={post.sharedPost.author.avatar}
+                            alt={post.sharedPost.author.displayName}
+                            className="size-full object-cover"
+                          />
+                        : post.sharedPost.author.displayName.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-800 hover:underline">
+                          {post.sharedPost.author.displayName}
+                        </div>
+                        <div className="text-[11px] text-gray-400">
+                          {post.sharedPost.time}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-gray-400">
-                      {post.sharedPost.time}
+                    <p className="text-sm text-gray-700 leading-relaxed mb-2 line-clamp-3">
+                      {post.sharedPost.content}
+                    </p>
+                    {post.sharedPost.media &&
+                      post.sharedPost.media.length > 0 && (
+                        <div
+                          className="rounded-lg overflow-hidden border border-gray-100 max-h-60"
+                          onClick={(e) => e.stopPropagation()}>
+                          <PostBody media={post.sharedPost.media} isInView />
+                        </div>
+                      )}
+                  </>
+                : <div className="text-sm text-gray-500">
+                    <div className="font-semibold text-gray-700">
+                      {post.sharedPostCollapsed ?
+                        "Nội dung đã được thu gọn"
+                      : "Nội dung không khả dụng"}
+                    </div>
+                    <div className="text-xs mt-1">
+                      {post.sharedPostCollapsed ?
+                        "Chuỗi chia sẻ quá dài. Mở bài gốc để xem đầy đủ."
+                      : "Bài viết đã bị xóa hoặc bạn không có quyền xem."}
                     </div>
                   </div>
+                }
+              </div>
+            )}
+
+            <>
+              <PostReactionsSummary
+                reactionCounts={reactionCounts}
+                commentCount={commentCount}
+                shares={post.shares}
+                onToggleComments={onToggleComments}
+                onShowReactionsList={onShowReactionsList}
+              />
+
+              <PostActions
+                reaction={reaction}
+                reactionLabel={currentReactionLabel}
+                reactionEmoji={currentReactionEmoji}
+                reactionColor={currentReactionColor}
+                showComments={showComments}
+                showPicker={showPicker}
+                onLikeClick={onLikeClick}
+                onToggleComments={onToggleComments}
+                onSelectReaction={onSelectReaction}
+                onLikeMouseEnter={onLikeMouseEnter}
+                onLikeMouseLeave={onLikeMouseLeave}
+                onPickerMouseEnter={onPickerMouseEnter}
+                onPickerMouseLeave={onPickerMouseLeave}
+              />
+
+              {showComments && (
+                <div className="px-4 pb-4">
+                  <PostCommentsSection
+                    postId={post.id}
+                    currentUser={currentUser}
+                    onCountChange={onCountChange}
+                  />
                 </div>
-                <p className="text-sm text-gray-700 leading-relaxed mb-2 line-clamp-3">
-                  {post.sharedPost.content}
-                </p>
-                {post.sharedPost.media && post.sharedPost.media.length > 0 && (
-                  <div className="rounded-lg overflow-hidden border border-gray-100 max-h-60" onClick={(e) => e.stopPropagation()}>
-                    <PostBody
-                      media={post.sharedPost.media}
-                      isInView
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            <PostReactionsSummary
-              reactionCounts={reactionCounts}
-              commentCount={commentCount}
-              shares={post.shares}
-              onToggleComments={onToggleComments}
-              onShowReactionsList={onShowReactionsList}
-            />
-
-            <PostActions
-              reaction={reaction}
-              reactionLabel={currentReactionLabel}
-              reactionEmoji={currentReactionEmoji}
-              reactionColor={currentReactionColor}
-              showComments={showComments}
-              showPicker={showPicker}
-              onLikeClick={onLikeClick}
-              onToggleComments={onToggleComments}
-              onSelectReaction={onSelectReaction}
-              onLikeMouseEnter={onLikeMouseEnter}
-              onLikeMouseLeave={onLikeMouseLeave}
-              onPickerMouseEnter={onPickerMouseEnter}
-              onPickerMouseLeave={onPickerMouseLeave}
-            />
-
-            {showComments && (
-              <div className="px-4 pb-4">
-                <PostCommentsSection
-                  postId={post.id}
-                  currentUser={currentUser}
-                  onCountChange={onCountChange}
-                />
-              </div>
-            )}
+              )}
+            </>
           </div>
         </div>
       </div>
