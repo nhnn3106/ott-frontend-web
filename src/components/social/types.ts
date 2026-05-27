@@ -30,6 +30,9 @@ export interface Post {
     relationshipLabel?: string;
     accessControls?: { accountId: string; ruleType: "INCLUDE" | "EXCLUDE" }[];
     sharedPost?: Post;
+    sharedPostRestricted?: boolean;
+    sharedPostDeleted?: boolean;
+    sharedPostCollapsed?: boolean;
 }
 
 export interface StoryContentItem {
