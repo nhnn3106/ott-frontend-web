@@ -921,12 +921,16 @@ export async function addComment(
             method: "POST",
             signal: AbortSignal.timeout(5_000),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+            console.error(`[addComment] Backend error ${res.status}:`, await res.text().catch(() => ""));
+            return null;
+        }
         const json = await res.json();
         const c = unwrapApiResult<ApiComment>(json);
         if (!c) return null;
         return mapComment(c);
-    } catch {
+    } catch (err) {
+        console.error("[addComment] Request failed before reaching backend:", err);
         return null;
     }
 }
