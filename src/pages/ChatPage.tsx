@@ -245,6 +245,14 @@ const ChatContent: React.FC = () => {
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === "call-target-busy") {
         if (
+          event.data?.conversationId &&
+          selectedConversation?._id &&
+          String(event.data.conversationId) === String(selectedConversation._id)
+        ) {
+          return;
+        }
+
+        if (
           event.data?.reason === "caller_busy" ||
           String(event.data?.targetUserId || "") === String(normalizedUserId || "")
         ) {
@@ -273,7 +281,7 @@ const ChatContent: React.FC = () => {
       window.removeEventListener("message", onMessage);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedConversation?._id, normalizedUserId]);
 
   const handleAcceptIncomingCall = () => {
     if (!incomingCall) return;
