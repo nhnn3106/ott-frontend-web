@@ -226,7 +226,18 @@ const CallPage: React.FC = () => {
       // Gửi tên người nhận về ChatPage để hiện modal
       const opener = window.opener;
       if (opener) {
-        opener.postMessage({ type: "call-target-busy", name: remoteDisplayName }, "*");
+        opener.postMessage(
+          {
+            type: "call-target-busy",
+            name: remoteDisplayName,
+            targetUserId: busyUserIds[0],
+            reason:
+              String(busyUserIds[0] || "") === String(normalizedUserId || "")
+                ? "caller_busy"
+                : "target_busy",
+          },
+          "*",
+        );
       }
       // Đóng cửa sổ gọi
       void endCall(false);

@@ -840,6 +840,7 @@ class SocketService {
     callback: (payload: {
       conversationId: string;
       targetUserId: string;
+      reason?: string;
     }) => void,
   ) {
     this.socket?.on("nguoi_dung_ban_goi", callback);

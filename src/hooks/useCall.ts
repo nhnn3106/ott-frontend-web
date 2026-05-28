@@ -825,7 +825,11 @@ export const useCall = ({ conversationId, userId }: UseCallOptions) => {
           invitedUserIds,
         );
 
-        if (!response?.ok && response?.reason === "busy" && response.targetUserId) {
+        if (
+          !response?.ok &&
+          /busy|caller_busy|target_busy/i.test(String(response?.reason || "")) &&
+          response.targetUserId
+        ) {
           setBusyUserIds([response.targetUserId]);
           setIsInCall(false);
           stopLocalStream();
