@@ -59,6 +59,15 @@ const AVATAR_COLORS = [
 const colorFor = (idx: number) => AVATAR_COLORS[idx % AVATAR_COLORS.length];
 const MAX_SHARED_DEPTH = 3;
 
+const createApiUrl = (url: string) => {
+    const browserOrigin =
+        typeof window !== "undefined" && window.location?.origin
+            ? window.location.origin
+            : "http://localhost";
+
+    return new URL(url, browserOrigin);
+};
+
 /** Chuyển ISO timestamp sang chuỗi tiếng Việt tương đối */
 export function relativeTime(iso: string | null | undefined): string {
     if (!iso) return "Vừa xong";
@@ -542,7 +551,7 @@ export async function sharePost(
     visibility: string = "PUBLIC",
 ): Promise<{ post: Post | null; error?: string }> {
     try {
-        const url = new URL(`${API_MEDIA_SERVER_URL}/posts/${postId}/share`);
+        const url = createApiUrl(`${API_MEDIA_SERVER_URL}/posts/${postId}/share`);
         url.searchParams.set("accountId", accountId);
         if (caption) {
             url.searchParams.set("caption", caption);
@@ -602,7 +611,7 @@ export async function toggleLike(
     reactionType: string = "LIKE",
 ): Promise<ToggleLikeResult | null> {
     try {
-        const url = new URL(`${API_MEDIA_SERVER_URL}/posts/${postId}/like`);
+        const url = createApiUrl(`${API_MEDIA_SERVER_URL}/posts/${postId}/like`);
         url.searchParams.set("accountId", accountId);
         url.searchParams.set("reactionType", reactionType.toUpperCase());
         const res = await authFetch(url.toString(), {
@@ -904,7 +913,7 @@ export async function addComment(
     parentCommentId?: string,
 ): Promise<Comment | null> {
     try {
-        const url = new URL(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`);
+        const url = createApiUrl(`${API_MEDIA_SERVER_URL}/posts/${postId}/comments`);
         url.searchParams.set("accountId", accountId);
         url.searchParams.set("text", text);
         if (parentCommentId) url.searchParams.set("parentCommentId", parentCommentId);
