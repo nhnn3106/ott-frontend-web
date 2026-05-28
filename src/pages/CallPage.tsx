@@ -229,6 +229,7 @@ const CallPage: React.FC = () => {
         opener.postMessage(
           {
             type: "call-target-busy",
+            conversationId,
             name: remoteDisplayName,
             targetUserId: busyUserIds[0],
             reason:

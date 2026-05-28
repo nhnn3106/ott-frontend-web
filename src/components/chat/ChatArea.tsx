@@ -356,6 +356,8 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     action: "start" | "join";
     displayName: string;
     displayAvatar: string;
+    invitedUserIds?: string[];
+    callId?: string;
   } | null>(null);
   const pendingGroupCallTimerRef = useRef<number | null>(null);
 
@@ -1713,12 +1715,22 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     if (!activeConversation?._id) return;
 
     setIsGroupCallModalOpen(false);
-    lockPendingGroupCall(activeConversation._id);
 
     const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
     const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
 
-    doOpenCallWindow("video", "start", displayName, displayAvatar, selectedUserIds);
+    pendingCallParamsRef.current = {
+      type: "video",
+      action: "start",
+      displayName,
+      displayAvatar,
+      invitedUserIds: selectedUserIds,
+    };
+
+    socketService.checkCallAvailability(
+      activeConversation._id,
+      normalizedUserId as string,
+    );
   };
 
   const openCallWindow = (
@@ -1750,13 +1762,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
 
       const displayName = getConversationDisplayName(activeConversation, normalizedUserId);
       const displayAvatar = getConversationDisplayAvatar(activeConversation, normalizedUserId) || "";
-      doOpenCallWindow(
-        "video",
-        "join",
+
+      pendingCallParamsRef.current = {
+        type: "video",
+        action: "join",
         displayName,
         displayAvatar,
-        undefined,
-        activeConversation.active_call_id,
+        callId: activeConversation.active_call_id,
+      };
+      socketService.checkCallAvailability(
+        activeConversation._id,
+        normalizedUserId as string,
       );
       return;
     }
@@ -1830,11 +1846,17 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
       if (payload.conversationId !== activeConversation?._id) return;
       const params = pendingCallParamsRef.current;
       if (params) {
+        if (activeConversation?.type === "group" && params.action === "start") {
+          lockPendingGroupCall(activeConversation._id);
+        }
+
         doOpenCallWindow(
           params.type,
           params.action,
           params.displayName,
           params.displayAvatar,
+          params.invitedUserIds,
+          params.callId,
         );
         pendingCallParamsRef.current = null;
       }
@@ -1845,7 +1867,7 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     return () => {
       socketService.offCallReady(onCallReady);
     };
-  }, [activeConversation?._id, normalizedUserId]);
+  }, [activeConversation, lockPendingGroupCall, normalizedUserId]);
 
   useEffect(() => {
     const onCallBusy = (payload: {
