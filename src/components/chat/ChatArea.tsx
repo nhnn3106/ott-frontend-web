@@ -1847,6 +1847,44 @@ const ChatArea: React.FC<ExtendedChatAreaProps> = ({
     };
   }, [activeConversation?._id, normalizedUserId]);
 
+  useEffect(() => {
+    const onCallBusy = (payload: {
+      conversationId: string;
+      targetUserId: string;
+      reason?: string;
+    }) => {
+      if (payload.conversationId !== activeConversation?._id) return;
+
+      const params = pendingCallParamsRef.current;
+      pendingCallParamsRef.current = null;
+      const isCallerBusy =
+        payload.reason === "caller_busy" ||
+        String(payload.targetUserId || "") === String(normalizedUserId || "");
+
+      if (isCallerBusy) {
+        setCallBlockModal({
+          title: "Đang trong cuộc gọi",
+          message:
+            "Bạn đang trong một cuộc gọi khác. Vui lòng kết thúc cuộc gọi hiện tại trước khi gọi mới.",
+        });
+        return;
+      }
+
+      const fallbackDisplayName = activeConversation
+        ? getConversationDisplayName(activeConversation, normalizedUserId)
+        : "Người dùng";
+      setCallBlockModal({
+        title: "Không thể kết nối",
+        message: `${params?.displayName || fallbackDisplayName} đang trong một cuộc gọi khác.`,
+      });
+    };
+
+    socketService.onCallBusy(onCallBusy);
+    return () => {
+      socketService.offCallBusy(onCallBusy);
+    };
+  }, [activeConversation, normalizedUserId]);
+
   // Logic đánh dấu đã đọc
   useEffect(() => {
     lastMarkedRef.current = "0";
