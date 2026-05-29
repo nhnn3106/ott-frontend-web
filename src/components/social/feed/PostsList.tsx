@@ -10,7 +10,11 @@ interface Props {
   onToggleLike: (id: string, key: ReactionKey | null) => void;
   onDelete: (id: string) => void;
   onEdit: (post: Post) => void;
-  onShare?: (postId: string, caption?: string, visibility: string) => Promise<{ ok: boolean; error?: string }>;
+  onShare?: (
+    postId: string,
+    caption?: string,
+    visibility: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   currentUser: PostUser;
   loading?: boolean;
 }
@@ -40,33 +44,39 @@ const PostsList: React.FC<Props> = ({
   onShare,
   currentUser,
   loading = false,
-}) => (
-  <>
-    {loading ?
-      <>
-        <PostSkeleton />
-        <PostSkeleton />
-        <PostSkeleton />
-      </>
-    : posts.map((post) => (
-        <PostCard
-          key={post.id}
-          post={post}
-          initialReaction={userReactionMap[post.id] as ReactionKey | undefined}
-          initialReactionCounts={
-            postReactionCountsMap[post.id] as
-              | Partial<Record<ReactionKey, number>>
-              | undefined
-          }
-          onToggleLike={(key) => onToggleLike(post.id, key)}
-          onDelete={onDelete}
-          onEdit={onEdit}
-          onShare={onShare}
-          currentUser={currentUser}
-        />
-      ))
-    }
-  </>
-);
+) => {
+  const visiblePosts = posts.filter(
+    (post) => String(post.status || "").toUpperCase() !== "DELETED",
+  );
+
+  return (
+    <>
+      {loading ?
+        <>
+          <PostSkeleton />
+          <PostSkeleton />
+          <PostSkeleton />
+        </>
+      : visiblePosts.map((post) => (
+          <PostCard
+            key={post.id}
+            post={post}
+            initialReaction={userReactionMap[post.id] as ReactionKey | undefined}
+            initialReactionCounts={
+              postReactionCountsMap[post.id] as
+                | Partial<Record<ReactionKey, number>>
+                | undefined
+            }
+            onToggleLike={(key) => onToggleLike(post.id, key)}
+            onDelete={onDelete}
+            onEdit={onEdit}
+            onShare={onShare}
+            currentUser={currentUser}
+          />
+        ))
+      }
+    </>
+  );
+};
 
 export default PostsList;
