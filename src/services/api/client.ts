@@ -2,7 +2,11 @@ import axios from 'axios';
 import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { type ApiResponse, type ApiError, DeviceType } from '../../types';
 import { API_CONFIG } from '../../config/api';
-import { emitAuthLogoutSignal } from '../../utils/authLogoutSignal';
+import {
+  clearForcedLogoutNotice,
+  emitAuthLogoutSignal,
+  isManualLogoutInProgress,
+} from '../../utils/authLogoutSignal';
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
@@ -10,10 +14,24 @@ export const apiClient: AxiosInstance = axios.create({
   headers: API_CONFIG.HEADERS,
 });
 
+const AUTH_HEADER_SKIP_ROUTES = [
+  '/auth/login',
+  '/auth/google',
+  '/auth/register',
+  '/auth/refresh',
+  '/auth/introspect',
+  '/password/forgot',
+  '/password/forgot/otp/verify',
+  '/password/forgot/verify',
+];
+
+const shouldSkipAuthHeader = (url?: string) =>
+  AUTH_HEADER_SKIP_ROUTES.some((route) => String(url || '').includes(route));
+
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem('accessToken');
-    if (token && config.headers) {
+    if (token && config.headers && !shouldSkipAuthHeader(config.url)) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -34,6 +52,22 @@ const addRefreshSubscriber = (cb: (token: string) => void) => {
   refreshSubscribers.push(cb);
 };
 
+const isRefreshSessionInvalidation = (error: unknown) => {
+  if (!axios.isAxiosError<ApiResponse>(error)) return false;
+
+  const status = error.response?.status;
+  const code = error.response?.data?.code;
+
+  return (
+    status === 401 ||
+    status === 403 ||
+    code === 1006 ||
+    code === 2005 ||
+    code === 2006 ||
+    code === 7001
+  );
+};
+
 
 apiClient.interceptors.response.use(
   (response) => response.data,  
@@ -50,19 +84,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       const refreshToken = localStorage.getItem('refreshToken');
 
-      const publicRoutes = [
-        '/password/forgot',
-        '/password/forgot/otp/verify',
-        '/password/forgot/verify',
-        '/auth/login',
-        '/auth/register',
-      ];
-
-      const isPublicRoute = publicRoutes.some(route =>
-        originalRequest.url?.includes(route)
-      );
-
-      if (isPublicRoute) {
+      if (shouldSkipAuthHeader(originalRequest.url)) {
         return Promise.reject(apiError);
       }
 
@@ -98,6 +120,7 @@ apiClient.interceptors.response.use(
           throw new Error('Invalid refresh response');
         }
 
+        clearForcedLogoutNotice();
         localStorage.setItem('accessToken', newToken);
         localStorage.setItem('refreshToken', newRefreshToken);
 
@@ -105,13 +128,15 @@ apiClient.interceptors.response.use(
 
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return apiClient.request(originalRequest);
-      } catch {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+      } catch (refreshError) {
         refreshSubscribers = [];
-        isRefreshing = false;
-        emitAuthLogoutSignal();
-        redirectToLogin();
+        if (isRefreshSessionInvalidation(refreshError) && !isManualLogoutInProgress()) {
+          clearForcedLogoutNotice();
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          emitAuthLogoutSignal();
+          redirectToLogin();
+        }
         return Promise.reject(apiError);
       } finally {
         isRefreshing = false;

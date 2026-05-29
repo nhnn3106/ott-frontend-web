@@ -191,7 +191,7 @@ const AuditLogs: React.FC = () => {
         });
       } catch (err) {
         console.error("Failed to load audit logs", err);
-        setError("The audit log feed could not be loaded.");
+        setError("Khong the tai nhat ky quan tri.");
       } finally {
         setLoading(false);
       }
@@ -229,7 +229,7 @@ const AuditLogs: React.FC = () => {
   if (error) {
     return (
       <ErrorState
-        title="Audit log view is unavailable"
+        title="Khong the hien thi nhat ky"
         description={error}
         onRetry={() => setRetryNonce((current) => current + 1)}
       />
@@ -238,8 +238,8 @@ const AuditLogs: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center bg-white border shadow-sm min-h-80 rounded-xl border-slate-200 text-slate-500">
-        Loading audit logs...
+      <div className="flex min-h-80 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm">
+        Dang tai nhat ky...
       </div>
     );
   }
@@ -254,13 +254,13 @@ const AuditLogs: React.FC = () => {
       <div className="flex flex-col gap-4 p-5 bg-white border shadow-sm rounded-xl border-slate-200 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-600">
-            Audit
+            Nhat ky
           </p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-            Audit Logs
+            Nhat ky quan tri
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            {pagination.totalElements} records - page {pagination.page + 1} of{" "}
+            {pagination.totalElements} ban ghi - trang {pagination.page + 1}/
             {Math.max(pagination.totalPages, 1)}
           </p>
         </div>
@@ -347,11 +347,11 @@ const AuditLogs: React.FC = () => {
           disabled={page <= 0}
           className="px-3 py-2 text-sm font-medium transition border rounded-lg border-slate-200 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Previous
+          Truoc
         </button>
 
         <span className="text-sm text-slate-500">
-          Showing {rows.length} of {pagination.totalElements} records
+          Hien thi {rows.length}/{pagination.totalElements} ban ghi
         </span>
 
         <button
@@ -362,7 +362,7 @@ const AuditLogs: React.FC = () => {
           }
           className="px-3 py-2 text-sm font-medium transition border rounded-lg border-slate-200 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Next
+          Sau
         </button>
       </div>
 
