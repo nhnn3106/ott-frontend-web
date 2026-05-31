@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Film } from "lucide-react";
 import type { PostMediaItem } from "./types";
+import PostModeratedImage from "./PostModeratedImage";
 
 interface Props {
   media: PostMediaItem[];
@@ -120,14 +121,15 @@ const PostMediaCarousel: React.FC<Props> = ({ media, isInView }) => {
             key={index}
             className="min-w-full max-h-[70vh] flex items-center justify-center bg-gray-900">
             {m.type === "image" ?
-              <img
-                src={m.url}
+              <PostModeratedImage
+                item={m}
                 alt={m.caption || "Post image"}
-                loading="lazy"
                 className="w-full h-full max-h-[70vh] object-contain"
               />
             : <video
-                ref={(el) => (videoRefs.current[index] = el)}
+                ref={(el) => {
+                  videoRefs.current[index] = el;
+                }}
                 src={m.url}
                 className="w-full h-full max-h-[70vh] object-contain"
                 muted
