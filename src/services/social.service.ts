@@ -487,6 +487,21 @@ export async function blockRelationship(
     }
 }
 
+export async function blockUserDirectly(
+    requesterId: string,
+    receiverId: string,
+): Promise<boolean> {
+    try {
+        const res = await authFetch(
+            `${API_MEDIA_SERVER_URL}/relationships/block?requesterId=${requesterId}&receiverId=${receiverId}`,
+            { method: "POST", signal: AbortSignal.timeout(5_000) },
+        );
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
 export async function unfriendRelationship(
     relationshipId: string,
 ): Promise<boolean> {
@@ -863,6 +878,25 @@ export async function fetchViewHistory(page = 0, size = 10): Promise<any[]> {
 export async function clearViewHistory(): Promise<boolean> {
     try {
         const res = await authFetch(`${API_MEDIA_SERVER_URL}/history`, { method: "DELETE" });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+export async function fetchBlockedUsers(userId: string): Promise<any[]> {
+    try {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/relationships/blocked/${userId}`);
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+export async function unblockRelationship(relationshipId: string): Promise<boolean> {
+    try {
+        const res = await authFetch(`${API_MEDIA_SERVER_URL}/relationships/${relationshipId}/unblock`, { method: "DELETE" });
         return res.ok;
     } catch {
         return false;

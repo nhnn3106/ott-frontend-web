@@ -21,12 +21,16 @@ import type {
 const actionBadgeClassName = (actionType: string) => {
   switch (actionType.toUpperCase()) {
     case "BLOCK":
+    case "USER_BLOCK":
       return "border border-red-200 bg-red-50 text-red-700";
     case "UNBLOCK":
+    case "USER_UNBLOCK":
       return "border border-emerald-200 bg-emerald-50 text-emerald-700";
     case "SOFT_DELETE":
+    case "USER_DEACTIVATE":
       return "border border-slate-200 bg-slate-100 text-slate-700";
     case "RESTORE":
+    case "USER_RESTORE":
       return "border border-sky-200 bg-sky-50 text-sky-700";
     default:
       return "border border-amber-200 bg-amber-50 text-amber-700";
@@ -139,17 +143,24 @@ const formatLabels = (labels: string | null) => {
 const actionLabel = (actionType: string) => {
   switch (actionType.toUpperCase()) {
     case "BLOCK":
+    case "USER_BLOCK":
       return "Khóa";
     case "UNBLOCK":
+    case "USER_UNBLOCK":
       return "Mở khóa";
     case "SOFT_DELETE":
+    case "USER_DEACTIVATE":
       return "Ẩn mềm";
     case "RESTORE":
+    case "USER_RESTORE":
       return "Khôi phục";
     default:
       return actionType;
   }
 };
+
+const isBlockAction = (actionType: string) =>
+  ["BLOCK", "USER_BLOCK"].includes(actionType.toUpperCase());
 
 const ModerationDashboard: React.FC = () => {
   const [data, setData] = useState<ModerationDashboardResponse | null>(null);
@@ -388,7 +399,10 @@ const ModerationDashboard: React.FC = () => {
               key: "durationMinutes",
               label: "Thời hạn",
               className: "whitespace-nowrap",
-              render: (row) => formatDuration(row.durationMinutes),
+              render: (row) =>
+                isBlockAction(row.actionType)
+                  ? formatDuration(row.durationMinutes)
+                  : "-",
             },
           ]}
           rows={recentLogs}

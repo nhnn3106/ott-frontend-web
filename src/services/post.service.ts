@@ -23,6 +23,12 @@ export interface ApiMedia {
     orderIndex: number;
     caption: string | null;
     thumbnailUrl: string | null;
+    moderationStatus?: "CLEAN" | "FLAGGED" | string | null;
+    moderationSeverity?: string | null;
+    moderationViolationType?: string | null;
+    moderationMatchedLabels?: string[] | null;
+    moderationReason?: string | null;
+    moderationDetectedAt?: string | null;
 }
 
 export interface ApiPost {
@@ -108,6 +114,14 @@ export function mapMedia(medias: ApiMedia[] | null): PostMediaItem[] {
                 url,
                 id: m.id,
                 caption: m.caption,
+                moderationStatus: m.moderationStatus ?? "CLEAN",
+                moderationSeverity: m.moderationSeverity ?? null,
+                moderationViolationType: m.moderationViolationType ?? null,
+                moderationMatchedLabels: Array.isArray(m.moderationMatchedLabels)
+                    ? m.moderationMatchedLabels
+                    : [],
+                moderationReason: m.moderationReason ?? null,
+                moderationDetectedAt: m.moderationDetectedAt ?? null,
             };
         });
 }

@@ -14,8 +14,13 @@ import {
   mapComment,
 } from "../../services/post.service";
 import type { Comment, ApiComment } from "../../services/post.service";
-import { mediaSocketService, type PostActivityPayload } from "../../services/mediaSocket.service";
+import {
+  mediaSocketService,
+  type PostActivityPayload,
+} from "../../services/mediaSocket.service";
 import type { PostUser } from "./types";
+import TextTagRenderer from "../../utils/TextTagRenderer";
+import MentionInput from "../common/MentionInput";
 
 const ROOT_PAGE_SIZE = 20;
 const REPLY_PAGE_SIZE = 10;
@@ -110,7 +115,8 @@ const CommentSection: React.FC<Props> = ({
           setRepliesMap((prev) => {
             const existing = prev[newComment.parentId!];
             if (!existing) return prev; // If not expanded, ignore
-            if (existing.comments.some((r) => r.id === newComment.id)) return prev;
+            if (existing.comments.some((r) => r.id === newComment.id))
+              return prev;
             return {
               ...prev,
               [newComment.parentId!]: {
@@ -154,7 +160,7 @@ const CommentSection: React.FC<Props> = ({
 
         const deletedCommentId = data.id;
         const parentId = data.parentCommentId; // Need parentId to update counts
-        
+
         if (parentId) {
           setRepliesMap((prev) => {
             const s = prev[parentId];
@@ -194,19 +200,22 @@ const CommentSection: React.FC<Props> = ({
       } else if (payload.action === "UPDATE") {
         const updatedComment = mapComment(data as ApiComment);
         const updateInList = (list: Comment[]) =>
-          list.map(c => c.id === updatedComment.id ? updatedComment : c);
-          
+          list.map((c) => (c.id === updatedComment.id ? updatedComment : c));
+
         if (updatedComment.parentId) {
-          setRepliesMap(prev => {
-             const s = prev[updatedComment.parentId!];
-             if (!s) return prev;
-             return {
-                 ...prev,
-                 [updatedComment.parentId!]: { ...s, comments: updateInList(s.comments) }
-             };
+          setRepliesMap((prev) => {
+            const s = prev[updatedComment.parentId!];
+            if (!s) return prev;
+            return {
+              ...prev,
+              [updatedComment.parentId!]: {
+                ...s,
+                comments: updateInList(s.comments),
+              },
+            };
           });
         } else {
-          setRoots(prev => updateInList(prev));
+          setRoots((prev) => updateInList(prev));
         }
       }
     };
@@ -503,7 +512,9 @@ const CommentSection: React.FC<Props> = ({
               <p className="text-xs font-semibold text-gray-800">
                 {c.authorName}
               </p>
-              <p className="text-sm text-gray-700 wrap-break-word">{c.text}</p>
+              <p className="text-sm text-gray-700 wrap-break-word">
+                <TextTagRenderer content={c.text} />
+              </p>
             </div>
             <div className="flex items-center gap-3 mt-0.5 px-1 flex-wrap">
               <span className="text-[11px] text-gray-400">{c.time}</span>
@@ -621,10 +632,12 @@ const CommentSection: React.FC<Props> = ({
           className="flex items-center gap-2"
           onClick={(e) => e.stopPropagation()}>
           {renderAvatar(currentUser.name, currentUser.avatar, currentUser.id)}
-          <div className="flex-1 flex items-center bg-primary-50 rounded-full overflow-hidden px-3 gap-2">
-            <input
+          <div className="flex-1 flex items-center bg-primary-50 rounded-full px-3 gap-2">
+            <MentionInput
+              multiline={false}
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onValueChange={(val) => setText(val)}
               onKeyDown={(e) => {
                 if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
                 e.preventDefault();
