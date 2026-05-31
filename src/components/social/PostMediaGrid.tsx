@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { Film } from "lucide-react";
 import type { PostMediaItem } from "./types";
+import PostModeratedImage from "./PostModeratedImage";
 
 interface Props {
   media: PostMediaItem[];
@@ -43,15 +44,16 @@ const PostMediaGrid: React.FC<Props> = ({ media, isInView }) => {
               isSingle ? "w-full" : "aspect-square"
             } ${isSpanTwo ? "col-span-2" : ""}`}>
             {item.type === "image" ?
-              <img
-                src={item.url}
+              <PostModeratedImage
+                item={item}
                 alt={item.caption || "Post image"}
-                loading="lazy"
                 className={`w-full h-full ${isSingle ? "max-h-[70vh] object-contain" : "object-cover"}`}
               />
             : <div className={`relative w-full h-full ${isSingle ? "max-h-[70vh]" : ""}`}>
                 <video
-                  ref={(el) => (videoRefs.current[index] = el)}
+                  ref={(el) => {
+                    videoRefs.current[index] = el;
+                  }}
                   src={item.url}
                   className="w-full h-full object-cover"
                   muted

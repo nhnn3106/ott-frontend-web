@@ -4,6 +4,12 @@ export interface PostMediaItem {
     id?: string;
     caption?: string | null;
     likes?: number;
+    moderationStatus?: "CLEAN" | "FLAGGED" | string;
+    moderationSeverity?: string | null;
+    moderationViolationType?: string | null;
+    moderationMatchedLabels?: string[];
+    moderationReason?: string | null;
+    moderationDetectedAt?: string | null;
 }
 
 export interface User {
