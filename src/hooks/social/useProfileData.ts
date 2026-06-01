@@ -10,7 +10,7 @@ import {
   fetchPostReactions,
 } from "../../services/post.service";
 import { fetchRelationshipOf } from "../../services/social.service";
-import { relationshipSocketService, RelationshipRealtimePayload } from "../../services/relationshipSocket.service";
+import { relationshipSocketService, type RelationshipRealtimePayload } from "../../services/relationshipSocket.service";
 
 interface ProfileUser {
   displayName: string;
@@ -130,6 +130,7 @@ export const useProfileData = (
     if (!userId || !initialCurrentUser?.id) return;
     
     relationshipSocketService.connect();
+    relationshipSocketService.joinUserRoom(initialCurrentUser.id);
     const handleRelationshipUpdate = (payload: RelationshipRealtimePayload) => {
       const status = String(payload.status || payload.type).toUpperCase();
       
