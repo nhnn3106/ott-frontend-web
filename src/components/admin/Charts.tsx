@@ -14,6 +14,10 @@ import {
   YAxis,
 } from "recharts";
 import EmptyState from "./EmptyState";
+import {
+  formatAdminDate,
+  formatAdminDateShort,
+} from "../../utils/adminDateTime";
 import type {
   DailyActivityPoint,
   DailyUserTrendPoint,
@@ -97,9 +101,6 @@ const Charts: React.FC<ChartsProps> = (props) => {
     >
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          Dữ liệu được tổng hợp gần thời gian thực từ các luồng sự kiện.
-        </p>
       </div>
       {variant === "pie" ? (
         <div className="h-80">
@@ -163,7 +164,11 @@ const Charts: React.FC<ChartsProps> = (props) => {
                 ))}
               </defs>
               <CartesianGrid strokeDasharray="4 4" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 12 }} />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: "#64748b", fontSize: 12 }}
+                tickFormatter={(value) => formatAdminDateShort(String(value))}
+              />
               <YAxis
                 tick={{ fill: "#64748b", fontSize: 12 }}
                 allowDecimals={false}
@@ -174,7 +179,7 @@ const Charts: React.FC<ChartsProps> = (props) => {
                   areaSeries.find((series) => series.key === name)?.label ??
                     String(name),
                 ]}
-                labelFormatter={(label) => `Ngày ${label}`}
+                labelFormatter={(label) => formatAdminDate(String(label))}
               />
               <Legend
                 formatter={(value) =>

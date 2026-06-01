@@ -21,9 +21,6 @@ const Header: React.FC = () => {
             <Shield className="h-5 w-5 text-indigo-600" />
             <h1 className="truncate text-lg">Bảng quản trị OTT</h1>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
-            Theo dõi sức khỏe nền tảng, kiểm duyệt và hoạt động người dùng.
-          </p>
         </div>
 
         <label className="flex items-center gap-3 text-sm text-slate-600">

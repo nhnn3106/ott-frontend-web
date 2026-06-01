@@ -13,6 +13,7 @@ import Charts from "../../components/admin/Charts";
 import { useAdminAnalytics } from "../../components/admin/AdminAnalyticsContext";
 import ErrorState from "../../components/admin/ErrorState";
 import { adminService } from "../../services/adminService";
+import { formatAdminDate } from "../../utils/adminDateTime";
 import type {
   DailyUserTrendPoint,
   EventReport,
@@ -256,9 +257,6 @@ const Dashboard: React.FC = () => {
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
             Vận hành nền tảng OTT
           </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            Theo dõi tăng trưởng, tương tác và sức khỏe dịch vụ qua pipeline sự kiện.
-          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -279,7 +277,6 @@ const Dashboard: React.FC = () => {
           title="Tổng người dùng"
           value={overview.totalUsers}
           delta={overview.userDelta ?? null}
-          description="Tài khoản đã đăng ký trong khoảng thời gian đã chọn."
           icon={<Users className="h-5 w-5" />}
           tone="violet"
         />
@@ -287,7 +284,6 @@ const Dashboard: React.FC = () => {
           title="Lượt đăng nhập"
           value={overview.totalLogins}
           delta={overview.loginDelta ?? null}
-          description="Hoạt động xác thực được ghi nhận từ sự kiện."
           icon={<LogIn className="h-5 w-5" />}
           tone="info"
         />
@@ -295,7 +291,6 @@ const Dashboard: React.FC = () => {
           title="Tin nhắn"
           value={overview.totalMessages}
           delta={overview.messageDelta ?? null}
-          description="Tổng số tin nhắn đã được ghi nhận."
           icon={<MessageSquareText className="h-5 w-5" />}
           tone="success"
         />
@@ -303,7 +298,6 @@ const Dashboard: React.FC = () => {
           title="Bài viết"
           value={overview.totalPosts}
           delta={overview.postDelta ?? null}
-          description="Số lượng nội dung mạng xã hội trong khoảng đã chọn."
           icon={<FileText className="h-5 w-5" />}
           tone="neutral"
         />
@@ -313,26 +307,22 @@ const Dashboard: React.FC = () => {
         <StatCard
           title="Người dùng hoạt động ngày"
           value={overview.dau}
-          description="Số người dùng hoạt động trong ngày."
           icon={<Activity className="h-5 w-5" />}
           tone="info"
         />
         <StatCard
           title="Người dùng hoạt động tháng"
           value={overview.mau}
-          description="Số người dùng hoạt động trong 30 ngày."
           icon={<Database className="h-5 w-5" />}
           tone="neutral"
         />
         <StatCard
           title="Đăng ký trong kỳ"
           value={totalRegistrationsInRange}
-          description="Tài khoản mới từ sự kiện đăng ký."
         />
         <StatCard
           title="Đăng nhập trong kỳ"
           value={totalLoginEventsInRange}
-          description="Sự kiện đăng nhập trong khoảng đã chọn."
         />
       </div>
 
@@ -340,12 +330,10 @@ const Dashboard: React.FC = () => {
         <StatCard
           title="Đăng ký TB / ngày"
           value={avgDailyRegistrations}
-          description="Số đăng ký trung bình mỗi ngày."
         />
         <StatCard
           title="Đăng nhập TB / ngày"
           value={avgDailyLogins}
-          description="Số đăng nhập trung bình mỗi ngày."
         />
         {peakRegistrationDay && (
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -353,7 +341,9 @@ const Dashboard: React.FC = () => {
             <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
               {peakRegistrationDay.registrations.toLocaleString()}
             </p>
-            <p className="mt-2 text-sm text-slate-400">{peakRegistrationDay.date}</p>
+            <p className="mt-2 text-sm text-slate-400">
+              {formatAdminDate(peakRegistrationDay.date)}
+            </p>
           </div>
         )}
         {peakLoginDay && (
@@ -362,7 +352,9 @@ const Dashboard: React.FC = () => {
             <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
               {peakLoginDay.logins.toLocaleString()}
             </p>
-            <p className="mt-2 text-sm text-slate-400">{peakLoginDay.date}</p>
+            <p className="mt-2 text-sm text-slate-400">
+              {formatAdminDate(peakLoginDay.date)}
+            </p>
           </div>
         )}
       </div>
