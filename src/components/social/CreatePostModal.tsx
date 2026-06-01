@@ -334,7 +334,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
           )}
 
           {/* Text area */}
-          <div className="px-4 pb-2">
+          <div className="px-4 pb-2 relative z-50">
             <textarea
               value={content}
               onChange={(e) => {
@@ -342,7 +342,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 setSubmitError(null);
               }}
               placeholder={`${currentUser.displayName.split(" ").pop()} ơi, bạn đang nghĩ gì vậy?`}
-              className="w-full resize-none outline-none text-gray-800 placeholder-gray-400 text-lg leading-relaxed min-h-25"
+              className="w-full resize-none outline-none text-gray-800 placeholder-gray-400 text-lg leading-relaxed min-h-[100px]"
               rows={4}
               autoFocus
             />

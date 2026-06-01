@@ -631,8 +631,9 @@ const CommentSection: React.FC<Props> = ({
           className="flex items-center gap-2"
           onClick={(e) => e.stopPropagation()}>
           {renderAvatar(currentUser.name, currentUser.avatar, currentUser.id)}
-          <div className="flex-1 flex items-center bg-primary-50 rounded-full overflow-hidden px-3 gap-2">
+          <div className="flex-1 flex items-center bg-primary-50 rounded-full px-3 gap-2">
             <input
+              type="text"
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {

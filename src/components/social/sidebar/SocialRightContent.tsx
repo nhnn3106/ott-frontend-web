@@ -100,13 +100,14 @@ const SocialRightContent: React.FC<Props> = ({ currentUserId }) => {
           if (otherUserId) {
             setFriends((prev) => prev.filter((f) => f.id !== otherUserId));
           }
+          loadBlocked();
           break;
         }
         default:
           break;
       }
     },
-    [currentUserId, getOtherUserId, loadFriends, loadRequests],
+    [currentUserId, getOtherUserId, loadFriends, loadRequests, loadBlocked],
   );
 
   useEffect(() => {
@@ -123,6 +124,9 @@ const SocialRightContent: React.FC<Props> = ({ currentUserId }) => {
 
   useEffect(() => {
     if (!currentUserId) return;
+
+    relationshipSocketService.connect();
+    relationshipSocketService.joinUserRoom(currentUserId);
 
     const handleRelationshipUpdate = (payload: RelationshipRealtimePayload) => {
       if (!payload) return;
