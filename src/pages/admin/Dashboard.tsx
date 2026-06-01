@@ -73,18 +73,40 @@ const Dashboard: React.FC = () => {
     setError(null);
 
     try {
-      const [overviewData, messageTypesData, loginMethodsData, trendData] =
-        await Promise.all([
+      const [overviewResult, messageTypesResult, loginMethodsResult, trendResult] =
+        await Promise.allSettled([
           adminService.getOverview(timeRange),
           adminService.getMessageTypes(timeRange),
           adminService.getLoginMethods(timeRange),
           adminService.getUserDailyTrend(timeRange),
         ]);
 
-      setOverview(overviewData);
-      setMessageTypes(messageTypesData);
-      setLoginMethods(loginMethodsData);
-      setUserTrend(trendData);
+      if (
+        overviewResult.status === "rejected" &&
+        messageTypesResult.status === "rejected" &&
+        loginMethodsResult.status === "rejected" &&
+        trendResult.status === "rejected"
+      ) {
+        throw overviewResult.reason;
+      }
+
+      if (overviewResult.status === "fulfilled") {
+        setOverview(overviewResult.value);
+      }
+      if (messageTypesResult.status === "fulfilled") {
+        setMessageTypes(messageTypesResult.value);
+      }
+      if (loginMethodsResult.status === "fulfilled") {
+        setLoginMethods(loginMethodsResult.value);
+      } else {
+        setLoginMethods([]);
+      }
+      if (trendResult.status === "fulfilled") {
+        setUserTrend(trendResult.value);
+      } else {
+        console.warn("Failed to load user daily trend", trendResult.reason);
+        setUserTrend([]);
+      }
     } catch (err) {
       console.error("Failed to load admin dashboard", err);
       setError("Không thể tải dữ liệu phân tích từ backend.");
