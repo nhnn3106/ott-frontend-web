@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { adminService } from "../../services/adminService";
+import { formatAdminDateTime } from "../../utils/adminDateTime";
 import type {
   ModerationRule,
   ModerationRuleCategory,
@@ -63,17 +64,6 @@ const severityClassName = (severity: ViolationSeverity) => {
     default:
       return "border border-slate-200 bg-slate-50 text-slate-700";
   }
-};
-
-const formatTimestamp = (value: string) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("vi-VN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 };
 
 const severityLabel = (severity: ViolationSeverity) => {
@@ -485,7 +475,7 @@ const ModerationRulesManager: React.FC = () => {
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 align-top text-slate-600">
-                    {formatTimestamp(rule.updatedAt || rule.createdAt)}
+                    {formatAdminDateTime(rule.updatedAt || rule.createdAt)}
                   </td>
                   <td className="px-5 py-4 align-top">
                     <span
