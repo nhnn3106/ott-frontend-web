@@ -35,6 +35,8 @@ const SocialFeed: React.FC = () => {
     handleNewPost,
     handleUpdatePost,
     handleSharePost,
+    sortMode,
+    setSortMode,
   } = useSocialFeed();
 
   const { isAuthenticated, isLoading } = useAuth();
@@ -121,6 +123,29 @@ const SocialFeed: React.FC = () => {
               currentUserId={currentUser.id}
               currentUserName={currentUser.displayName ?? currentUser.name}
             />
+
+            {/* Sorting Tabs */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-2 mb-4 flex gap-2">
+              <button
+                onClick={() => setSortMode("viral")}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition ${
+                  sortMode === "viral"
+                    ? "bg-primary-50 text-primary-600"
+                    : "text-gray-500 hover:bg-gray-50"
+                }`}>
+                Thịnh hành
+              </button>
+              <button
+                onClick={() => setSortMode("recent")}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition ${
+                  sortMode === "recent"
+                    ? "bg-primary-50 text-primary-600"
+                    : "text-gray-500 hover:bg-gray-50"
+                }`}>
+                Mới nhất
+              </button>
+            </div>
+
             <PostFeed
               posts={posts}
               userReactionMap={userReactionMap}

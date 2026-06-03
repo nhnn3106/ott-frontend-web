@@ -284,10 +284,11 @@ export async function findPostsWithAuthorized(
     page: number = 0,
     size: number = 10,
     currentUserId?: string,
+    sortBy: string = "recent"
 ): Promise<PostsPage | null> {
     try {
         const res = await authFetch(
-            `${API_MEDIA_SERVER_URL}/posts/page/${currentUserId}?page=${page}&size=${size}&sort=createdAt,desc`,
+            `${API_MEDIA_SERVER_URL}/posts/page/${currentUserId}?page=${page}&size=${size}&sortBy=${sortBy}`,
             { signal: AbortSignal.timeout(10_000) },
         );
         if (!res.ok) return null;

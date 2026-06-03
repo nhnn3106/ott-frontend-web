@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from "react";
 
 import {
-    fetchPostsWithPage,
     fetchPostReactions,
+    findPostsWithAuthorized,
 } from "../../services/post.service";
 import type { Post, User } from "../../components/social/types";
 
@@ -20,6 +20,7 @@ type Params = {
     pageRef: React.MutableRefObject<number>;
     currentUserRef: React.MutableRefObject<User>;
     containerRef: React.RefObject<HTMLDivElement | null>;
+    sortMode: "recent" | "viral";
 };
 
 export const useSocialFeedPagination = ({
@@ -32,16 +33,18 @@ export const useSocialFeedPagination = ({
     pageRef,
     currentUserRef,
     containerRef,
+    sortMode,
 }: Params) => {
     const loadNextPage = useCallback(async () => {
         if (loadingMore || !hasMore) return;
         setLoadingMore(true);
         try {
             const nextPage = pageRef.current + 1;
-            const result = await fetchPostsWithPage(
+            const result = await findPostsWithAuthorized(
                 nextPage,
                 10,
                 currentUserRef.current.id || undefined,
+                sortMode
             );
             if (result && result.posts.length > 0) {
                 setPosts((prev) => {
@@ -77,6 +80,7 @@ export const useSocialFeedPagination = ({
         setLoadingMore,
         setPostReactionCountsMap,
         setPosts,
+        sortMode,
     ]);
 
     useEffect(() => {

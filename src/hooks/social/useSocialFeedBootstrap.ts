@@ -26,6 +26,7 @@ type Params = {
     setLoadError: React.Dispatch<React.SetStateAction<string | null>>;
     pageRef: React.MutableRefObject<number>;
     currentUserRef: React.MutableRefObject<User>;
+    sortMode: "recent" | "viral";
 };
 
 export const useSocialFeedBootstrap = ({
@@ -38,6 +39,7 @@ export const useSocialFeedBootstrap = ({
     setLoadError,
     pageRef,
     currentUserRef,
+    sortMode,
 }: Params) => {
     const { user, isAuthenticated } = useAuth();
 
@@ -77,6 +79,7 @@ export const useSocialFeedBootstrap = ({
                     0,
                     5,
                     dbCurrentUser?.id,
+                    sortMode
                 );
                 if (result && result.posts.length > 0) {
                     setPosts(result.posts);
@@ -128,5 +131,6 @@ export const useSocialFeedBootstrap = ({
         setPostReactionCountsMap,
         setPosts,
         setUserReactionMap,
+        sortMode,
     ]);
 };

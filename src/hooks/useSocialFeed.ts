@@ -23,6 +23,7 @@ export const useSocialFeed = () => {
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [sortMode, setSortMode] = useState<"recent" | "viral">("viral");
 
     const pageRef = useRef(0);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -41,6 +42,7 @@ export const useSocialFeed = () => {
         setLoadError,
         pageRef,
         currentUserRef,
+        sortMode,
     });
 
     useSocialFeedPagination({
@@ -53,6 +55,7 @@ export const useSocialFeed = () => {
         pageRef,
         currentUserRef,
         containerRef,
+        sortMode,
     });
 
     const { toggleLikePost, handleDeletePost, handleNewPost, handleUpdatePost, handleSharePost } =
@@ -114,5 +117,7 @@ export const useSocialFeed = () => {
         handleNewPost,
         handleUpdatePost,
         handleSharePost,
+        sortMode,
+        setSortMode,
     };
 };
