@@ -334,7 +334,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({
           )}
 
           {/* Text area */}
-          <div className="px-4 pb-2 relative z-50">
+          <div className="px-4 pb-2 relative z-10">
             <textarea
               value={content}
               onChange={(e) => {

@@ -34,7 +34,7 @@ const AuthorSection: React.FC<AuthorSectionProps> = ({
   const VisIcon = currentOpt.Icon;
 
   return (
-    <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+    <div className="flex items-center gap-3 px-4 pt-3 pb-2 relative z-50">
       <div
         className={`size-10 rounded-full shrink-0 overflow-hidden flex items-center justify-center ${
           !currentUser.avatar ? currentUser.color : ""
